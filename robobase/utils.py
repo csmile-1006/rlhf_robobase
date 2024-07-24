@@ -567,7 +567,7 @@ def add_demo_to_replay_buffer(wrapped_env: DemoEnv, replay_buffer: ReplayBuffer)
         wrapped_env: the fully wrapped environment.
         replay_buffer: replay buffer to be loaded.
     """
-    is_sequential = replay_buffer.sequential
+    # is_sequential = replay_buffer.sequential
     ep = []
 
     # Extract demonstration episode in replay buffer transitions
@@ -587,8 +587,36 @@ def add_demo_to_replay_buffer(wrapped_env: DemoEnv, replay_buffer: ReplayBuffer)
     for obs, action, rew, term, trunc, info, _ in ep:
         replay_buffer.add(obs, action, rew, term, trunc, demo=info["demo"])
 
-    if not is_sequential:
-        replay_buffer.add_final(final_obs)
+    # if not is_sequential:
+    #     replay_buffer.add_final(final_obs)
+    replay_buffer.add_final(final_obs)
+
+
+def convert_demo_to_episode_rollouts(wrapped_env: DemoEnv):
+    """Loads demos into replay buffer by passing observations through wrappers.
+
+    CYCLING THROUGH DEMOS IS HANDLED BY WRAPPED ENV.
+
+    Args:
+        wrapped_env: the fully wrapped environment.
+        replay_buffer: replay buffer to be loaded.
+    """
+    # is_sequential = replay_buffer.sequential
+    ep = []
+
+    # Extract demonstration episode in replay buffer transitions
+    obs, info = wrapped_env.reset()
+    fake_action = wrapped_env.action_space.sample()
+    term, trunc = False, False
+    while not (term or trunc):
+        next_obs, rew, term, trunc, next_info = wrapped_env.step(fake_action)
+        action = next_info.pop("demo_action")
+        assert np.all(action <= 1.0)
+        assert np.all(action >= -1.0)
+        ep.append([action, obs, rew, term, trunc, info, next_info])
+        obs = next_obs
+        info = next_info
+    return ep
 
 
 def merge_replay_demo_iter(replay_iter, demo_replay_iter):
@@ -618,3 +646,18 @@ class DemoMergedIterator:
         # Override demo to be 1 for demo_batch
         demo_batch["demo"] = torch.ones_like(demo_batch["demo"])
         return {k: torch.cat([batch[k], demo_batch[k]], 0) for k in batch.keys()}
+
+
+def pref_accuracy(logits: torch.Tensor, target_class: torch.Tensor):
+    """Compute the accuracy of reward model with human preferences.
+    Args:
+        logits (Tensor): list of logits (shape must be (B, 2))
+        target_class: list of ground truth labels (shape must be (B,))
+
+    Returns:
+        float: accuracy of the reward model with human preferences
+    """
+    assert logits.ndim == 2 and target_class.ndim == 1
+    predicted_class = torch.argmax(logits, axis=1)
+    return np.mean((predicted_class == target_class).detach().cpu().numpy())
+    # return torch.mean(torch.LongTensor(predicted_class == target_class))

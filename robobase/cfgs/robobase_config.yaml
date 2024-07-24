@@ -4,6 +4,7 @@ defaults:
   - method: null
   - intrinsic_reward_module: null
   - launch: null
+  - reward_method: null
   - override hydra/launcher: joblib
 
 # Universal settings

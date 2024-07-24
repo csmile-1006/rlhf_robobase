@@ -1,6 +1,6 @@
 from bigym.bigym_env import BiGymEnv, CONTROL_FREQUENCY_MAX
 from bigym.action_modes import JointPositionActionMode
-from robobase.utils import DemoEnv, add_demo_to_replay_buffer
+from robobase.utils import DemoEnv, add_demo_to_replay_buffer, convert_demo_to_episode_rollouts
 from robobase.envs.utils.bigym_utils import TASK_MAP
 import gymnasium as gym
 from gymnasium.wrappers import TimeLimit
@@ -201,24 +201,39 @@ class BiGymEnvFactory(EnvFactory):
 
         env.close()
         logging.info("Finished loading demos.")
-        mp_list.append(demos)
+        # mp_list.append(demos)
+        return demos
 
     def collect_or_fetch_demos(self, cfg: DictConfig, num_demos: int):
-        manager = mp.Manager()
-        mp_list = manager.list()
+        # manager = mp.Manager()
+        # mp_list = manager.list()
 
-        p = mp.Process(
-            target=self._get_demo_fn,
-            args=(cfg, num_demos, mp_list),
-        )
-        p.start()
-        p.join()
+        # p = mp.Process(
+        #     target=self._get_demo_fn,
+        #     args=(cfg, num_demos, mp_list),
+        # )
+        # p.start()
+        # p.join()
 
-        demos = mp_list[0]
+        # demos = mp_list[0]
+        demos = self._get_demo_fn(cfg, num_demos, None)
 
         self._raw_demos = demos
         self._action_stats = self._compute_action_stats(cfg, demos)
         self._obs_stats = self._compute_obs_stats(cfg, demos)
+
+    def load_demos_from_external_sources(self, cfg: DictConfig, demos: List):
+        for demo in demos:
+            for ts in demo.timesteps:
+                ts.observation = {k: np.array(v, dtype=np.float32) for k, v in ts.observation.items()}
+
+        if self._raw_demos is not None:
+            self._raw_demos += demos
+        else:
+            self._raw_demos = demos
+        demo_unions = copy.deepcopy(self._raw_demos)
+        self._action_stats = self._compute_action_stats(cfg, demo_unions)
+        self._obs_stats = self._compute_obs_stats(cfg, demo_unions)
 
     def post_collect_or_fetch_demos(self, cfg: DictConfig):
         demo_list = [demo.timesteps for demo in self._raw_demos]
@@ -243,6 +258,23 @@ class BiGymEnvFactory(EnvFactory):
         )
         for _ in range(len(self._demos)):
             add_demo_to_replay_buffer(demo_env, buffer)
+
+    def load_demos_into_rollouts(self, cfg: DictConfig):
+        """See base class for documentation."""
+        assert hasattr(self, "_demos"), (
+            "There's no _demo attribute inside the factory, "
+            "Check `collect_or_fetch_demos` is called before calling this method."
+        )
+        demo_env = self._wrap_env(
+            DemoEnv(copy.deepcopy(self._demos), self._action_space, self._observation_space),
+            cfg,
+            demo_env=True,
+            train=False,
+        )
+        demos = []
+        for _ in range(len(self._demos)):
+            demos.append(convert_demo_to_episode_rollouts(demo_env))
+        return demos
 
     def _demo_to_steps(
         self, cfg: DictConfig, demo_list: List[List[DemoStep]]
