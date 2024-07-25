@@ -20,6 +20,7 @@ from robobase.method.utils import (
     extract_from_batch,
     stack_tensor_dictionary,
     extract_many_from_batch,
+    TimeConsistentRandomShiftsAug,
 )
 
 from typing import Optional
@@ -45,6 +46,7 @@ class PreferenceTransformer(RewardMethod):
         num_label: int = 1,
         seq_len: int = 50,
         compute_batch_size: int = 32,
+        use_augmentation: bool = False,
         *args,
         **kwargs,
     ):
@@ -70,7 +72,12 @@ class PreferenceTransformer(RewardMethod):
         self.encoder_model = encoder_model
         self.view_fusion_model = view_fusion_model
         self.reward_model = reward_model
-        self.rgb_spaces = extract_many_from_spec(self.observation_space, r"rgb.*", missing_ok=True)
+        self.rgb_spaces = extract_many_from_spec(
+            self.observation_space, r"rgb.*", missing_ok=True
+        )
+        self.aug = (
+            TimeConsistentRandomShiftsAug(pad=4) if use_augmentation else lambda x: x
+        )
 
         # T should be same across all obs
         self.use_pixels = len(self.rgb_spaces) > 0
@@ -92,7 +99,9 @@ class PreferenceTransformer(RewardMethod):
 
     @property
     def time_obs_size(self) -> int:
-        time_obs_spec = extract_from_spec(self.observation_space, "time", missing_ok=True)
+        time_obs_spec = extract_from_spec(
+            self.observation_space, "time", missing_ok=True
+        )
         time_obs_size = 0
         if time_obs_spec is not None:
             time_obs_size = time_obs_spec.shape[1]
@@ -100,17 +109,23 @@ class PreferenceTransformer(RewardMethod):
 
     @property
     def low_dim_size(self) -> int:
-        low_dim_state_spec = extract_from_spec(self.observation_space, "low_dim_state", missing_ok=True)
+        low_dim_state_spec = extract_from_spec(
+            self.observation_space, "low_dim_state", missing_ok=True
+        )
         low_dim_in_size = 0
         if low_dim_state_spec is not None:
             low_dim_in_size = low_dim_state_spec.shape[1] * low_dim_state_spec.shape[0]
         return low_dim_in_size
 
     def build_encoder(self):
-        rgb_spaces = extract_many_from_spec(self.observation_space, r"rgb.*", missing_ok=True)
+        rgb_spaces = extract_many_from_spec(
+            self.observation_space, r"rgb.*", missing_ok=True
+        )
         if len(rgb_spaces) > 0:
             rgb_shapes = [s.shape for s in rgb_spaces.values()]
-            assert np.all([sh == rgb_shapes[0] for sh in rgb_shapes]), "Expected all RGB obs to be same shape."
+            assert np.all(
+                [sh == rgb_shapes[0] for sh in rgb_shapes]
+            ), "Expected all RGB obs to be same shape."
 
             num_views = len(rgb_shapes)
             # Multiply first two dimensions to consider frame stacking
@@ -125,16 +140,22 @@ class PreferenceTransformer(RewardMethod):
             return
         if self.use_multicam_fusion:
             if self.view_fusion_model is None:
-                logging.warn("Multicam fusion is enabled but view_fusion_model is not set!")
+                logging.warn(
+                    "Multicam fusion is enabled but view_fusion_model is not set!"
+                )
                 self.view_fusion_opt = None
                 return
 
-            self.view_fusion = self.view_fusion_model(input_shape=self.encoder.output_shape)
+            self.view_fusion = self.view_fusion_model(
+                input_shape=self.encoder.output_shape
+            )
             self.view_fusion.to(self.device)
             self.view_fusion_opt = None
             if len([_ for _ in self.view_fusion.parameters()]) != 0:
                 # Introduce optimizer when view_fusion_model is parametrized
-                self.view_fusion_opt = torch.optim.Adam(self.view_fusion.parameters(), lr=self.lr)
+                self.view_fusion_opt = torch.optim.Adam(
+                    self.view_fusion.parameters(), lr=self.lr
+                )
             self.rgb_latent_size = self.view_fusion.output_shape[-1]
         else:
             self.view_fusion = lambda x: x[:, 0]
@@ -147,21 +168,22 @@ class PreferenceTransformer(RewardMethod):
             action_dim=self.action_space.shape[-1],
         )
         self.reward.to(self.device)
-        self.reward_opt = torch.optim.AdamW(self.reward.parameters(), lr=self.lr, weight_decay=self.weight_decay)
+        self.reward_opt = torch.optim.AdamW(
+            self.reward.parameters(), lr=self.lr, weight_decay=self.weight_decay
+        )
 
     def encode_rgb_feats(self, rgb):
+        # (bs * seq *v, ch, h , w)
+        bs, seq, v, c, h, w = rgb.shape
+        image = rgb.transpose(1, 2).reshape(bs * v, seq, c, h, w)
+        image = self.aug(image.float())
+        image = (
+            image.reshape(bs, v, seq, c, h, w)
+            .transpose(1, 2)
+            .reshape(bs * seq, v, c, h, w)
+        )
         # (bs * seq, v, ch, h , w)
-        image = rgb.reshape(-1, *rgb.shape[2:])
         image = image.float().detach()
-
-        # rgb = flatten_time_dim_into_channel_dim(
-        #     # Don't get "tp1" obs
-        #     stack_tensor_dictionary(extract_many_from_batch(batch, rf"seg{i}_rgb(?!.*?tp1)"), 1),
-        #     has_view_axis=True,
-        # )
-        ## (bs, v, c*seq, h, w) -> (bs, v*seq, c, h, w)
-        # (bs, v, c*seq, h, w) -> (bs*seq, v, c, h, w)
-        # image = rgb.reshape(rgb.shape[0], -1, 3, rgb.shape[-2], rgb.shape[-1])
 
         with torch.no_grad():
             # (bs*seq, v, c, h, w) -> (bs*seq, v, h)
@@ -178,7 +200,7 @@ class PreferenceTransformer(RewardMethod):
         Compute the reward from sequences.
 
         Args:
-            seq (Sequence): sequence of transitions following the form in _episode_rollouts in workspace.py.
+            seq (Sequence): same with _episode_rollouts in workspace.py.
             observations (dict): Dictionary containing observations.
             actions (torch.Tensor): The actions taken.
 
@@ -193,7 +215,8 @@ class PreferenceTransformer(RewardMethod):
 
         if len(seq) < self.seq_len:
             raise InvalidSequenceError(
-                f"Input sequence must be at least {self.seq_len_steps} steps long. Seq len is {len(seq)}"
+                f"Input sequence must be at least {self.seq_len_steps} steps long.\
+                Seq len is {len(seq)}"
             )
 
         # seq: list of (action, obs, reward, term, trunc, info, next_info)
@@ -212,50 +235,91 @@ class PreferenceTransformer(RewardMethod):
         # actions: (T, action_shape)
 
         idxs = list(range(T - self.seq_len + 1))
-        rgbs = stack_tensor_dictionary(extract_many_from_batch(obs, r"rgb(?!.*?tp1)"), 1).unsqueeze(1).to(self.device)
+        rgbs = (
+            stack_tensor_dictionary(extract_many_from_batch(obs, r"rgb(?!.*?tp1)"), 1)
+            .unsqueeze(1)
+            .to(self.device)
+        )
         fused_rgb_feats = self.encode_rgb_feats(rgbs).squeeze(1)
-        batch_fused_rgb_feats = torch.stack([fused_rgb_feats[idx : idx + seq_len] for idx in idxs])
+        batch_fused_rgb_feats = torch.stack(
+            [fused_rgb_feats[idx : idx + seq_len] for idx in idxs]
+        )
         qpos = extract_from_batch(obs, "low_dim_state")
 
-        batch_qposes = torch.stack([qpos[idx : idx + seq_len] for idx in idxs]).to(self.device)
-        batch_actions = torch.stack([actions[idx : idx + seq_len] for idx in idxs]).to(self.device)
-
-        rewards = []
-        for i in trange(0, len(idxs), self.compute_batch_size, leave=False, ncols=0, desc="reward compute per batch"):
-            _range = list(range(i, min(i + self.compute_batch_size, len(idxs))))
-            with torch.no_grad():
-                _reward = self.reward(batch_fused_rgb_feats[_range], batch_qposes[_range], batch_actions[_range])
-            rewards.append(_reward)
-
-        rewards = torch.cat(rewards, dim=0)
-        assert len(rewards) == T - seq_len + 1, f"Expected {T - seq_len + 1} rewards, got {len(rewards)}"
-
-        # compute the part before the full sequence.
-        preset_indices = np.concatenate([np.zeros((seq_len - 1,)), np.arange(seq_len)], axis=0)
-        preset_indices = np.lib.stride_tricks.sliding_window_view(preset_indices, seq_len).astype(np.int32)
-        first_fused_rgb_feats = torch.stack([fused_rgb_feats[idx] for idx in preset_indices]).to(self.device)
-        first_qposes = torch.stack([qpos[idx] for idx in preset_indices]).to(self.device)
-        first_actions = torch.stack([actions[idx] for idx in preset_indices]).to(self.device)
-        # first_attn_masks = torch.flipud(torch.triu(torch.ones((seq_len - 1, seq_len), dtype=torch.float32), 1))
-        first_attn_masks = torch.fliplr(torch.tril(torch.ones((seq_len, seq_len), dtype=torch.float32), 1)).to(
+        batch_qposes = torch.stack([qpos[idx : idx + seq_len] for idx in idxs]).to(
+            self.device
+        )
+        batch_actions = torch.stack([actions[idx : idx + seq_len] for idx in idxs]).to(
             self.device
         )
 
+        rewards = []
+        for i in trange(
+            0,
+            len(idxs),
+            self.compute_batch_size,
+            leave=False,
+            ncols=0,
+            desc="reward compute per batch",
+        ):
+            _range = list(range(i, min(i + self.compute_batch_size, len(idxs))))
+            with torch.no_grad():
+                _reward = self.reward(
+                    batch_fused_rgb_feats[_range],
+                    batch_qposes[_range],
+                    batch_actions[_range],
+                )
+            rewards.append(_reward)
+
+        rewards = torch.cat(rewards, dim=0)
+        assert (
+            len(rewards) == T - seq_len + 1
+        ), f"Expected {T - seq_len + 1} rewards, got {len(rewards)}"
+
+        # compute the part before the full sequence.
+        preset_indices = np.concatenate(
+            [np.zeros((seq_len - 1,)), np.arange(seq_len)], axis=0
+        )
+        preset_indices = np.lib.stride_tricks.sliding_window_view(
+            preset_indices, seq_len
+        ).astype(np.int32)
+        first_fused_rgb_feats = torch.stack(
+            [fused_rgb_feats[idx] for idx in preset_indices]
+        ).to(self.device)
+        first_qposes = torch.stack([qpos[idx] for idx in preset_indices]).to(
+            self.device
+        )
+        first_actions = torch.stack([actions[idx] for idx in preset_indices]).to(
+            self.device
+        )
+        first_attn_masks = torch.fliplr(
+            torch.tril(torch.ones((seq_len, seq_len), dtype=torch.float32), 1)
+        ).to(self.device)
+
         with torch.no_grad():
-            first_rewards = self.reward(first_fused_rgb_feats, first_qposes, first_actions, attn_mask=first_attn_masks)[
-                :-1
-            ]
+            first_rewards = self.reward(
+                first_fused_rgb_feats,
+                first_qposes,
+                first_actions,
+                attn_mask=first_attn_masks,
+            )[:-1]
 
-        assert len(first_rewards) == seq_len - 1, f"Expected {seq_len - 1} rewards, got {len(first_rewards)}"
+        assert (
+            len(first_rewards) == seq_len - 1
+        ), f"Expected {seq_len - 1} rewards, got {len(first_rewards)}"
 
-        total_rewards = torch.cat([first_rewards, rewards], dim=0).mean(dim=1).cpu().numpy()
+        total_rewards = (
+            torch.cat([first_rewards, rewards], dim=0).mean(dim=1).cpu().numpy()
+        )
         for idx in range(len(seq)):
             seq[idx][2] = total_rewards[idx]
 
         return seq
 
     @override
-    def update(self, replay_iter, step: int, replay_buffer: ReplayBuffer = None) -> dict:
+    def update(
+        self, replay_iter, step: int, replay_buffer: ReplayBuffer = None
+    ) -> dict:
         """
         Compute the loss from binary preferences.
 
@@ -286,21 +350,15 @@ class PreferenceTransformer(RewardMethod):
 
             if self.use_pixels:
                 # (bs, seq, v, ch, h, w)
-                rgb = stack_tensor_dictionary(extract_many_from_batch(batch, rf"seg{i}_rgb(?!.*?tp1)"), 2)
+                rgb = stack_tensor_dictionary(
+                    extract_many_from_batch(batch, rf"seg{i}_rgb(?!.*?tp1)"), 2
+                )
                 fused_rgb_feats = self.encode_rgb_feats(rgb)
 
             r_hat = self.reward(fused_rgb_feats, qpos, actions)
             r_hats.append(r_hat)
 
         loss, loss_dict = self.reward.calculate_loss(r_hats, batch["label"])
-
-        # task_emb = None
-        # if self.actor.encoder_model.use_lang_cond:
-        #     lang_tokens = flatten_time_dim_into_channel_dim(extract_from_spec(batch, "lang_tokens"))
-        #     task_emb, _ = self.encode_clip_text(lang_tokens)
-
-        # # If action contains all zeros, it is padded.
-        # is_pad = actions.sum(axis=-1) == 0
 
         # calculate gradient
         if self.use_pixels and self.encoder_opt is not None:
@@ -325,7 +383,9 @@ class PreferenceTransformer(RewardMethod):
         if self.logging:
             metrics["reward_loss"] = loss_dict["loss"].item()
             for label in range(self.num_label):
-                metrics[f"pref_acc_label_{label}"] = loss_dict[f"pref_acc_label_{label}"].item()
+                metrics[f"pref_acc_label_{label}"] = loss_dict[
+                    f"pref_acc_label_{label}"
+                ].item()
 
         return metrics
 

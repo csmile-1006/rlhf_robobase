@@ -1,0 +1,34 @@
+# @package _global_
+
+defaults:
+  - ../env: null
+  - ../reward_method: preference_transformer
+
+demos: 50
+num_pretrain_steps: 1000
+num_train_frames: 0
+eval_every_steps: 0
+num_eval_episodes: 0
+save_snapshot: true
+snapshot_every_n: 100
+save_csv: true
+
+pixels: true
+
+action_repeat: 1
+execution_length: 1
+
+update_every_steps: 1
+reward_replay:
+  num_queries: 100
+  seq_len: 50
+  segment_save_dir: ./preferences
+  segment_batch_size: 16
+
+
+replay:
+  nstep: 1
+
+hydra:
+  run:
+    dir: ./exp_local/pt/bigym_${env.task_name}_${now:%Y%m%d%H%M%S}

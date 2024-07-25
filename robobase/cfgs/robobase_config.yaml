@@ -59,6 +59,17 @@ replay:
   sequential: false
   transition_seq_len: 1  # The length of transition sequence returned from sample() call. Only applicable if sequential is True
 
+# Reward Model Replay buffer settings
+reward_replay:
+  size: 1000000
+  query_save_dir: null
+  segment_save_dir: null
+  num_workers: 4
+  pin_memory: true
+  num_queries: 1
+  seq_len: 50
+  segment_batch_size: 256
+
 # logging settings
 wandb:  # weight and bias
   use: false

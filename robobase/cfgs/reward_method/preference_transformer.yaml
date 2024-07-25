@@ -11,8 +11,9 @@ reward_method:
   # But this would be environment-specific
   use_lang_cond: False
   num_label: 1
-  compute_batch_size: ${replay.batch_size}
-  seq_len: ${replay.transition_seq_len}
+  compute_batch_size: ${batch_size}
+  seq_len: ${reward_replay.seq_len}
+  use_augmentation: True
 
   encoder_model:
     _target_: robobase.models.encoder.DINOv2Encoder
@@ -34,12 +35,11 @@ reward_method:
     hidden_dim: 256
     enc_layers: 4
     dec_layers: 1
-    dim_feedforward: 3200
+    dim_feedforward: 1024
     dropout: 0.1
-    nheads: 8
+    nheads: 4
     pre_norm: False
     use_lang_cond: ${reward_method.use_lang_cond}
-    seq_len: ${replay.transition_seq_len}
+    seq_len: ${reward_method.seq_len}
     position_embedding: "sine"
     num_label: ${reward_method.num_label}
-

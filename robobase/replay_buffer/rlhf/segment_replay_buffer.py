@@ -167,15 +167,20 @@ class SegmentReplayBuffer(ReplayBuffer):
         new_action_shape = (action_seq_len,) + action_shape[1:]
 
         if not np.all(time_dims[0] == np.array(time_dims)):
-            raise ValueError("Expected all observation spaces to have same temporal dimension.")
+            raise ValueError(
+                "Expected all observation spaces to have same temporal dimension."
+            )
         frame_stack = time_dims[0]
 
         if sequential and replay_capacity < 1 + transition_seq_len:
-            raise ValueError("There is not enough capacity to cover nstep and transition_seq_len.")
+            raise ValueError(
+                "There is not enough capacity to cover nstep and transition_seq_len."
+            )
 
         if sequential or action_seq_len != transition_seq_len:
             raise ValueError(
-                "Segment replay buffer must have non-sequential replay and action_seq_len == transition_seq_len."
+                "Segment replay buffer must have non-sequential replay and\
+                action_seq_len == transition_seq_len."
             )
 
         self._tmpdir = None
@@ -224,7 +229,7 @@ class SegmentReplayBuffer(ReplayBuffer):
         self._num_workers = num_workers
         self._fetch_every = fetch_every
         self._samples_since_last_fetch = self._fetch_every
-        save_snapshot = False
+        save_snapshot = True
         self._save_snapshot = save_snapshot
 
         logging.info(
@@ -275,16 +280,22 @@ class SegmentReplayBuffer(ReplayBuffer):
           dict of ReplayElements defining the type of the contents stored.
         """
         storage_elements, obs_elements = {}, {}
-        storage_elements.update({LABEL: ReplayElement(LABEL, (self._num_labels,), np.int8)})
+        storage_elements.update(
+            {LABEL: ReplayElement(LABEL, (self._num_labels,), np.int8)}
+        )
         for i in range(2):
             storage_elements.update(
                 {
-                    f"seg{i}_{ACTION}": ReplayElement(f"seg{i}_{ACTION}", self._action_shape, self._action_dtype),
+                    f"seg{i}_{ACTION}": ReplayElement(
+                        f"seg{i}_{ACTION}", self._action_shape, self._action_dtype
+                    ),
                 }
             )
 
             for obs_name, space in self.observation_elements.items():
-                obs_elements[f"seg{i}_{obs_name}"] = ReplayElement(f"seg{i}_{obs_name}", space.shape, space.dtype)
+                obs_elements[f"seg{i}_{obs_name}"] = ReplayElement(
+                    f"seg{i}_{obs_name}", space.shape, space.dtype
+                )
             storage_elements.update(obs_elements)
 
             for element_name, space in self.extra_replay_elements.items():
@@ -298,7 +309,11 @@ class SegmentReplayBuffer(ReplayBuffer):
         """Adds a pair of segments to the replay memory."""
         transition = {}
         for idx, seg in enumerate([segment_0, segment_1]):
-            target_keys = [key for key in self._storage_signature.keys() if key.startswith(f"seg{idx}_")]
+            target_keys = [
+                key
+                for key in self._storage_signature.keys()
+                if key.startswith(f"seg{idx}_")
+            ]
             for key in target_keys:
                 transition[key] = seg[key.split(f"seg{idx}_")[1]]
 
@@ -363,7 +378,9 @@ class SegmentReplayBuffer(ReplayBuffer):
             # This means that all workers have some data to start.
             self._is_first = False
             for worker_id in range(1, self._num_workers):
-                eps_fn = f"{worker_id}{ts}_{eps_idx+worker_id}_{eps_len}_{global_idx}.npz"
+                eps_fn = (
+                    f"{worker_id}{ts}_{eps_idx+worker_id}_{eps_len}_{global_idx}.npz"
+                )
                 save_episode(episode, self._replay_dir / eps_fn)
 
     def _add(self, transition: dict):
@@ -392,9 +409,14 @@ class SegmentReplayBuffer(ReplayBuffer):
         if (len(transition)) != len(signature):
             expected = str(natsort.natsorted(list(signature.keys())))
             actual = str(natsort.natsorted(list(transition.keys())))
-            error_list = "\nlist of expected:\n{}\nlist of actual:\n{}".format(expected, actual)
+            error_list = "\nlist of expected:\n{}\nlist of actual:\n{}".format(
+                expected, actual
+            )
             raise ValueError(
-                "Add expects {} elements, received {}.".format(len(signature), len(transition)) + error_list
+                "Add expects {} elements, received {}.".format(
+                    len(signature), len(transition)
+                )
+                + error_list
             )
 
         for name, store_element in signature.items():
@@ -409,7 +431,11 @@ class SegmentReplayBuffer(ReplayBuffer):
                 arg_shape = tuple()
             store_element_shape = tuple(store_element.shape)
             if arg_shape != store_element_shape:
-                raise ValueError("arg {} has shape {}, expected {}".format(name, arg_shape, store_element_shape))
+                raise ValueError(
+                    "arg {} has shape {}, expected {}".format(
+                        name, arg_shape, store_element_shape
+                    )
+                )
 
     def is_empty(self):
         """Is the Replay Buffer empty?"""
@@ -470,7 +496,10 @@ class SegmentReplayBuffer(ReplayBuffer):
         global_idxs = np.arange(global_idx, global_idx + eps_len)
         global_idxs_wrapped = (global_idxs % self.replay_capacity).tolist()
         self._global_idxs_to_episode_and_transition_idx.update(
-            {global_i: [eps_fn, ep_transition_i] for ep_transition_i, global_i in enumerate(global_idxs_wrapped)}
+            {
+                global_i: [eps_fn, ep_transition_i]
+                for ep_transition_i, global_i in enumerate(global_idxs_wrapped)
+            }
         )
         self._size += eps_len
 
@@ -551,48 +580,13 @@ class SegmentReplayBuffer(ReplayBuffer):
         # If next_idx > eps_len, next_idx will point to final_obs
         replay_sample = {}
 
-        # Handle frame stacking, calculate observation indices.
-        # obs_start_idx = (idx - self._frame_stacks) + 1
-        # next_obs_start_idx = (next_idx - self._frame_stacks) + 1
-        # Obs_idxs contains indices of all frames, considering frame stacking.
-        # - Turn all negative idxs to 0
-        # obs_idxs = list(map(lambda x: np.clip(x, 0, ep_len), range(obs_start_idx, idx + 1)))
-        # next_obs_idxs = list(
-        #     map(
-        #         lambda x: np.clip(x, 0, ep_len),
-        #         range(next_obs_start_idx, next_idx + 1),
-        #     )
-        # )
-
         # Add observation frames into sample
         for name in self._obs_signature.keys():
             replay_sample[name] = episode[name][idx]
-            # Retrieve tp1 observations
-            # replay_sample[name + "_tp1"] = episode[name][next_obs_idxs]
-
-        # Handle action sequences
-        # action_start_idx = idx
-        # action_end_idx = min(idx + self._action_seq_len, ep_len)
-        # # - action_idxs contains indices of all action, considering action sequences.
-        # action_idxs = list(range(action_start_idx, action_end_idx))
-        # action_seq = episode[ACTION][action_idxs]
-        # # - Pad zeros to the end if action_sequences exceeds eps_len
-        # if len(action_seq) < self._action_seq_len:
-        #     num_action_to_pad = self._action_seq_len - len(action_seq)
-        #     action_seq = np.concatenate(
-        #         [
-        #             action_seq,
-        #             np.zeros((num_action_to_pad, *action_seq.shape[1:]), dtype=np.float32),
-        #         ],
-        #         axis=0,
-        #     )
-        # replay_sample[ACTION] = action_seq
 
         # Add the rest
         replay_sample.update(
             {
-                # TERMINAL: episode[TERMINAL][next_idx - 1],
-                # TRUNCATED: episode[TRUNCATED][next_idx - 1],
                 INDICES: global_index,
             }
         )
@@ -622,10 +616,14 @@ class SegmentReplayBuffer(ReplayBuffer):
         return self._sample_non_sequential(global_index)
 
     @override
-    def sample(self, batch_size: int | None = None, indices: list[int] = None) -> np.ndarray:
+    def sample(
+        self, batch_size: int | None = None, indices: list[int] = None
+    ) -> np.ndarray:
         batch_size = self._batch_size if batch_size is None else batch_size
         if indices is not None and len(indices) != batch_size:
-            raise ValueError(f"indices was of size {len(indices)}, but batch size was {batch_size}")
+            raise ValueError(
+                f"indices was of size {len(indices)}, but batch size was {batch_size}"
+            )
         if indices is None:
             indices = [None] * batch_size
 
