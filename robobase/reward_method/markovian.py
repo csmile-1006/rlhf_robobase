@@ -1,29 +1,30 @@
-from typing import Sequence
-from typing_extensions import override
 import logging
+from copy import deepcopy
+from typing import Optional, Sequence, Tuple
 
 import numpy as np
 import torch
-from tqdm import trange
-
-from robobase.models import RoboBaseModule
-from robobase.models.fusion import FusionModule
-from robobase.models.encoder import EncoderModule
-
-from robobase.reward_method.core import RewardMethod
+import torch.nn.functional as F
 from diffusers.optimization import get_scheduler
+from torch import nn
+from tqdm import trange
+from typing_extensions import override
 
-from robobase.replay_buffer.replay_buffer import ReplayBuffer
+from robobase import utils
 from robobase.method.utils import (
-    extract_from_spec,
-    extract_many_from_spec,
-    extract_from_batch,
-    stack_tensor_dictionary,
-    extract_many_from_batch,
     TimeConsistentRandomShiftsAug,
+    extract_from_batch,
+    extract_from_spec,
+    extract_many_from_batch,
+    extract_many_from_spec,
+    stack_tensor_dictionary,
 )
-
-from typing import Optional
+from robobase.models import RoboBaseModule
+from robobase.models.encoder import EncoderModule
+from robobase.models.fully_connected import FullyConnectedModule
+from robobase.models.fusion import FusionModule
+from robobase.replay_buffer.replay_buffer import ReplayBuffer
+from robobase.reward_method.core import RewardMethod
 
 
 class InvalidSequenceError(Exception):
@@ -31,7 +32,73 @@ class InvalidSequenceError(Exception):
         super().__init__(message)
 
 
-class PreferenceTransformer(RewardMethod):
+class MarkovianRewardModel(nn.Module):
+    def __init__(
+        self,
+        reward_model: FullyConnectedModule,
+        num_reward_models: int = 1,
+    ):
+        super().__init__()
+        self.rs = nn.ModuleList(
+            [deepcopy(reward_model) for _ in range(num_reward_models)]
+        )
+        self.apply(utils.weight_init)
+
+    def forward(self, low_dim_obs, fused_view_feats, action, time_obs):
+        net_ins = {"action": action.view(action.shape[0], -1)}
+        if low_dim_obs is not None:
+            net_ins["low_dim_obs"] = low_dim_obs
+        if fused_view_feats is not None:
+            net_ins["fused_view_feats"] = fused_view_feats
+        if time_obs is not None:
+            net_ins["time_obs"] = time_obs
+
+        return torch.cat(
+            [reward(net_ins) for reward in self.rs],
+            -1,
+        )
+
+    def reset(self, env_index: int):
+        self.reward_model.reset(env_index)
+
+    def set_eval_env_running(self, value: bool):
+        self.reward_model.eval_env_running = value
+
+    def calculate_loss(
+        self,
+        input_feats: Tuple[torch.Tensor, torch.Tensor],
+        labels: torch.Tensor,
+    ) -> Optional[Tuple[torch.Tensor, dict]]:
+        """
+        Calculate the loss for the MultiViewTransformerEncoderDecoderACT model.
+
+        Args:
+            input_feats (Tuple[torch.Tensor, torch.Tensor, List[torch.Tensor]]):
+                    Tuple containing action predictions, padding predictions,
+                    and a list of latent variables [mu, logvar].
+            labels (torch.Tensor): Tensor containing ground truth preference labels.
+            is_pad (torch.Tensor): Tensor indicating padding positions.
+
+        Returns:
+            Optional[Tuple[torch.Tensor, dict]]:
+                    Tuple containing the loss tensor and a dictionary of loss
+                    components.
+        """
+        reward_hat_1, reward_hat_2 = input_feats
+        logits = torch.stack([reward_hat_1, reward_hat_2], dim=-1)
+
+        loss_dict = dict()
+        reward_loss = 0.0
+        for idx, (logit, label) in enumerate(zip(logits.unbind(1), labels.unbind(1))):
+            reward_loss = F.cross_entropy(logit, label.long())
+            loss_dict[f"pref_acc_label_{idx}"] = utils.pref_accuracy(logit, label)
+
+        loss_dict["loss"] = reward_loss
+
+        return (loss_dict["loss"], loss_dict)
+
+
+class MarkovianReward(RewardMethod):
     def __init__(
         self,
         lr: float,
@@ -44,6 +111,7 @@ class PreferenceTransformer(RewardMethod):
         weight_decay: float = 1e-4,
         use_lang_cond: bool = False,
         num_label: int = 1,
+        num_reward_models: int = 1,
         seq_len: int = 50,
         compute_batch_size: int = 32,
         use_augmentation: bool = False,
@@ -67,6 +135,7 @@ class PreferenceTransformer(RewardMethod):
         self.adaptive_lr = adaptive_lr
         self.num_train_steps = num_train_steps
         self.num_label = num_label
+        self.num_reward_models = num_reward_models
         self.seq_len = seq_len
         self.compute_batch_size = compute_batch_size
         self.encoder_model = encoder_model
@@ -82,6 +151,7 @@ class PreferenceTransformer(RewardMethod):
         # T should be same across all obs
         self.use_pixels = len(self.rgb_spaces) > 0
         self.use_multicam_fusion = len(self.rgb_spaces) > 1
+        self.time_dim = list(self.observation_space.values())[0].shape[0]
 
         self.encoder = self.view_fusion = None
         self.build_encoder()
@@ -96,6 +166,16 @@ class PreferenceTransformer(RewardMethod):
                 num_warmup_steps=100,
                 num_training_steps=num_train_steps,
             )
+
+    @property
+    def time_obs_size(self) -> int:
+        time_obs_spec = extract_from_spec(
+            self.observation_space, "time", missing_ok=True
+        )
+        time_obs_size = 0
+        if time_obs_spec is not None:
+            time_obs_size = time_obs_spec.shape[1]
+        return time_obs_size
 
     @property
     def low_dim_size(self) -> int:
@@ -151,11 +231,26 @@ class PreferenceTransformer(RewardMethod):
             self.view_fusion = lambda x: x[:, 0]
             self.rgb_latent_size = self.encoder.output_shape[-1]
 
+    def get_fully_connected_inputs(self):
+        """Get input_sizes for FullyConnectedModules"""
+        input_sizes = {}
+        if self.rgb_latent_size > 0:
+            input_sizes["fused_view_feats"] = (self.rgb_latent_size,)
+        if self.low_dim_size > 0:
+            input_sizes["low_dim_obs"] = (self.low_dim_size,)
+        if self.time_obs_size > 0:
+            input_sizes["time_obs"] = (self.time_obs_size,)
+        if self.time_dim > 0:
+            for k, v in input_sizes.items():
+                input_sizes[k] = (self.time_dim,) + v
+        return input_sizes
+
     def build_reward_model(self):
-        self.reward = self.reward_model(
-            input_shape=self.encoder.output_shape,
-            state_dim=np.prod(self.observation_space["low_dim_state"].shape),
-            action_dim=self.action_space.shape[-1],
+        input_shapes = self.get_fully_connected_inputs()
+        input_shapes["actions"] = (np.prod(self.action_space.shape),)
+        reward_model = self.reward_model(input_shapes=input_shapes)
+        self.reward = MarkovianRewardModel(
+            reward_model=reward_model, num_reward_models=self.num_reward_models
         )
         self.reward.to(self.device)
         self.reward_opt = torch.optim.AdamW(
@@ -202,7 +297,6 @@ class PreferenceTransformer(RewardMethod):
 
         start_idx = 0
         T = len(seq) - start_idx
-        seq_len = self.seq_len
 
         if len(seq) < self.seq_len:
             raise InvalidSequenceError(
@@ -211,7 +305,7 @@ class PreferenceTransformer(RewardMethod):
             )
 
         # seq: list of (action, obs, reward, term, trunc, info, next_info)
-        actions = torch.from_numpy(np.stack([elem[0] for elem in seq]))
+        actions = torch.from_numpy(np.stack([elem[0] for elem in seq])).to(self.device)
         if seq[0][1]["low_dim_state"].ndim > 1:
             list_of_obs_dicts = [{k: v[-1] for k, v in elem[1].items()} for elem in seq]
         else:
@@ -225,83 +319,38 @@ class PreferenceTransformer(RewardMethod):
         # obs: (T, elem_shape) for elem in obs
         # actions: (T, action_shape)
 
-        idxs = list(range(T - self.seq_len + 1))
         rgbs = (
             stack_tensor_dictionary(extract_many_from_batch(obs, r"rgb(?!.*?tp1)"), 1)
             .unsqueeze(1)
             .to(self.device)
         )
-        fused_rgb_feats = self.encode_rgb_feats(rgbs, train=False).squeeze(1)
-        batch_fused_rgb_feats = torch.stack(
-            [fused_rgb_feats[idx : idx + seq_len] for idx in idxs]
-        )
-        qpos = extract_from_batch(obs, "low_dim_state")
-
-        batch_qposes = torch.stack([qpos[idx : idx + seq_len] for idx in idxs]).to(
-            self.device
-        )
-        batch_actions = torch.stack([actions[idx : idx + seq_len] for idx in idxs]).to(
-            self.device
-        )
+        fused_rgb_feats = self.encode_rgb_feats(rgbs, train=False)
+        qpos = extract_from_batch(obs, "low_dim_state").to(self.device)
+        time_obs = extract_from_batch(obs, "time", missing_ok=True)
 
         rewards = []
         for i in trange(
             0,
-            len(idxs),
+            T,
             self.compute_batch_size,
             leave=False,
             ncols=0,
             desc="reward compute per batch",
         ):
-            _range = list(range(i, min(i + self.compute_batch_size, len(idxs))))
+            _range = list(range(i, min(i + self.compute_batch_size, T)))
             with torch.no_grad():
                 _reward = self.reward(
-                    batch_fused_rgb_feats[_range],
-                    batch_qposes[_range],
-                    batch_actions[_range],
+                    qpos[_range],
+                    fused_rgb_feats[_range],
+                    actions[_range],
+                    time_obs[_range] if time_obs is not None else None,
                 )
             rewards.append(_reward)
 
         rewards = torch.cat(rewards, dim=0)
-        assert (
-            len(rewards) == T - seq_len + 1
-        ), f"Expected {T - seq_len + 1} rewards, got {len(rewards)}"
+        assert len(rewards) == T, f"Expected {T} rewards, got {len(rewards)}"
 
-        # compute the part before the full sequence.
-        preset_indices = np.concatenate(
-            [np.zeros((seq_len - 1,)), np.arange(seq_len)], axis=0
-        )
-        preset_indices = np.lib.stride_tricks.sliding_window_view(
-            preset_indices, seq_len
-        ).astype(np.int32)
-        first_fused_rgb_feats = torch.stack(
-            [fused_rgb_feats[idx] for idx in preset_indices]
-        ).to(self.device)
-        first_qposes = torch.stack([qpos[idx] for idx in preset_indices]).to(
-            self.device
-        )
-        first_actions = torch.stack([actions[idx] for idx in preset_indices]).to(
-            self.device
-        )
-        first_attn_masks = torch.fliplr(
-            torch.tril(torch.ones((seq_len, seq_len), dtype=torch.float32), 1)
-        ).to(self.device)
-
-        with torch.no_grad():
-            first_rewards = self.reward(
-                first_fused_rgb_feats,
-                first_qposes,
-                first_actions,
-                attn_mask=first_attn_masks,
-            )[:-1]
-
-        assert (
-            len(first_rewards) == seq_len - 1
-        ), f"Expected {seq_len - 1} rewards, got {len(first_rewards)}"
-
-        total_rewards = (
-            torch.cat([first_rewards, rewards], dim=0).mean(dim=1).cpu().numpy()
-        )
+        total_rewards = rewards.mean(dim=1).cpu().numpy()
         for idx in range(len(seq)):
             seq[idx][2] = total_rewards[idx]
 
@@ -326,6 +375,8 @@ class PreferenceTransformer(RewardMethod):
 
         metrics = dict()
         batch = next(replay_iter)
+        # elem = {key: val.shape for key, val in batch.items()}
+        # print(elem)
         batch = {k: v.to(self.device) for k, v in batch.items()}
 
         # actions = batch["action"]
@@ -346,7 +397,18 @@ class PreferenceTransformer(RewardMethod):
                 )
                 fused_rgb_feats = self.encode_rgb_feats(rgb, train=True)
 
-            r_hat = self.reward(fused_rgb_feats, qpos, actions)
+            time_obs = extract_from_batch(batch, "time", missing_ok=True)
+            r_hat_segment = self.reward(
+                qpos.reshape(-1, *qpos.shape[2:]),
+                fused_rgb_feats.reshape(-1, *fused_rgb_feats.shape[2:]),
+                actions.reshape(-1, *actions.shape[2:]),
+                time_obs.reshape(-1, *time_obs.shape[2:])
+                if time_obs is not None
+                else None,
+            )
+            r_hat = r_hat_segment.view(
+                *actions.shape[:-2], -1, r_hat_segment.shape[-1]
+            ).mean(dim=-2)
             r_hats.append(r_hat)
 
         loss, loss_dict = self.reward.calculate_loss(r_hats, batch["label"])
