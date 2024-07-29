@@ -116,7 +116,7 @@ class Workspace:
         # Sanity checks
         if (
             cfg.replay_size_before_train * cfg.action_repeat * cfg.action_sequence
-            < cfg.env.episode_length
+            < cfg.env.episode_length // cfg.env.get("demo_down_sample_rate", 1)
             and cfg.replay_size_before_train > 0
         ):
             raise ValueError(
@@ -160,12 +160,14 @@ class Workspace:
 
         # Make training environment
         if cfg.num_train_envs > 0:
+            logging.info("Creating train envs")
             self.train_envs = self.env_factory.make_train_env(cfg)
         else:
             self.train_envs = None
             logging.warning("Train env is not created. Training will not be supported ")
 
         # Create evaluation environment
+        logging.info("Creating eval envs")
         self.eval_env = self.env_factory.make_eval_env(cfg)
 
         if num_demos > 0:

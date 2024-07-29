@@ -1,6 +1,10 @@
 from bigym.bigym_env import BiGymEnv, CONTROL_FREQUENCY_MAX
 from bigym.action_modes import JointPositionActionMode
-from robobase.utils import DemoEnv, add_demo_to_replay_buffer, convert_demo_to_episode_rollouts
+from robobase.utils import (
+    DemoEnv,
+    add_demo_to_replay_buffer,
+    convert_demo_to_episode_rollouts,
+)
 from robobase.envs.utils.bigym_utils import TASK_MAP
 import gymnasium as gym
 from gymnasium.wrappers import TimeLimit
@@ -17,7 +21,6 @@ from robobase.envs.wrappers import (
 from omegaconf import DictConfig
 from bigym.utils.observation_config import ObservationConfig, CameraConfig
 from bigym.action_modes import PelvisDof
-import multiprocessing as mp
 import logging
 import numpy as np
 
@@ -155,6 +158,8 @@ class BiGymEnvFactory(EnvFactory):
 
     def make_train_env(self, cfg: DictConfig) -> gym.vector.VectorEnv:
         vec_env_class = gym.vector.AsyncVectorEnv
+        # vec_env_class = gym.vector.SyncVectorEnv
+        kwargs = dict(context="spawn")
         return vec_env_class(
             [
                 lambda: self._wrap_env(
@@ -165,6 +170,7 @@ class BiGymEnvFactory(EnvFactory):
                 )
                 for _ in range(cfg.num_train_envs)
             ],
+            **kwargs,
         )
 
     def make_eval_env(self, cfg: DictConfig) -> gym.Env:
@@ -225,7 +231,9 @@ class BiGymEnvFactory(EnvFactory):
     def load_demos_from_external_sources(self, cfg: DictConfig, demos: List):
         for demo in demos:
             for ts in demo.timesteps:
-                ts.observation = {k: np.array(v, dtype=np.float32) for k, v in ts.observation.items()}
+                ts.observation = {
+                    k: np.array(v, dtype=np.float32) for k, v in ts.observation.items()
+                }
 
         if self._raw_demos is not None:
             self._raw_demos += demos
@@ -266,7 +274,9 @@ class BiGymEnvFactory(EnvFactory):
             "Check `collect_or_fetch_demos` is called before calling this method."
         )
         demo_env = self._wrap_env(
-            DemoEnv(copy.deepcopy(self._demos), self._action_space, self._observation_space),
+            DemoEnv(
+                copy.deepcopy(self._demos), self._action_space, self._observation_space
+            ),
             cfg,
             demo_env=True,
             train=False,

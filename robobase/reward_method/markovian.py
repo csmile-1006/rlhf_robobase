@@ -324,7 +324,7 @@ class MarkovianReward(RewardMethod):
             .unsqueeze(1)
             .to(self.device)
         )
-        fused_rgb_feats = self.encode_rgb_feats(rgbs, train=False)
+        fused_rgb_feats = self.encode_rgb_feats(rgbs, train=False).squeeze(1)
         qpos = extract_from_batch(obs, "low_dim_state").to(self.device)
         time_obs = extract_from_batch(obs, "time", missing_ok=True)
 
