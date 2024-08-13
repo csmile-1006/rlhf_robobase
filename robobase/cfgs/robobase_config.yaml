@@ -59,16 +59,28 @@ replay:
   sequential: false
   transition_seq_len: 1  # The length of transition sequence returned from sample() call. Only applicable if sequential is True
 
+# RLHF settings
+rlhf:
+  use_rlhf: false
+  feedback_type: random
+  comparison_type: root_pairwise
+  max_feedback: 1000
+  update_every_steps: 1
+  num_pretrain_steps: 0
+  num_train_frames: 1000
+  snapshot_every_n: 1000
+
 # Reward Model Replay buffer settings
 reward_replay:
   size: 1000000
   query_save_dir: null
-  segment_save_dir: null
+  feedback_save_dir: null
   num_workers: 4
   pin_memory: true
   num_queries: 1
+  num_labels: 1
   seq_len: 50
-  segment_batch_size: 256
+  feedback_batch_size: 256
 
 # logging settings
 wandb:  # weight and bias

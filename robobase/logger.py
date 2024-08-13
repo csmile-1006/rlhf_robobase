@@ -16,6 +16,14 @@ COMMON_PRETRAIN_FORMAT = [
     ("agent_batched_updates_per_second", "Batched Update FPS", "float"),
 ]
 
+COMMON_REWARD_PRETRAIN_FORMAT = [
+    ("iteration", "Iter", "int"),
+    ("pref_acc_label_0", "ACC", "float"),
+    ("total_time", "T", "time"),
+    ("buffer_size", "BS", "int"),
+    ("agent_batched_updates_per_second", "Batched Update FPS", "float"),
+]
+
 COMMON_TRAIN_FORMAT = [
     ("iteration", "Iter", "int"),
     ("env_steps", "S", "int"),
@@ -26,6 +34,19 @@ COMMON_TRAIN_FORMAT = [
     ("agent_batched_updates_per_second", "Batched Update FPS", "float"),
     ("total_time", "T", "time"),
 ]
+
+COMMON_REWARD_TRAIN_FORMAT = [
+    ("iteration", "Iter", "int"),
+    ("pref_acc_label_0", "ACC", "float"),
+    ("env_steps", "S", "int"),
+    ("env_episodes", "E", "int"),
+    ("buffer_size", "BS", "int"),
+    ("buffer_sample_time", "BST", "float"),
+    ("env_steps_per_second", "Env FPS", "float"),
+    ("agent_batched_updates_per_second", "Batched Update FPS", "float"),
+    ("total_time", "T", "time"),
+]
+
 
 COMMON_EVAL_FORMAT = [
     ("iteration", "Iter", "int"),
@@ -67,8 +88,12 @@ class MetersGroup(object):
         for key, meter in self._meters.items():
             if key.startswith("pretrain_eval"):
                 key = key[len("pretrain_eval") + 1 :]
+            elif key.startswith("pretrain_reward"):
+                key = key[len("pretrain_reward") + 1 :]
             elif key.startswith("pretrain"):
                 key = key[len("pretrain") + 1 :]
+            elif key.startswith("train_reward"):
+                key = key[len("train_reward") + 1 :]
             elif key.startswith("train"):
                 key = key[len("train") + 1 :]
             else:
@@ -159,6 +184,15 @@ class Logger(object):
         self._eval_mg = MetersGroup(
             log_dir / "eval.csv", COMMON_EVAL_FORMAT, cfg.save_csv
         )
+        if cfg.rlhf.use_rlhf:
+            self._pretrain_reward_mg = MetersGroup(
+                log_dir / "pretrain_reward.csv",
+                COMMON_REWARD_PRETRAIN_FORMAT,
+                cfg.save_csv,
+            )
+            self._train_reward_mg = MetersGroup(
+                log_dir / "train_reward.csv", COMMON_REWARD_TRAIN_FORMAT, cfg.save_csv
+            )
         self._use_wandb = cfg.wandb.use
         self._use_tb = cfg.tb.use
         if self._use_wandb and self._use_tb:
@@ -247,10 +281,14 @@ class Logger(object):
             return
         self._try_log(key, value, step, is_video)
         if np.isscalar(value):
-            if key.startswith("train"):
+            if key.startswith("train_reward"):
+                mg = self._train_reward_mg
+            elif key.startswith("train"):
                 mg = self._train_mg
             elif key.startswith("pretrain_eval"):
                 mg = self._pretrain_eval_mg
+            elif key.startswith("pretrain_reward"):
+                mg = self._pretrain_reward_mg
             elif key.startswith("pretrain"):
                 mg = self._pretrain_mg
             else:
@@ -266,6 +304,10 @@ class Logger(object):
             self._pretrain_mg.dump(step, "pretrain")
         if prefix is None or prefix == "pretrain_eval":
             self._pretrain_eval_mg.dump(step, "pretrain_eval")
+        if prefix is None or prefix == "pretrain_reward":
+            self._pretrain_reward_mg.dump(step, "pretrain_reward")
+        if prefix is None or prefix == "train_reward":
+            self._train_reward_mg.dump(step, "train_reward")
         if self._use_wandb and len(self._wandb_logs):
             wandb.log(self._wandb_logs, step=step)
             self._wandb_logs = {}

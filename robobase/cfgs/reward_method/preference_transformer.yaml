@@ -10,7 +10,7 @@ reward_method:
   # TODO: add an environment wrapper for an extra observation with language embeddings
   # But this would be environment-specific
   use_lang_cond: False
-  num_label: 1
+  num_labels: ${reward_replay.num_labels}
   compute_batch_size: ${batch_size}
   seq_len: ${reward_replay.seq_len}
   use_augmentation: True
@@ -42,4 +42,4 @@ reward_method:
     use_lang_cond: ${reward_method.use_lang_cond}
     seq_len: ${reward_method.seq_len}
     position_embedding: "sine"
-    num_label: ${reward_method.num_label}
+    num_labels: ${reward_method.num_labels}

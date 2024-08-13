@@ -1,15 +1,21 @@
+import logging
+import random
 import shutil
 import signal
 import sys
 import time
-import random
-from typing import Callable, Any
 from functools import partial
-import logging
+from pathlib import Path
+from typing import Any, Callable
 
+import gymnasium as gym
+import hydra
+import numpy as np
+import torch
 from gymnasium import spaces
 from hydra.core.hydra_config import HydraConfig
 from omegaconf import DictConfig
+from torch.utils.data import DataLoader
 
 from robobase import utils
 from robobase.envs.env import EnvFactory
@@ -17,15 +23,8 @@ from robobase.logger import Logger
 from robobase.replay_buffer.prioritized_replay_buffer import PrioritizedReplayBuffer
 from robobase.replay_buffer.replay_buffer import ReplayBuffer
 from robobase.replay_buffer.uniform_replay_buffer import UniformReplayBuffer
-
-
-from pathlib import Path
-
-import hydra
-import numpy as np
-import torch
-import gymnasium as gym
-from torch.utils.data import DataLoader
+from robobase.rlhf_module.comparison import get_comparison_fn
+from robobase.rlhf_module.feedback import get_feedback_fn
 
 torch.backends.cudnn.benchmark = True
 
@@ -67,7 +66,55 @@ def _create_default_replay_buffer(
         extra_replay_elements=extra_replay_elements,
         num_workers=cfg.replay.num_workers,
         sequential=cfg.replay.sequential,
+        purge_replay_on_shutdown=False,
     )
+
+
+def _create_default_reward_replay_buffer(
+    cfg: DictConfig,
+    observation_space: gym.Space,
+    action_space: gym.Space,
+    save_dir: Path = None,
+) -> (ReplayBuffer, ReplayBuffer):
+    extra_replay_elements = spaces.Dict({})
+    if cfg.demos > 0:
+        extra_replay_elements["demo"] = spaces.Box(0, 1, shape=(), dtype=np.uint8)
+
+    # Create replay_class with common hyperparameters
+    from robobase.replay_buffer.rlhf.feedback_replay_buffer import FeedbackReplayBuffer
+    from robobase.replay_buffer.rlhf.query_replay_buffer import QueryReplayBuffer
+
+    query_replay_buffer = QueryReplayBuffer(
+        save_dir=save_dir / "queries",
+        batch_size=(
+            cfg.reward_replay.num_queries + 1
+            if "pairwise" in cfg.rlhf.comparison_type
+            else cfg.reward_replay.num_queries * 2
+        ),
+        replay_capacity=cfg.reward_replay.size,
+        action_shape=action_space.shape,
+        action_dtype=action_space.dtype,
+        observation_elements=observation_space,
+        extra_replay_elements=extra_replay_elements,
+        num_workers=cfg.replay.num_workers,
+        sequential=True,
+        transition_seq_len=cfg.reward_replay.seq_len,
+    )
+    feedback_replay_buffer = FeedbackReplayBuffer(
+        save_dir=save_dir / "feedbacks",
+        batch_size=cfg.reward_replay.feedback_batch_size,
+        replay_capacity=cfg.reward_replay.size,
+        action_shape=action_space.shape,
+        action_dtype=action_space.dtype,
+        observation_elements=observation_space,
+        extra_replay_elements=None,
+        num_workers=cfg.replay.num_workers,
+        sequential=False,
+        transition_seq_len=cfg.reward_replay.seq_len,
+        num_labels=cfg.reward_replay.num_labels,
+        purge_replay_on_shutdown=False,
+    )
+    return query_replay_buffer, feedback_replay_buffer
 
 
 def _create_default_envs(cfg: DictConfig) -> EnvFactory:
@@ -160,14 +207,12 @@ class Workspace:
 
         # Make training environment
         if cfg.num_train_envs > 0:
-            logging.info("Creating train envs")
             self.train_envs = self.env_factory.make_train_env(cfg)
         else:
             self.train_envs = None
             logging.warning("Train env is not created. Training will not be supported ")
 
         # Create evaluation environment
-        logging.info("Creating eval envs")
         self.eval_env = self.env_factory.make_eval_env(cfg)
 
         if num_demos > 0:
@@ -212,6 +257,48 @@ class Workspace:
             worker_init_fn=_worker_init_fn,
         )
         self._replay_iter = None
+
+        self.use_rlhf = cfg.rlhf.use_rlhf
+        if self.use_rlhf:
+            self.reward_model = hydra.utils.instantiate(
+                cfg.reward_method,
+                device=self.device,
+                observation_space=observation_space,
+                action_space=action_space,
+            )
+            self.reward_model.train(False)
+            self.replay_buffer.set_reward_model(self.reward_model)
+
+            (
+                self.query_replay_buffer,
+                self.feedback_replay_buffer,
+            ) = _create_default_reward_replay_buffer(
+                cfg, observation_space, action_space, save_dir=self.work_dir
+            )
+            self.query_replay_loader = DataLoader(
+                self.query_replay_buffer,
+                batch_size=self.query_replay_buffer.batch_size,
+                num_workers=cfg.replay.num_workers,
+                pin_memory=cfg.replay.pin_memory,
+                worker_init_fn=_worker_init_fn,
+            )
+            self.feedback_replay_loader = DataLoader(
+                self.feedback_replay_buffer,
+                batch_size=self.feedback_replay_buffer.batch_size,
+                num_workers=cfg.replay.num_workers,
+                pin_memory=cfg.replay.pin_memory,
+                worker_init_fn=_worker_init_fn,
+            )
+            self._query_replay_iter, self._feedback_replay_iter = None, None
+
+            # RLHF settings
+            self._reward_pretrain_step = 0
+            self._total_feedback = 0
+
+            feedback_fn = get_feedback_fn(cfg.rlhf.feedback_type)
+            self._comparison_fn = partial(
+                get_comparison_fn(cfg.rlhf.comparison_type), feedback_fn=feedback_fn
+            )
 
         # Create a separate demo replay that contains successful episodes.
         # This is designed for RL. IL algorithms don't have to use this!
@@ -267,6 +354,14 @@ class Workspace:
         return self._pretrain_step
 
     @property
+    def reward_pretrain_steps(self):
+        return self._reward_pretrain_step
+
+    @property
+    def total_feedback(self):
+        return self._total_feedback
+
+    @property
     def main_loop_iterations(self):
         return self._main_loop_iterations
 
@@ -304,6 +399,24 @@ class Workspace:
             self._replay_iter = _replay_iter
         return self._replay_iter
 
+    @property
+    def query_replay_iter(self):
+        if not self.use_rlhf:
+            raise ValueError("reward replay is not enabled")
+        if self._query_replay_iter is None:
+            _query_replay_iter = iter(self.query_replay_loader)
+            self._query_replay_iter = _query_replay_iter
+        return self._query_replay_iter
+
+    @property
+    def feedback_replay_iter(self):
+        if not self.use_rlhf:
+            raise ValueError("reward replay is not enabled")
+        if self._feedback_replay_iter is None:
+            _feedback_replay_iter = iter(self.feedback_replay_loader)
+            self._feedback_replay_iter = _feedback_replay_iter
+        return self._feedback_replay_iter
+
     def train(self):
         signal.signal(signal.SIGINT, self._signal_handler)
         if not self.train_envs:
@@ -321,11 +434,16 @@ class Workspace:
         # Perform pretraining. This is suitable for behaviour cloning or Offline RL
         self._pretrain_on_demos()
 
+        if self.use_rlhf:
+            self._pretrain_reward_model_on_demos()
+
         # Perform online rl with exploration.
         self._online_rl()
 
         if self.cfg.save_snapshot:
             self.save_snapshot()
+            if self.use_rlhf:
+                self.save_reward_model_snapshot()
 
         self.shutdown()
 
@@ -433,6 +551,9 @@ class Workspace:
                 final_info = last_next_info["final_info"]
                 task_success = int(final_info.get("task_success", 0) > 0.0)
 
+                # Re-labeling demonstrations with reward model
+                ep = self.reward_model.compute_reward(ep)
+
                 # Re-labeling successful demonstrations as success, following CQN
                 relabeling_as_demo = (
                     task_success
@@ -466,6 +587,10 @@ class Workspace:
                         self.demo_replay_buffer.add(
                             obs, act, rew, term, trunc, **extra_replay_elements
                         )
+                    if self.use_rlhf:
+                        self.query_replay_buffer.add(
+                            obs, act, rew, term, trunc, **extra_replay_elements
+                        )
 
                 # Add final obs
                 # Only keep the last frames regardless of frame stacks because
@@ -474,6 +599,8 @@ class Workspace:
                 self.replay_buffer.add_final(final_obs)
                 if relabeling_as_demo:
                     self.demo_replay_buffer.add_final(final_obs)
+                if self.use_rlhf:
+                    self.query_replay_buffer.add_final(final_obs)
 
                 # clean up
                 self._global_env_episode += 1
@@ -493,6 +620,11 @@ class Workspace:
                 # Load demos to the dedicated demo_replay_buffer
                 self.env_factory.load_demos_into_replay(
                     self.cfg, self.demo_replay_buffer
+                )
+            if self.use_rlhf:
+                # Load demos to the dedicated query_replay_buffer
+                self.env_factory.load_demos_into_replay(
+                    self.cfg, self.query_replay_buffer
                 )
 
         if self.cfg.replay_size_before_train > 0:
@@ -527,6 +659,39 @@ class Workspace:
             metrics["agent_updates_per_second"] = (
                 self.train_envs.num_envs * self.cfg.batch_size
             ) / execution_time_for_update
+        return metrics
+
+    def collect_feedback(self):
+        query_batch = next(self.query_replay_iter)
+        feedbacks = self._comparison_fn(segments=query_batch)
+        for feedback in feedbacks:
+            self.feedback_replay_buffer.add_feedback(
+                feedback["segment_0"], feedback["segment_1"], feedback["label"]
+            )
+        self._total_feedback += len(feedbacks)
+
+    def _perform_reward_model_updates(self) -> dict[str, Any]:
+        if self.reward_model.logging:
+            start_time = time.time()
+        metrics = {}
+        self.reward_model.train(True)
+        metrics.update(
+            self.reward_model.update(
+                self.feedback_replay_iter,
+                self.main_loop_iterations,
+                self.feedback_replay_buffer,
+            )
+        )
+        self.reward_model.train(False)
+        if self.reward_model.logging:
+            execution_time_for_update = time.time() - start_time
+            metrics["reward_model_batched_updates_per_second"] = (
+                1 / execution_time_for_update
+            )
+            metrics["agent_updates_per_second"] = (
+                1 * self.cfg.reward_replay.feedback_batch_size
+            ) / execution_time_for_update
+
         return metrics
 
     def _perform_env_steps(
@@ -616,6 +781,38 @@ class Workspace:
 
                 self._pretrain_step += 1
 
+    def _pretrain_reward_model_on_demos(self):
+        if self.cfg.rlhf.num_pretrain_steps > 0:
+            pre_train_until_step = utils.Until(self.cfg.rlhf.num_pretrain_steps)
+            should_pretrain_log = utils.Every(self.cfg.log_pretrain_every)
+            if self.cfg.log_pretrain_every > 0:
+                assert (
+                    self.cfg.rlhf.num_pretrain_steps % self.cfg.log_pretrain_every == 0
+                )
+            self.collect_feedback()
+            if len(self.feedback_replay_buffer) <= 0:
+                raise ValueError(
+                    "there is no sample to pre-train with in the replay buffer "
+                    f"but num_pretrain_steps ({self.cfg.num_pretrain_steps}) is > 0"
+                )
+
+            while pre_train_until_step(self.reward_pretrain_steps):
+                self.reward_model.logging = False
+
+                if should_pretrain_log(self.reward_pretrain_steps):
+                    self.reward_model.logging = True
+                pretrain_metrics = self._perform_reward_model_updates()
+
+                if should_pretrain_log(self.reward_pretrain_steps):
+                    pretrain_metrics.update(self._get_common_metrics())
+                    self.logger.log_metrics(
+                        pretrain_metrics,
+                        self.reward_pretrain_steps,
+                        prefix="pretrain_reward",
+                    )
+
+                self._reward_pretrain_step += 1
+
     def _online_rl(self):
         train_until_frame = utils.Until(self.cfg.num_train_frames)
         seed_until_size = utils.Until(self.cfg.replay_size_before_train)
@@ -624,18 +821,53 @@ class Workspace:
         should_eval = utils.Every(eval_every_n)
         snapshot_every_n = self.cfg.snapshot_every_n if self.cfg.save_snapshot else 0
         should_save_snapshot = utils.Every(snapshot_every_n)
+        snapshot_reward_model_every_n = (
+            self.cfg.rlhf.snapshot_every_n if self.cfg.save_snapshot else 0
+        )
+        should_save_reward_model_snapshot = utils.Every(snapshot_reward_model_every_n)
+        if self.use_rlhf:
+            should_update_reward_model = utils.Every(self.cfg.rlhf.update_every_steps)
         observations, info = self.train_envs.reset()
         #  We use agent 0 to accumulate stats about how the training agents are doing
         agent_0_ep_len = agent_0_reward = 0
         agent_0_prev_ep_len = agent_0_prev_reward = None
         while train_until_frame(self.global_env_steps):
             metrics = {}
+
             self.agent.logging = False
             if should_log(self.main_loop_iterations):
                 self.agent.logging = True
             if not seed_until_size(len(self.replay_buffer)):
                 update_metrics = self._perform_updates()
                 metrics.update(update_metrics)
+
+            if self.use_rlhf:
+                self.reward_model.logging = False
+                if (
+                    self.total_feedback < self.cfg.rlhf.max_feedback
+                    and should_update_reward_model(self.main_loop_iterations)
+                ):
+                    self.reward_model.logging = True
+                    logging.info(
+                        f"[Feedback {self.total_feedback} / {self.cfg.rlhf.max_feedback}] Collecting human feedback for {self.cfg.reward_replay.num_queries} queries"  # noqa
+                    )
+                    self.collect_feedback()
+                    for it in range(self.cfg.rlhf.num_train_frames):
+                        reward_update_metrics = self._perform_reward_model_updates()
+                        metrics.update(reward_update_metrics)
+                        if should_log(it):
+                            self.logger.log_metrics(
+                                metrics, self.global_env_steps, prefix="train_reward"
+                            )
+                    self.replay_buffer.relabel_with_predictor(self.reward_model)
+                    if self.use_demo_replay:
+                        self.demo_replay_buffer.relabel_with_predictor(
+                            self.reward_model
+                        )
+                    metrics = {}
+
+                if should_save_reward_model_snapshot(self.main_loop_iterations):
+                    self.save_reward_model_snapshot()
 
             (
                 action,
@@ -741,5 +973,39 @@ class Workspace:
         with path_to_snapshot_to_load.open("rb") as f:
             payload = torch.load(f, map_location="cpu")
         self.agent.load_state_dict(payload.pop("agent"))
+        for k, v in payload.items():
+            self.__dict__[k] = v
+
+    def save_reward_model_snapshot(self):
+        snapshot = self.work_dir / "snapshots" / f"{self.global_env_steps}_snapshot.pt"
+        snapshot.parent.mkdir(parents=True, exist_ok=True)
+        keys_to_save = [
+            "_pretrain_step",
+            "_main_loop_iterations",
+            "_global_env_episode",
+            "_total_feedback",
+            "cfg",
+        ]
+        payload = {k: self.__dict__[k] for k in keys_to_save}
+        payload["reward_model"] = self.reward_model.state_dict()
+        with snapshot.open("wb") as f:
+            torch.save(payload, f)
+        latest_snapshot = self.work_dir / "snapshots" / "latest_snapshot.pt"
+        shutil.copy(snapshot, latest_snapshot)
+
+    def load_reward_model_snapshot(self, path_to_snapshot_to_load=None):
+        if path_to_snapshot_to_load is None:
+            path_to_snapshot_to_load = (
+                self.work_dir / "snapshots" / "latest_snapshot.pt"
+            )
+        else:
+            path_to_snapshot_to_load = Path(path_to_snapshot_to_load)
+        if not path_to_snapshot_to_load.is_file():
+            raise ValueError(
+                f"Provided file '{str(path_to_snapshot_to_load)}' is not a snapshot."
+            )
+        with path_to_snapshot_to_load.open("rb") as f:
+            payload = torch.load(f, map_location="cpu")
+        self.reward_model.load_state_dict(payload.pop("reward_model"))
         for k, v in payload.items():
             self.__dict__[k] = v

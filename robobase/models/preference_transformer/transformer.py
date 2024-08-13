@@ -38,7 +38,9 @@ class CausalTransformer(nn.Module):
     ):
         super().__init__()
 
-        decoder_layer = TransformerDecoderLayer(d_model, nhead, dim_feedforward, dropout, activation, norm_first)
+        decoder_layer = TransformerDecoderLayer(
+            d_model, nhead, dim_feedforward, dropout, activation, norm_first
+        )
         decoder_norm = nn.LayerNorm(d_model)
         self.decoder = TransformerDecoder(
             decoder_layer,
@@ -180,7 +182,14 @@ class TransformerDecoderLayer(nn.Module):
     ) -> Tensor:
         q = k = self.with_pos_embed(x, pos)
         # NOTE: Order is different in original implementation x, x, x
-        x = self.self_attn(q, k, x, attn_mask=attn_mask, key_padding_mask=key_padding_mask, is_causal=True)[0]
+        x = self.self_attn(
+            q,
+            k,
+            x,
+            attn_mask=attn_mask,
+            key_padding_mask=key_padding_mask,
+            is_causal=True,
+        )[0]
         return self.dropout1(x)
 
     # feedforward block
@@ -225,19 +234,25 @@ class MultiViewTransformerDecoderPT(FusionModule):
         use_lang_cond: bool = False,
         position_embedding: str = "sine",
         causal_attn: bool = True,
-        num_label: int = 1,
+        num_labels: int = 1,
     ):
         super().__init__(input_shape=input_shape)
         self.dec_layers = dec_layers
         self.state_dim = state_dim
         self.seq_len = seq_len
         self.use_lang_cond = use_lang_cond
-        self.num_label = num_label
+        self.num_labels = num_labels
 
         # encoder extra parameters
-        self.encoder_rgb_feat_proj = nn.Linear(np.prod(input_shape), hidden_dim)  # project rgb to embedding
-        self.encoder_action_proj = nn.Linear(action_dim, hidden_dim)  # project action to embedding
-        self.encoder_joint_proj = nn.Linear(self.state_dim, hidden_dim)  # project qpos to embedding
+        self.encoder_rgb_feat_proj = nn.Linear(
+            np.prod(input_shape), hidden_dim
+        )  # project rgb to embedding
+        self.encoder_action_proj = nn.Linear(
+            action_dim, hidden_dim
+        )  # project action to embedding
+        self.encoder_joint_proj = nn.Linear(
+            self.state_dim, hidden_dim
+        )  # project qpos to embedding
 
         if position_embedding == "sine":
             self.register_buffer(
@@ -258,7 +273,11 @@ class MultiViewTransformerDecoderPT(FusionModule):
             # and others (including diag) should be 0.
             sz = seq_len
             mask = (torch.triu(torch.ones(sz, sz)) == 1).transpose(0, 1)
-            mask = mask.float().masked_fill(mask == 0, float("-inf")).masked_fill(mask == 1, float(0.0))
+            mask = (
+                mask.float()
+                .masked_fill(mask == 0, float("-inf"))
+                .masked_fill(mask == 1, float(0.0))
+            )
             self.register_buffer("mask", mask)
         else:
             self.mask = None
@@ -273,7 +292,7 @@ class MultiViewTransformerDecoderPT(FusionModule):
             norm_first=pre_norm,
             return_intermediate_dec=False,
         )
-        self.reward_head = nn.Linear(hidden_dim * 3, self.num_label)
+        self.reward_head = nn.Linear(hidden_dim * 3, self.num_labels)
         self.criterion = nn.CrossEntropyLoss()
 
     @property
@@ -294,7 +313,7 @@ class MultiViewTransformerDecoderPT(FusionModule):
             rgb_feat (torch.Tensor): Tensor containing image features.
             qpos (torch.Tensor): Tensor containing proprioception features.
             actions (torch.Tensor, optional): Tensor containing action sequences.
-            attn_mask (torch.Tensor, optional): Tensor containing attention mask. (required for first elements.)
+            attn_mask (torch.Tensor, optional): Tensor containing attention mask.
 
         Returns:
             reward_hat (torch.Tensor): reward prediction.
@@ -321,7 +340,9 @@ class MultiViewTransformerDecoderPT(FusionModule):
         # Apply transformer block
         # Change to get the last output after passing through all decoder layer.
         # Fix the bug https://github.com/tonyzhaozh/act/issues/25#issue-2258740521
-        hs = self.transformer(input, self.mask if attn_mask is None else attn_mask, pos_embed)[:, -1]
+        hs = self.transformer(
+            input, self.mask if attn_mask is None else attn_mask, pos_embed
+        )[:, -1]
         reward_hat = self.reward_head(hs)
 
         return reward_hat

@@ -43,7 +43,7 @@ class PreferenceTransformer(RewardMethod):
         lr_backbone: float = 1e-5,
         weight_decay: float = 1e-4,
         use_lang_cond: bool = False,
-        num_label: int = 1,
+        num_labels: int = 1,
         seq_len: int = 50,
         compute_batch_size: int = 32,
         use_augmentation: bool = False,
@@ -66,7 +66,7 @@ class PreferenceTransformer(RewardMethod):
 
         self.adaptive_lr = adaptive_lr
         self.num_train_steps = num_train_steps
-        self.num_label = num_label
+        self.num_labels = num_labels
         self.seq_len = seq_len
         self.compute_batch_size = compute_batch_size
         self.encoder_model = encoder_model
@@ -97,6 +97,8 @@ class PreferenceTransformer(RewardMethod):
                 num_training_steps=num_train_steps,
             )
 
+        self._is_relabel = True
+
     @property
     def low_dim_size(self) -> int:
         low_dim_state_spec = extract_from_spec(
@@ -118,8 +120,9 @@ class PreferenceTransformer(RewardMethod):
             ), "Expected all RGB obs to be same shape."
 
             num_views = len(rgb_shapes)
-            # Multiply first two dimensions to consider frame stacking
-            obs_shape = (np.prod(rgb_shapes[0][:2]), *rgb_shapes[0][2:])
+            ## Multiply first two dimensions to consider frame stacking
+            # This module must ignore frame stacking (b/c input would be 1 frame)
+            obs_shape = (1 * rgb_shapes[0][1], *rgb_shapes[0][2:])
             self.encoder = self.encoder_model(input_shape=(num_views, *obs_shape))
             self.encoder.to(self.device)
             self.encoder_opt = None
@@ -154,7 +157,7 @@ class PreferenceTransformer(RewardMethod):
     def build_reward_model(self):
         self.reward = self.reward_model(
             input_shape=self.encoder.output_shape,
-            state_dim=np.prod(self.observation_space["low_dim_state"].shape),
+            state_dim=np.prod(self.observation_space["low_dim_state"].shape[1:]),
             action_dim=self.action_space.shape[-1],
         )
         self.reward.to(self.device)
@@ -186,7 +189,9 @@ class PreferenceTransformer(RewardMethod):
         return fused_rgb_feats
 
     @override
-    def compute_reward(self, seq: Sequence) -> torch.Tensor:
+    def compute_reward(
+        self, seq: Sequence, _obs_signature: Sequence = None
+    ) -> torch.Tensor:
         """
         Compute the reward from sequences.
 
@@ -201,29 +206,61 @@ class PreferenceTransformer(RewardMethod):
         """
 
         start_idx = 0
-        T = len(seq) - start_idx
         seq_len = self.seq_len
+        if isinstance(seq, list):
+            T = len(seq) - start_idx
 
-        if len(seq) < self.seq_len:
-            raise InvalidSequenceError(
-                f"Input sequence must be at least {self.seq_len_steps} steps long.\
-                Seq len is {len(seq)}"
-            )
+            if len(seq) < self.seq_len:
+                raise InvalidSequenceError(
+                    f"Input sequence must be at least {self.seq_len_steps} steps long.\
+                    Seq len is {len(seq)}"
+                )
 
-        # seq: list of (action, obs, reward, term, trunc, info, next_info)
-        actions = torch.from_numpy(np.stack([elem[0] for elem in seq]))
-        if seq[0][1]["low_dim_state"].ndim > 1:
-            list_of_obs_dicts = [{k: v[-1] for k, v in elem[1].items()} for elem in seq]
-        else:
-            list_of_obs_dicts = [elem[1] for elem in seq]
+            # seq: list of (action, obs, reward, term, trunc, info, next_info)
+            actions = torch.from_numpy(np.stack([elem[0] for elem in seq]))
+            if actions.ndim > 2:
+                actions = actions[..., -1, :]
+            if seq[0][1]["low_dim_state"].ndim > 1:
+                list_of_obs_dicts = [
+                    {k: v[-1] for k, v in elem[1].items()} for elem in seq
+                ]
+            else:
+                list_of_obs_dicts = [elem[1] for elem in seq]
 
-        obs = {key: [] for key in list_of_obs_dicts[0].keys()}
-        for obs_dict in list_of_obs_dicts:
-            for key, val in obs_dict.items():
-                obs[key].append(val)
-        obs = {key: torch.from_numpy(np.stack(val)) for key, val in obs.items()}
-        # obs: (T, elem_shape) for elem in obs
-        # actions: (T, action_shape)
+            obs = {key: [] for key in list_of_obs_dicts[0].keys()}
+            for obs_dict in list_of_obs_dicts:
+                for key, val in obs_dict.items():
+                    obs[key].append(val)
+            obs = {key: torch.from_numpy(np.stack(val)) for key, val in obs.items()}
+            # obs: (T, elem_shape) for elem in obs
+            # actions: (T, action_shape)
+        elif isinstance(seq, dict):
+            assert _obs_signature is not None, "Need obs_signature for dict input."
+            T = len(seq["action"]) - start_idx
+
+            if T < self.seq_len:
+                raise InvalidSequenceError(
+                    f"Input sequence must be at least {self.seq_len_steps} steps long.\
+                    Seq len is {T}"
+                )
+
+            actions = torch.from_numpy(seq["action"])
+            if actions.ndim > 2:
+                actions = actions[..., -1, :]
+            if seq["low_dim_state"].ndim > 2:
+                obs = {
+                    key: torch.from_numpy(val[start_idx:, -1])
+                    for key, val in seq.items()
+                    if key in _obs_signature
+                }
+            else:
+                obs = {
+                    key: torch.from_numpy(val[start_idx:])
+                    for key, val in seq.items()
+                    if key in _obs_signature
+                }
+            # obs: (T, elem_shape) for elem in obs
+            # actions: (T, action_shape)
 
         idxs = list(range(T - self.seq_len + 1))
         rgbs = (
@@ -302,8 +339,14 @@ class PreferenceTransformer(RewardMethod):
         total_rewards = (
             torch.cat([first_rewards, rewards], dim=0).mean(dim=1).cpu().numpy()
         )
-        for idx in range(len(seq)):
-            seq[idx][2] = total_rewards[idx]
+
+        if isinstance(seq, list):
+            for idx in range(len(seq)):
+                seq[idx] = list(seq[idx])
+                seq[idx][2] = total_rewards[idx]
+
+        elif isinstance(seq, dict):
+            seq["reward"] = total_rewards
 
         return seq
 
@@ -373,7 +416,7 @@ class PreferenceTransformer(RewardMethod):
 
         if self.logging:
             metrics["reward_loss"] = loss_dict["loss"].item()
-            for label in range(self.num_label):
+            for label in range(self.num_labels):
                 metrics[f"pref_acc_label_{label}"] = loss_dict[
                     f"pref_acc_label_{label}"
                 ].item()

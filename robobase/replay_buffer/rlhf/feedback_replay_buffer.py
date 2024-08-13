@@ -43,7 +43,7 @@ def episode_len(episode):
     return next(iter(episode.values())).shape[1] - 1
 
 
-class SegmentReplayBuffer(ReplayBuffer):
+class FeedbackReplayBuffer(ReplayBuffer):
     """A simple Replay Buffer for training reward model from preferences.
 
     Stores transitions, state, action, next_state, terminal (and any
@@ -179,7 +179,7 @@ class SegmentReplayBuffer(ReplayBuffer):
 
         if sequential or action_seq_len != transition_seq_len:
             raise ValueError(
-                "Segment replay buffer must have non-sequential replay and\
+                "Feedback replay buffer must have non-sequential replay and\
                 action_seq_len == transition_seq_len."
             )
 
@@ -305,7 +305,7 @@ class SegmentReplayBuffer(ReplayBuffer):
 
         return storage_elements, obs_elements
 
-    def add_segment(self, segment_0, segment_1, label, **kwargs):
+    def add_feedback(self, segment_0, segment_1, label, **kwargs):
         """Adds a pair of segments to the replay memory."""
         transition = {}
         for idx, seg in enumerate([segment_0, segment_1]):

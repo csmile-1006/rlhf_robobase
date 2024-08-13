@@ -1,0 +1,87 @@
+# @package _global_
+# DrQ-v2+ baseline introduced in CQN paper
+
+defaults:
+  - ../method: drqv2
+  - ../reward_method: preference_transformer
+  - ../env: null
+
+pixels: true
+visual_observation_shape: [84, 84]
+frame_stack: 8
+action_repeat: 1
+
+demos: 30
+use_min_max_normalization: true
+min_max_margin: 0
+norm_obs: true
+use_standardization: false
+batch_size: 256
+demo_batch_size: 256
+num_pretrain_steps: 0
+num_explore_steps: 0
+# replay_size_before_train: 500
+use_self_imitation: true
+num_train_frames: 30100
+
+# temporal settings
+log_every: 1
+log_pretrain_every: 1
+env:
+  episode_length: 1000
+  demo_down_sample_rate: 20
+replay_size_before_train: 1000
+
+num_eval_episodes: 5
+eval_every_steps: 0
+# eval_every_steps: 2000
+
+update_every_steps: 1
+replay:
+  nstep: 1
+  size: 50000
+  demo_size: 50000
+  num_workers: 0
+  save_snapshot: true
+
+rlhf:
+  use_rlhf: true
+  feedback_type: random
+  comparison_type: root_pairwise
+  max_feedback: 500
+  update_every_steps: 100
+  num_pretrain_steps: 3
+  num_train_frames: 3
+  snapshot_every_n: 10
+
+reward_replay:
+  num_queries: 50
+  num_labels: 1
+  # seq_len: 50
+  seq_len: 10
+  feedback_batch_size: 16
+
+method:
+  bc_lambda: 1.0
+  stddev_schedule: 0.01
+  weight_decay: 0.1
+  always_bootstrap: true
+  distributional_critic: true
+  distributional_critic_limit: 2
+  distributional_critic_atoms: 101
+  distributional_critic_transform: false
+
+  critic_model:
+    output_shape: [101, 1]
+
+  encoder_model:
+    kernel_size: 4
+    padding: 1
+    channels_multiplier: 2
+    num_downsample_convs: 4
+    num_post_downsample_convs: 0
+
+hydra:
+  run:
+    # dir: ./exp_local/pixel_drqv2+/rlbench_${env.task_name}_${now:%Y%m%d%H%M%S}
+    dir: ./debug/pixel_drqv2+/bigym_${env.task_name}_${now:%Y%m%d%H%M%S}

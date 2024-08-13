@@ -260,7 +260,7 @@ class UniformReplayBuffer(ReplayBuffer):
         self._num_workers = num_workers
         self._fetch_every = fetch_every
         self._samples_since_last_fetch = self._fetch_every
-        save_snapshot = False
+        save_snapshot = True
         self._save_snapshot = save_snapshot
 
         logging.info(
@@ -273,6 +273,9 @@ class UniformReplayBuffer(ReplayBuffer):
         logging.info("\t nstep: %d", self._nstep)
         logging.info("\t gamma: %f", self._gamma)
         self._is_first = True
+
+    def set_reward_model(self, reward_model):
+        self._reward_model = reward_model
 
     @property
     def frame_stack(self):
@@ -630,6 +633,13 @@ class UniformReplayBuffer(ReplayBuffer):
             if not self._load_episode_into_worker(eps_fn, global_idx):
                 break
 
+    def _try_relabel(self):
+        if (
+            getattr(self, "_reward_model", None) is not None
+            and self._samples_since_last_fetch == 0
+        ):
+            self.relabel_with_predictor(self._reward_model)
+
     def _flatten_episodes(self, episodes: list[dict]):
         for ep in episodes:
             is_first = np.zeros(episode_len(ep) + 1, np.int8)
@@ -813,6 +823,7 @@ class UniformReplayBuffer(ReplayBuffer):
         """
         # index here is the "global" index of a flattened sample
         self._try_fetch()
+        # self._try_relabel()
 
         self._samples_since_last_fetch += 1
 
@@ -842,3 +853,21 @@ class UniformReplayBuffer(ReplayBuffer):
     def __iter__(self):
         while True:
             yield self.sample_single()
+
+    def relabel_with_predictor(self, reward_model):
+        """Relabels the rewards in the replay buffer using a reward model.
+
+        Args:
+            reward_model (torch.nn.Module): The reward model to use for relabelling.
+        """
+        for episode_fn in self._episode_files:
+            episode = self._episodes[episode_fn]
+            self._episodes[episode_fn] = reward_model.compute_reward(
+                episode, _obs_signature=self._obs_signature
+            )
+            # for i in range(episode_len(episode)):
+            #     sample = self.sample_single(i)
+            #     obs = {k: torch.from_numpy(v) for k, v in sample.items()}
+            #     reward = reward_model(obs)
+            #     episode[REWARD][i] = reward.item()
+            #     self._episodes[episode_fn] = episode

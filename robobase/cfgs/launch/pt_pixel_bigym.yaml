@@ -22,8 +22,8 @@ update_every_steps: 1
 reward_replay:
   num_queries: 100
   seq_len: 50
-  segment_save_dir: ./preferences
-  segment_batch_size: 16
+  feedback_save_dir: ./preference_only_failure
+  feedback_batch_size: 16
 
 
 replay:

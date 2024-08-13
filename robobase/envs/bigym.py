@@ -250,21 +250,25 @@ class BiGymEnvFactory(EnvFactory):
         )
         self._demos = self._demo_to_steps(cfg, demo_list)
 
-    def load_demos_into_replay(self, cfg: DictConfig, buffer):
+    def load_demos_into_replay(
+        self, cfg: DictConfig, buffer, target_indices: list[int] = None
+    ):
         """See base class for documentation."""
         assert hasattr(self, "_demos"), (
             "There's no _demo attribute inside the factory, "
             "Check `collect_or_fetch_demos` is called before calling this method."
         )
+        if target_indices:
+            demos = [self._demos[i] for i in target_indices]
+        else:
+            demos = self._demos
         demo_env = self._wrap_env(
-            DemoEnv(
-                copy.deepcopy(self._demos), self._action_space, self._observation_space
-            ),
+            DemoEnv(copy.deepcopy(demos), self._action_space, self._observation_space),
             cfg,
             demo_env=True,
             train=False,
         )
-        for _ in range(len(self._demos)):
+        for _ in range(len(demos)):
             add_demo_to_replay_buffer(demo_env, buffer)
 
     def load_demos_into_rollouts(self, cfg: DictConfig):
