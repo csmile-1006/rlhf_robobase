@@ -64,6 +64,7 @@ rlhf:
   use_rlhf: false
   feedback_type: random
   comparison_type: root_pairwise
+  query_type: timestep
   max_feedback: 1000
   update_every_steps: 1
   num_pretrain_steps: 0

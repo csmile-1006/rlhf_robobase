@@ -3,6 +3,7 @@ from bigym.action_modes import JointPositionActionMode
 from robobase.utils import (
     DemoEnv,
     add_demo_to_replay_buffer,
+    add_demo_to_query_replay_buffer,
     convert_demo_to_episode_rollouts,
 )
 from robobase.envs.utils.bigym_utils import TASK_MAP
@@ -27,6 +28,8 @@ import numpy as np
 from demonstrations.demo import DemoStep
 from demonstrations.demo_store import DemoStore
 from demonstrations.utils import Metadata
+
+from robobase.replay_buffer.rlhf.query_replay_buffer import QueryReplayBuffer
 
 from typing import List, Dict, Tuple, Callable
 import copy
@@ -268,8 +271,13 @@ class BiGymEnvFactory(EnvFactory):
             demo_env=True,
             train=False,
         )
+        add_demo_fn = (
+            add_demo_to_query_replay_buffer
+            if isinstance(buffer, QueryReplayBuffer)
+            else add_demo_to_replay_buffer
+        )
         for _ in range(len(demos)):
-            add_demo_to_replay_buffer(demo_env, buffer)
+            add_demo_fn(demo_env, buffer)
 
     def load_demos_into_rollouts(self, cfg: DictConfig):
         """See base class for documentation."""

@@ -205,6 +205,8 @@ class Logger(object):
             import wandb
 
             cfg_dict = OmegaConf.to_container(cfg, resolve=False)
+            if cfg.wandb.name is None:
+                cfg.wandb.name = self._log_dir.split("/")[-1]
 
             wandb.init(
                 project=cfg.wandb.project,

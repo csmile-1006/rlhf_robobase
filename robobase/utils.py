@@ -567,7 +567,7 @@ def add_demo_to_replay_buffer(wrapped_env: DemoEnv, replay_buffer: ReplayBuffer)
         wrapped_env: the fully wrapped environment.
         replay_buffer: replay buffer to be loaded.
     """
-    # is_sequential = replay_buffer.sequential
+    is_sequential = replay_buffer.sequential
     ep = []
 
     # Extract demonstration episode in replay buffer transitions
@@ -587,8 +587,38 @@ def add_demo_to_replay_buffer(wrapped_env: DemoEnv, replay_buffer: ReplayBuffer)
     for obs, action, rew, term, trunc, info, _ in ep:
         replay_buffer.add(obs, action, rew, term, trunc, demo=info["demo"])
 
-    # if not is_sequential:
-    #     replay_buffer.add_final(final_obs)
+    if not is_sequential:
+        replay_buffer.add_final(final_obs)
+
+
+def add_demo_to_query_replay_buffer(wrapped_env: DemoEnv, replay_buffer: ReplayBuffer):
+    """Loads demos into replay buffer by passing observations through wrappers.
+
+    CYCLING THROUGH DEMOS IS HANDLED BY WRAPPED ENV.
+
+    Args:
+        wrapped_env: the fully wrapped environment.
+        replay_buffer: replay buffer to be loaded.
+    """
+    ep = []
+
+    # Extract demonstration episode in replay buffer transitions
+    obs, info = wrapped_env.reset()
+    fake_action = wrapped_env.action_space.sample()
+    term, trunc = False, False
+    while not (term or trunc):
+        next_obs, rew, term, trunc, next_info = wrapped_env.step(fake_action)
+        action = next_info.pop("demo_action")
+        assert np.all(action <= 1.0)
+        assert np.all(action >= -1.0)
+        ep.append([obs, action, rew, term, trunc, info, next_info])
+        obs = next_obs
+        info = next_info
+    final_obs, _ = obs, info
+
+    for idx, (obs, action, rew, term, trunc, info, _) in enumerate(ep):
+        replay_buffer.add(obs, action, rew, term, trunc, idx, demo=info["demo"])
+
     replay_buffer.add_final(final_obs)
 
 

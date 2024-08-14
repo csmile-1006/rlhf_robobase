@@ -560,6 +560,7 @@ class Workspace:
                     and self.use_demo_replay
                     and self.cfg.use_self_imitation
                 )
+                ep_index = 0
                 for act, obs, rew, term, trunc, info, next_info in ep:
                     # Only keep the last frames regardless of frame stacks because
                     # replay buffer always store single-step transitions
@@ -589,8 +590,15 @@ class Workspace:
                         )
                     if self.use_rlhf:
                         self.query_replay_buffer.add(
-                            obs, act, rew, term, trunc, **extra_replay_elements
+                            obs,
+                            act,
+                            rew,
+                            term,
+                            trunc,
+                            ep_index,
+                            **extra_replay_elements,
                         )
+                    ep_index += 1
 
                 # Add final obs
                 # Only keep the last frames regardless of frame stacks because
@@ -805,6 +813,7 @@ class Workspace:
 
                 if should_pretrain_log(self.reward_pretrain_steps):
                     pretrain_metrics.update(self._get_common_metrics())
+                    pretrain_metrics["iteration"] = self.reward_pretrain_steps
                     self.logger.log_metrics(
                         pretrain_metrics,
                         self.reward_pretrain_steps,
@@ -846,6 +855,7 @@ class Workspace:
                 if (
                     self.total_feedback < self.cfg.rlhf.max_feedback
                     and should_update_reward_model(self.main_loop_iterations)
+                    and not (self.main_loop_iterations == 0 and self.pretrain_steps > 0)
                 ):
                     self.reward_model.logging = True
                     logging.info(
@@ -855,6 +865,7 @@ class Workspace:
                     for it in range(self.cfg.rlhf.num_train_frames):
                         reward_update_metrics = self._perform_reward_model_updates()
                         metrics.update(reward_update_metrics)
+                        metrics["iteration"] = it
                         if should_log(it):
                             self.logger.log_metrics(
                                 metrics, self.global_env_steps, prefix="train_reward"

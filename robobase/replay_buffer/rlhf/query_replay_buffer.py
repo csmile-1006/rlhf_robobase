@@ -157,14 +157,20 @@ class QueryReplayBuffer(ReplayBuffer):
         new_action_shape = action_shape[1:]
 
         if not np.all(time_dims[0] == np.array(time_dims)):
-            raise ValueError("Expected all observation spaces to have same temporal dimension.")
+            raise ValueError(
+                "Expected all observation spaces to have same temporal dimension."
+            )
         frame_stack = time_dims[0]
 
         if sequential and replay_capacity < 1 + transition_seq_len:
-            raise ValueError("There is not enough capacity to cover nstep and transition_seq_len.")
+            raise ValueError(
+                "There is not enough capacity to cover nstep and transition_seq_len."
+            )
 
         if sequential and action_seq_len != 1:
-            raise ValueError("Sequential replay buffer does not support action sequence length != 1")
+            raise ValueError(
+                "Sequential replay buffer does not support action sequence length != 1"
+            )
 
         self._tmpdir = None
         if save_dir is None:
@@ -278,7 +284,9 @@ class QueryReplayBuffer(ReplayBuffer):
             if key in self._obs_signature.keys():
                 pass
             else:
-                episode[key] = np.concatenate([np.zeros_like(episode[key][:1]), episode[key][:-1]], 0)
+                episode[key] = np.concatenate(
+                    [np.zeros_like(episode[key][:1]), episode[key][:-1]], 0
+                )
 
         return episode
 
@@ -304,7 +312,12 @@ class QueryReplayBuffer(ReplayBuffer):
         storage_elements.update(obs_elements)
 
         for element_name, space in self.extra_replay_elements.items():
-            storage_elements[element_name] = ReplayElement(element_name, space.shape, space.dtype)
+            storage_elements[element_name] = ReplayElement(
+                element_name, space.shape, space.dtype
+            )
+
+        # add index in the episode
+        storage_elements[INDICES] = ReplayElement(INDICES, (), np.int64)
 
         return storage_elements, obs_elements
 
@@ -316,6 +329,7 @@ class QueryReplayBuffer(ReplayBuffer):
         reward: float,
         terminal: bool,
         truncated: bool,
+        index: int,
         **kwargs,
     ):
         """Adds a transition to the replay memory.
@@ -342,6 +356,7 @@ class QueryReplayBuffer(ReplayBuffer):
         transition[ACTION] = action
         transition[TERMINAL] = terminal
         transition[TRUNCATED] = truncated
+        transition[INDICES] = index
         # Info and observation are stored key by key
         transition.update(kwargs)
         transition.update(observation)
@@ -355,7 +370,10 @@ class QueryReplayBuffer(ReplayBuffer):
 
     @override
     def add_final(self, final_observation: dict):
-        if self.is_empty() or (self._current_episode[TERMINAL][-1] != 1 and self._current_episode[TRUNCATED][-1] != 1):
+        if self.is_empty() or (
+            self._current_episode[TERMINAL][-1] != 1
+            and self._current_episode[TRUNCATED][-1] != 1
+        ):
             raise ValueError("The previous transition was not terminal or truncated.")
 
         transition = {}
@@ -394,7 +412,9 @@ class QueryReplayBuffer(ReplayBuffer):
             # This means that all workers have some data to start.
             self._is_first = False
             for worker_id in range(1, self._num_workers):
-                eps_fn = f"{worker_id}{ts}_{eps_idx+worker_id}_{eps_len}_{global_idx}.npz"
+                eps_fn = (
+                    f"{worker_id}{ts}_{eps_idx+worker_id}_{eps_len}_{global_idx}.npz"
+                )
                 save_episode(episode, self._replay_dir / eps_fn)
 
     def _final_transition(self, kwargs):
@@ -406,7 +426,9 @@ class QueryReplayBuffer(ReplayBuffer):
                 # Used to check that user is correctly adding transitions
                 transition[element_type.name] = -1
             else:
-                transition[element_type.name] = np.empty(element_type.shape, dtype=element_type.type)
+                transition[element_type.name] = np.empty(
+                    element_type.shape, dtype=element_type.type
+                )
         return transition
 
     def _add(self, transition: dict):
@@ -435,9 +457,14 @@ class QueryReplayBuffer(ReplayBuffer):
         if (len(transition)) != len(signature):
             expected = str(natsort.natsorted(list(signature.keys())))
             actual = str(natsort.natsorted(list(transition.keys())))
-            error_list = "\nlist of expected:\n{}\nlist of actual:\n{}".format(expected, actual)
+            error_list = "\nlist of expected:\n{}\nlist of actual:\n{}".format(
+                expected, actual
+            )
             raise ValueError(
-                "Add expects {} elements, received {}.".format(len(signature), len(transition)) + error_list
+                "Add expects {} elements, received {}.".format(
+                    len(signature), len(transition)
+                )
+                + error_list
             )
 
         for name, store_element in signature.items():
@@ -452,7 +479,11 @@ class QueryReplayBuffer(ReplayBuffer):
                 arg_shape = tuple()
             store_element_shape = tuple(store_element.shape)
             if arg_shape != store_element_shape:
-                raise ValueError("arg {} has shape {}, expected {}".format(name, arg_shape, store_element_shape))
+                raise ValueError(
+                    "arg {} has shape {}, expected {}".format(
+                        name, arg_shape, store_element_shape
+                    )
+                )
 
     def is_empty(self):
         """Is the Replay Buffer empty?"""
@@ -513,7 +544,10 @@ class QueryReplayBuffer(ReplayBuffer):
         global_idxs = np.arange(global_idx, global_idx + eps_len)
         global_idxs_wrapped = (global_idxs % self.replay_capacity).tolist()
         self._global_idxs_to_episode_and_transition_idx.update(
-            {global_i: [eps_fn, ep_transition_i] for ep_transition_i, global_i in enumerate(global_idxs_wrapped)}
+            {
+                global_i: [eps_fn, ep_transition_i]
+                for ep_transition_i, global_i in enumerate(global_idxs_wrapped)
+            }
         )
         self._size += eps_len
 
@@ -606,7 +640,9 @@ class QueryReplayBuffer(ReplayBuffer):
         # For sequential replay buffer, retrieve [idx - frame_stacks : idx+1]
         start_idx = (idx - self._transition_seq_len) + 1
         # - Turn all negative idxs to 0
-        transition_idxs = list(map(lambda x: np.clip(x, 0, ep_len), range(start_idx, idx + 1)))
+        transition_idxs = list(
+            map(lambda x: np.clip(x, 0, ep_len), range(start_idx, idx + 1))
+        )
 
         # Construct replay sample
         replay_sample = {
@@ -648,10 +684,14 @@ class QueryReplayBuffer(ReplayBuffer):
         return self._sample_sequential(global_index)
 
     @override
-    def sample(self, batch_size: int | None = None, indices: list[int] = None) -> np.ndarray:
+    def sample(
+        self, batch_size: int | None = None, indices: list[int] = None
+    ) -> np.ndarray:
         batch_size = self._batch_size if batch_size is None else batch_size
         if indices is not None and len(indices) != batch_size:
-            raise ValueError(f"indices was of size {len(indices)}, but batch size was {batch_size}")
+            raise ValueError(
+                f"indices was of size {len(indices)}, but batch size was {batch_size}"
+            )
         if indices is None:
             indices = [None] * batch_size
 

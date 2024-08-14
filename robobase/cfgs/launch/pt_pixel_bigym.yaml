@@ -5,7 +5,6 @@ defaults:
   - ../reward_method: preference_transformer
 
 demos: 50
-num_pretrain_steps: 1000
 num_train_frames: 0
 eval_every_steps: 0
 num_eval_episodes: 0
@@ -25,6 +24,14 @@ reward_replay:
   feedback_save_dir: ./preference_only_failure
   feedback_batch_size: 16
 
+
+rlhf:
+  use_rlhf: true
+  comparison_type: sequential_pairwise
+  feedback_type: human
+  query_type: timestep
+  num_pretrain_steps: 1000
+  snapshot_every_n: 100
 
 replay:
   nstep: 1

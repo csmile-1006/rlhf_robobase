@@ -33,9 +33,9 @@ reward_method:
     state_dim: ???
     action_dim: ???
     hidden_dim: 256
-    enc_layers: 4
+    enc_layers: 1
     dec_layers: 1
-    dim_feedforward: 1024
+    dim_feedforward: 512
     dropout: 0.1
     nheads: 4
     pre_norm: False
