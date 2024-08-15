@@ -855,7 +855,9 @@ class Workspace:
                 if (
                     self.total_feedback < self.cfg.rlhf.max_feedback
                     and should_update_reward_model(self.main_loop_iterations)
-                    and not (self.main_loop_iterations == 0 and self.pretrain_steps > 0)
+                    and (
+                        self.main_loop_iterations > 0 or self.reward_pretrain_steps == 0
+                    )
                 ):
                     self.reward_model.logging = True
                     logging.info(
@@ -865,7 +867,6 @@ class Workspace:
                     for it in range(self.cfg.rlhf.num_train_frames):
                         reward_update_metrics = self._perform_reward_model_updates()
                         metrics.update(reward_update_metrics)
-                        metrics["iteration"] = it
                         if should_log(it):
                             self.logger.log_metrics(
                                 metrics, self.global_env_steps, prefix="train_reward"
