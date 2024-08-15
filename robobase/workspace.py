@@ -552,7 +552,8 @@ class Workspace:
                 task_success = int(final_info.get("task_success", 0) > 0.0)
 
                 # Re-labeling demonstrations with reward model
-                ep = self.reward_model.compute_reward(ep)
+                if self.use_rlhf:
+                    ep = self.reward_model.compute_reward(ep)
 
                 # Re-labeling successful demonstrations as success, following CQN
                 relabeling_as_demo = (
