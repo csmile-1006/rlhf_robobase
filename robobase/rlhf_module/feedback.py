@@ -80,6 +80,7 @@ def collect_human_feedback(segments, indices, index, tot_queries):
                 return label
         else:
             print("Invalid input. Please try again.")
+    clear_output(True)
 
 
 def collect_random_feedback(segments, indices, index, tot_queries):
