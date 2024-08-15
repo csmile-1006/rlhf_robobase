@@ -9,7 +9,7 @@ visual_observation_shape: [84, 84]
 frame_stack: 8
 action_repeat: 1
 
-demos: 30
+demos: 50
 use_min_max_normalization: true
 min_max_margin: 0
 norm_obs: true
@@ -20,10 +20,8 @@ num_pretrain_steps: 0
 num_explore_steps: 0
 replay_size_before_train: 500
 use_self_imitation: true
-num_train_frames: 30100
-log_every: 1
-save_snapshot: True
-snapshot_every_n: 0
+num_train_frames: 100100
+save_snapshot: true
 
 num_eval_episodes: 5
 eval_every_steps: 2000
@@ -68,4 +66,4 @@ method:
 
 hydra:
   run:
-    dir: ./exp_local/pixel_cqn/rlbench_${env.task_name}_${now:%Y%m%d%H%M%S}
+    dir: ./exp_local/pixel_cqn/bigym-${env.task_name}-seed${seed}-${now:%Y%m%d%H%M%S}
