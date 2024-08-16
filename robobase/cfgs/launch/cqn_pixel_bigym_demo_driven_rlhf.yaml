@@ -1,8 +1,7 @@
 # @package _global_
-# DrQ-v2+ baseline introduced in CQN paper
 
 defaults:
-  - ../method: drqv2
+  - ../method: cqn
   - ../reward_method: preference_transformer
   - ../env: null
 
@@ -15,25 +14,25 @@ demos: 50
 use_min_max_normalization: true
 min_max_margin: 0
 norm_obs: true
-use_standardization: false
+use_stnadardization: false
 batch_size: 256
 demo_batch_size: 256
 num_pretrain_steps: 0
 num_explore_steps: 0
 replay_size_before_train: 500
 use_self_imitation: true
-num_train_frames: 100100
+num_train_frames: 500100
+save_snapshot: true
 
 num_eval_episodes: 5
-eval_every_steps: 2000
+eval_every_steps: 10000
 
 update_every_steps: 1
 replay:
   nstep: 1
-  size: 50000
+  size: 500000
   demo_size: 50000
-  num_workers: 0
-  save_snapshot: true
+  num_workers: 4
 
 rlhf:
   use_rlhf: true
@@ -53,17 +52,27 @@ reward_replay:
   feedback_batch_size: 16
 
 method:
+  use_dueling: true
+  v_min: -2.0  # 1.0 is too tight with n_step > 1
+  v_max: 2.0 # -1.0 is too tight with n_step > 1
+  atoms: 51
+  use_target_network_for_rollout: true
   bc_lambda: 1.0
-  stddev_schedule: 0.01
+  bc_margin: 0.01
   weight_decay: 0.1
-  always_bootstrap: true
-  distributional_critic: true
-  distributional_critic_limit: 2
-  distributional_critic_atoms: 101
-  distributional_critic_transform: false
+  stddev_schedule: 0.01
+  critic_lr: 5e-5
+  encoder_lr: 5e-5
+  critic_lambda: 0.1
+  always_bootstrap: true  # Always do bootstrap; could be useful for episodic task
 
-  critic_model:
-    output_shape: [101, 1]
+  advantage_model:
+    keys_to_bottleneck: [fused_view_feats, low_dim_obs, time_obs]
+    linear_bias: false
+
+  value_model:
+    keys_to_bottleneck: [fused_view_feats, low_dim_obs, time_obs]
+    linear_bias: false
 
   encoder_model:
     kernel_size: 4
@@ -71,11 +80,8 @@ method:
     channels_multiplier: 2
     num_downsample_convs: 4
     num_post_downsample_convs: 0
-
-log_every: 50
-log_pretrain_every: 50
-log_eval_video: true
+    norm: img_ch_layer
 
 hydra:
   run:
-    dir: ./exp_local/pixel_drqv2+/bigym-${env.task_name}-pt-feedback_${rlhf.feedback_type}-comp_${rlhf.comparison_type}-query_${rlhf.query_type}-${reward_replay.num_queries}q-${rlhf.max_feedback}max-${rlhf.update_every_steps}interact-seed${seed}-${now:%Y%m%d%H%M%S}
+    dir: ./exp_local/pixel_cqn/cqn-bigym-${env.task_name}-seed${seed}-${now:%Y%m%d%H%M%S}
