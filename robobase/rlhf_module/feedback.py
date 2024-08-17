@@ -86,7 +86,7 @@ def collect_human_feedback(segments, indices, index, tot_queries):
 def collect_random_feedback(segments, indices, index, tot_queries):
     random_label = np.random.choice([0, 1])
     print(
-        f"[{index}/{len(tot_queries)}] Random Preference on (a (left), d (right), quit(quit)):  {random_label}"
+        f"[{index}/{len(tot_queries)}] Random Preference on (a (left), d (right)):  {random_label}"
     )
     return random_label
 
