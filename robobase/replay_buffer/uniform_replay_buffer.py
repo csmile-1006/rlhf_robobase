@@ -462,7 +462,7 @@ class UniformReplayBuffer(ReplayBuffer):
             self._is_first = False
             for worker_id in range(1, self._num_workers):
                 eps_fn = (
-                    f"{worker_id}{ts}_{eps_idx+worker_id}_{eps_len}_{global_idx}.npz"
+                    f"{ts}.{worker_id}_{eps_idx+worker_id}_{eps_len}_{global_idx}.npz"
                 )
                 save_episode(episode, self._replay_dir / eps_fn)
 
