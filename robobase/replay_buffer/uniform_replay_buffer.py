@@ -246,6 +246,7 @@ class UniformReplayBuffer(ReplayBuffer):
         # =======
         self._episode_files = []  # list of episode file path
         self._episodes = {}  # Key: eps_file_path, value: episode
+        self._episode_ctimes = {}  # Key: eps_file_path, value: creation time
         # Key: global_idx. Global_idx refers to the index in the entire replay buffer.
         # Value: (episode_file_path, transition_idx) where transition_idx
         # refers to the index of transition in the episode
@@ -262,6 +263,7 @@ class UniformReplayBuffer(ReplayBuffer):
         self._samples_since_last_fetch = self._fetch_every
         save_snapshot = True
         self._save_snapshot = save_snapshot
+        self._fetch_force = False
 
         logging.info(
             "Creating a %s replay memory with the following parameters:",
@@ -561,6 +563,13 @@ class UniformReplayBuffer(ReplayBuffer):
 
     ### Below are the Dataset functions ###
 
+    def _reset_buffer(self):
+        self._episode_files.clear()
+        self._episodes.clear()
+        self._episode_ctimes.clear()
+        self._global_idxs_to_episode_and_transition_idx.clear()
+        self._size = 0
+
     def _sample_episode(self):
         eps_fn = np.random.choice(self._episode_files)
         _, _, global_index = [int(x) for x in eps_fn.stem.split("_")[1:]]
@@ -582,12 +591,15 @@ class UniformReplayBuffer(ReplayBuffer):
             keys = list(self._global_idxs_to_episode_and_transition_idx.keys())
             for k in keys[: episode_len(early_eps)]:
                 del self._global_idxs_to_episode_and_transition_idx[k]
-            early_eps_files.unlink(missing_ok=True)
+            del self._episode_ctimes[early_eps_files]
+            if not self._save_snapshot:
+                early_eps_files.unlink(missing_ok=True)
 
         self._episode_files.append(eps_fn)
         self._episode_files.sort()  # NOTE: eps_fn starts with created timestamp.
         # so after sort, earliest episode appears first.
         self._episodes[eps_fn] = episode
+        self._episode_ctimes[eps_fn] = eps_fn.stat().st_ctime
         global_idxs = np.arange(global_idx, global_idx + eps_len)
         global_idxs_wrapped = (global_idxs % self.replay_capacity).tolist()
         self._global_idxs_to_episode_and_transition_idx.update(
@@ -614,6 +626,14 @@ class UniformReplayBuffer(ReplayBuffer):
 
         eps_fns = sorted(self._replay_dir.glob("*.npz"), reverse=True)
         fetched_size = 0
+
+        if (
+            eps_fns[-1] in self._episodes
+            and os.path.getctime(str(eps_fns[-1])) != self._episode_ctimes[eps_fns[-1]]
+        ):
+            # If the last episode is already loaded but has been modified, reload episodes.
+            self._reset_buffer()
+
         for eps_fn in eps_fns:
             eps_idx, eps_len, global_idx = [int(x) for x in eps_fn.stem.split("_")[1:]]
 
@@ -632,13 +652,6 @@ class UniformReplayBuffer(ReplayBuffer):
 
             if not self._load_episode_into_worker(eps_fn, global_idx):
                 break
-
-    def _try_relabel(self):
-        if (
-            getattr(self, "_reward_model", None) is not None
-            and self._samples_since_last_fetch == 0
-        ):
-            self.relabel_with_predictor(self._reward_model)
 
     def _flatten_episodes(self, episodes: list[dict]):
         for ep in episodes:
@@ -823,7 +836,6 @@ class UniformReplayBuffer(ReplayBuffer):
         """
         # index here is the "global" index of a flattened sample
         self._try_fetch()
-        # self._try_relabel()
 
         self._samples_since_last_fetch += 1
 
@@ -853,21 +865,3 @@ class UniformReplayBuffer(ReplayBuffer):
     def __iter__(self):
         while True:
             yield self.sample_single()
-
-    def relabel_with_predictor(self, reward_model):
-        """Relabels the rewards in the replay buffer using a reward model.
-
-        Args:
-            reward_model (torch.nn.Module): The reward model to use for relabelling.
-        """
-        for episode_fn in self._episode_files:
-            episode = self._episodes[episode_fn]
-            self._episodes[episode_fn] = reward_model.compute_reward(
-                episode, _obs_signature=self._obs_signature
-            )
-            # for i in range(episode_len(episode)):
-            #     sample = self.sample_single(i)
-            #     obs = {k: torch.from_numpy(v) for k, v in sample.items()}
-            #     reward = reward_model(obs)
-            #     episode[REWARD][i] = reward.item()
-            #     self._episodes[episode_fn] = episode

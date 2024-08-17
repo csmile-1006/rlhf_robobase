@@ -98,9 +98,10 @@ class QueryReplayBuffer(ReplayBuffer):
         preprocessing_fn: list[Callable[[list[spaces.Dict]], list[spaces.Dict]]] = None,
         preprocess_every_sample: bool = False,
         num_workers: int = 0,
-        fetch_every: int = 100,
+        fetch_every: int = 1,
         sequential: bool = True,
         transition_seq_len: int = 50,
+        max_episode_number: int = 0,
     ):
         """Initializes OutOfGraphReplayBuffer.
 
@@ -189,6 +190,7 @@ class QueryReplayBuffer(ReplayBuffer):
         self._replay_capacity = replay_capacity
         self._batch_size = batch_size
         self._sequential = sequential
+        self._max_episode_number = max_episode_number
 
         self.observation_elements = observation_elements
         self.extra_replay_elements = extra_replay_elements
@@ -217,7 +219,7 @@ class QueryReplayBuffer(ReplayBuffer):
         self._num_workers = num_workers
         self._fetch_every = fetch_every
         self._samples_since_last_fetch = self._fetch_every
-        save_snapshot = False
+        save_snapshot = True
         self._save_snapshot = save_snapshot
 
         logging.info(
@@ -227,6 +229,7 @@ class QueryReplayBuffer(ReplayBuffer):
         logging.info("\t frame_stack: %d", self._frame_stacks)
         logging.info("\t replay_capacity: %d", self._replay_capacity)
         logging.info("\t batch_size: %d", self._batch_size)
+        logging.info("\t max_episode_number: %d", self._max_episode_number)
         self._is_first = True
 
     @property
@@ -515,7 +518,7 @@ class QueryReplayBuffer(ReplayBuffer):
     ### Below are the Dataset functions ###
 
     def _sample_episode(self):
-        eps_fn = np.random.choice(self._episode_files)
+        eps_fn = np.random.choice(self._episode_files[-self._max_episode_number :])
         _, _, global_index = [int(x) for x in eps_fn.stem.split("_")[1:]]
         return self._episodes[eps_fn], global_index
 
@@ -535,7 +538,8 @@ class QueryReplayBuffer(ReplayBuffer):
             keys = list(self._global_idxs_to_episode_and_transition_idx.keys())
             for k in keys[: episode_len(early_eps)]:
                 del self._global_idxs_to_episode_and_transition_idx[k]
-            early_eps_files.unlink(missing_ok=True)
+            if not self._save_snapshot:
+                early_eps_files.unlink(missing_ok=True)
 
         self._episode_files.append(eps_fn)
         self._episode_files.sort()  # NOTE: eps_fn starts with created timestamp.
@@ -650,7 +654,7 @@ class QueryReplayBuffer(ReplayBuffer):
             ACTION: episode[ACTION][transition_idxs],
             TERMINAL: episode[TERMINAL][transition_idxs],
             TRUNCATED: episode[TRUNCATED][transition_idxs],
-            INDICES: global_index,
+            INDICES: idx,
             IS_FIRST: episode[IS_FIRST][transition_idxs],
         }
 

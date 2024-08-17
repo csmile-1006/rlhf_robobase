@@ -102,7 +102,7 @@ class FeedbackReplayBuffer(ReplayBuffer):
         preprocessing_fn: list[Callable[[list[spaces.Dict]], list[spaces.Dict]]] = None,
         preprocess_every_sample: bool = False,
         num_workers: int = 0,
-        fetch_every: int = 100,
+        fetch_every: int = 50,
         sequential: bool = False,
         transition_seq_len: int = 50,
         num_labels: int = 1,
@@ -487,7 +487,8 @@ class FeedbackReplayBuffer(ReplayBuffer):
             keys = list(self._global_idxs_to_episode_and_transition_idx.keys())
             for k in keys[: episode_len(early_eps)]:
                 del self._global_idxs_to_episode_and_transition_idx[k]
-            early_eps_files.unlink(missing_ok=True)
+            if not self._save_snapshot:
+                early_eps_files.unlink(missing_ok=True)
 
         self._episode_files.append(eps_fn)
         self._episode_files.sort()  # NOTE: eps_fn starts with created timestamp.

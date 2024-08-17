@@ -22,9 +22,16 @@ from robobase.envs.env import EnvFactory
 from robobase.logger import Logger
 from robobase.replay_buffer.prioritized_replay_buffer import PrioritizedReplayBuffer
 from robobase.replay_buffer.replay_buffer import ReplayBuffer
-from robobase.replay_buffer.uniform_replay_buffer import UniformReplayBuffer
+from robobase.replay_buffer.uniform_replay_buffer import (
+    UniformReplayBuffer,
+    load_episode,
+    save_episode,
+)
+from robobase.replay_buffer.rlhf.query_replay_buffer import QueryReplayBuffer
+from robobase.replay_buffer.rlhf.feedback_replay_buffer import FeedbackReplayBuffer
 from robobase.rlhf_module.comparison import get_comparison_fn
 from robobase.rlhf_module.feedback import get_feedback_fn
+from robobase.rlhf_module.query import get_query_fn
 
 torch.backends.cudnn.benchmark = True
 
@@ -33,6 +40,24 @@ def _worker_init_fn(worker_id):
     seed = np.random.get_state()[1][0] + worker_id
     np.random.seed(seed)
     random.seed(int(seed))
+
+
+def relabel_with_predictor(reward_model, replay_buffer):
+    """Relabels the rewards in the replay buffer using a reward model.
+
+    Args:
+        reward_model (torch.nn.Module): The reward model to use for relabelling.
+    """
+    replay_dir = replay_buffer._replay_dir
+    _obs_signature = replay_buffer._obs_signature
+    episodes = list(replay_dir.glob("*.npz"))
+    logging.info(f"Relabelling {len(episodes)} episodes with reward model")
+    for ep_fn in episodes:
+        episode = load_episode(ep_fn)
+        new_episode = reward_model.compute_reward(
+            episode, _obs_signature=_obs_signature
+        )
+        save_episode(new_episode, ep_fn)
 
 
 def _create_default_replay_buffer(
@@ -70,27 +95,37 @@ def _create_default_replay_buffer(
     )
 
 
-def _create_default_reward_replay_buffer(
+def _create_default_query_replay_buffer(
     cfg: DictConfig,
     observation_space: gym.Space,
     action_space: gym.Space,
     save_dir: Path = None,
-) -> (ReplayBuffer, ReplayBuffer):
+    use_demo: bool = False,
+) -> ReplayBuffer:
     extra_replay_elements = spaces.Dict({})
     if cfg.demos > 0:
         extra_replay_elements["demo"] = spaces.Box(0, 1, shape=(), dtype=np.uint8)
 
-    # Create replay_class with common hyperparameters
-    from robobase.replay_buffer.rlhf.feedback_replay_buffer import FeedbackReplayBuffer
-    from robobase.replay_buffer.rlhf.query_replay_buffer import QueryReplayBuffer
-
-    query_replay_buffer = QueryReplayBuffer(
-        save_dir=save_dir / "queries",
-        batch_size=(
+    if cfg.demos > 0:
+        batch_size = (
+            (
+                cfg.reward_replay.num_queries // 2 + 1
+                if not use_demo
+                else cfg.reward_replay.num_queries // 2
+            )
+            if "pairwise" in cfg.rlhf.comparison_type
+            else cfg.reward_replay.num_queries
+        )
+    else:
+        batch_size = (
             cfg.reward_replay.num_queries + 1
             if "pairwise" in cfg.rlhf.comparison_type
             else cfg.reward_replay.num_queries * 2
-        ),
+        )
+
+    return QueryReplayBuffer(
+        save_dir=save_dir / "queries" if not use_demo else save_dir / "demo_queries",
+        batch_size=batch_size,
         replay_capacity=cfg.reward_replay.size,
         action_shape=action_space.shape,
         action_dtype=action_space.dtype,
@@ -99,8 +134,17 @@ def _create_default_reward_replay_buffer(
         num_workers=cfg.replay.num_workers,
         sequential=True,
         transition_seq_len=cfg.reward_replay.seq_len,
+        max_episode_number=cfg.reward_replay.max_episode_number if not use_demo else 0,
     )
-    feedback_replay_buffer = FeedbackReplayBuffer(
+
+
+def _create_default_feedback_replay_buffer(
+    cfg: DictConfig,
+    observation_space: gym.Space,
+    action_space: gym.Space,
+    save_dir: Path = None,
+) -> ReplayBuffer:
+    return FeedbackReplayBuffer(
         save_dir=save_dir / "feedbacks",
         batch_size=cfg.reward_replay.feedback_batch_size,
         replay_capacity=cfg.reward_replay.size,
@@ -114,7 +158,6 @@ def _create_default_reward_replay_buffer(
         num_labels=cfg.reward_replay.num_labels,
         purge_replay_on_shutdown=False,
     )
-    return query_replay_buffer, feedback_replay_buffer
 
 
 def _create_default_envs(cfg: DictConfig) -> EnvFactory:
@@ -269,12 +312,14 @@ class Workspace:
             self.reward_model.train(False)
             self.replay_buffer.set_reward_model(self.reward_model)
 
-            (
-                self.query_replay_buffer,
-                self.feedback_replay_buffer,
-            ) = _create_default_reward_replay_buffer(
+            self.query_replay_buffer = _create_default_query_replay_buffer(
                 cfg, observation_space, action_space, save_dir=self.work_dir
             )
+
+            self.feedback_replay_buffer = _create_default_feedback_replay_buffer(
+                cfg, observation_space, action_space, save_dir=self.work_dir
+            )
+
             self.query_replay_loader = DataLoader(
                 self.query_replay_buffer,
                 batch_size=self.query_replay_buffer.batch_size,
@@ -299,6 +344,7 @@ class Workspace:
             self._comparison_fn = partial(
                 get_comparison_fn(cfg.rlhf.comparison_type), feedback_fn=feedback_fn
             )
+            self._query_fn = get_query_fn(cfg.rlhf.query_type)
 
         # Create a separate demo replay that contains successful episodes.
         # This is designed for RL. IL algorithms don't have to use this!
@@ -317,6 +363,21 @@ class Workspace:
                 pin_memory=cfg.replay.pin_memory,
                 worker_init_fn=_worker_init_fn,
             )
+            if self.use_rlhf:
+                self.demo_query_replay_buffer = _create_default_query_replay_buffer(
+                    cfg,
+                    observation_space,
+                    action_space,
+                    save_dir=self.work_dir,
+                    use_demo=True,
+                )
+                self.demo_query_replay_loader = DataLoader(
+                    self.demo_query_replay_buffer,
+                    batch_size=self.demo_query_replay_buffer.batch_size,
+                    num_workers=cfg.replay.num_workers,
+                    pin_memory=cfg.replay.pin_memory,
+                    worker_init_fn=_worker_init_fn,
+                )
 
         if self.prioritized_replay:
             if self.use_demo_replay:
@@ -405,6 +466,11 @@ class Workspace:
             raise ValueError("reward replay is not enabled")
         if self._query_replay_iter is None:
             _query_replay_iter = iter(self.query_replay_loader)
+            if self.use_demo_replay:
+                _demo_query_replay_iter = iter(self.demo_query_replay_loader)
+                _query_replay_iter = utils.merge_replay_demo_iter(
+                    _query_replay_iter, _demo_query_replay_iter
+                )
             self._query_replay_iter = _query_replay_iter
         return self._query_replay_iter
 
@@ -635,6 +701,10 @@ class Workspace:
                 self.env_factory.load_demos_into_replay(
                     self.cfg, self.query_replay_buffer
                 )
+                if self.use_demo_replay:
+                    self.env_factory.load_demos_into_replay(
+                        self.cfg, self.demo_query_replay_buffer
+                    )
 
         if self.cfg.replay_size_before_train > 0:
             diff = self.cfg.replay_size_before_train - len(self.replay_buffer)
@@ -671,7 +741,7 @@ class Workspace:
         return metrics
 
     def collect_feedback(self):
-        query_batch = next(self.query_replay_iter)
+        query_batch = self._query_fn(next(self.query_replay_iter))
         feedbacks = self._comparison_fn(segments=query_batch)
         for feedback in feedbacks:
             self.feedback_replay_buffer.add_feedback(
@@ -823,6 +893,10 @@ class Workspace:
 
                 self._reward_pretrain_step += 1
 
+            relabel_with_predictor(self.reward_model, self.replay_buffer)
+            if self.use_demo_replay:
+                relabel_with_predictor(self.reward_model, self.demo_replay_buffer)
+
     def _online_rl(self):
         train_until_frame = utils.Until(self.cfg.num_train_frames)
         seed_until_size = utils.Until(self.cfg.replay_size_before_train)
@@ -862,20 +936,21 @@ class Workspace:
                 ):
                     self.reward_model.logging = True
                     logging.info(
-                        f"[Feedback {self.total_feedback} / {self.cfg.rlhf.max_feedback}] Collecting human feedback for {self.cfg.reward_replay.num_queries} queries"  # noqa
+                        f"[Feedback {self.total_feedback} / {self.cfg.rlhf.max_feedback}] Collecting feedback for {self.cfg.reward_replay.num_queries} queries"  # noqa
                     )
                     self.collect_feedback()
                     for it in range(self.cfg.rlhf.num_train_frames):
                         reward_update_metrics = self._perform_reward_model_updates()
                         metrics.update(reward_update_metrics)
+                        metrics.update(self._get_common_metrics())
                         if should_log(it):
                             self.logger.log_metrics(
                                 metrics, self.global_env_steps, prefix="train_reward"
                             )
-                    self.replay_buffer.relabel_with_predictor(self.reward_model)
+                    relabel_with_predictor(self.reward_model, self.replay_buffer)
                     if self.use_demo_replay:
-                        self.demo_replay_buffer.relabel_with_predictor(
-                            self.reward_model
+                        relabel_with_predictor(
+                            self.reward_model, self.demo_replay_buffer
                         )
                     metrics = {}
 
