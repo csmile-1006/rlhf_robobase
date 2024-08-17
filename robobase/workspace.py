@@ -36,8 +36,8 @@ from robobase.rlhf_module.query import get_query_fn
 torch.backends.cudnn.benchmark = True
 
 
-def _worker_init_fn(worker_id):
-    seed = np.random.get_state()[1][0] + worker_id
+def _worker_init_fn(worker_id, offset=0):
+    seed = np.random.get_state()[1][0] + worker_id + offset
     np.random.seed(seed)
     random.seed(int(seed))
 
@@ -134,7 +134,10 @@ def _create_default_query_replay_buffer(
         num_workers=cfg.replay.num_workers,
         sequential=True,
         transition_seq_len=cfg.reward_replay.seq_len,
-        max_episode_number=cfg.reward_replay.max_episode_number if not use_demo else 0,
+        max_episode_number=cfg.reward_replay.max_episode_number
+        // cfg.replay.num_workers
+        if not use_demo
+        else 0,
     )
 
 
@@ -361,7 +364,7 @@ class Workspace:
                 batch_size=self.demo_replay_buffer.batch_size,
                 num_workers=cfg.replay.num_workers,
                 pin_memory=cfg.replay.pin_memory,
-                worker_init_fn=_worker_init_fn,
+                worker_init_fn=partial(_worker_init_fn, offset=3407),
             )
             if self.use_rlhf:
                 self.demo_query_replay_buffer = _create_default_query_replay_buffer(
@@ -376,7 +379,7 @@ class Workspace:
                     batch_size=self.demo_query_replay_buffer.batch_size,
                     num_workers=cfg.replay.num_workers,
                     pin_memory=cfg.replay.pin_memory,
-                    worker_init_fn=_worker_init_fn,
+                    worker_init_fn=partial(_worker_init_fn, offset=3407),
                 )
 
         if self.prioritized_replay:
