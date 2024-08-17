@@ -10,7 +10,7 @@ visual_observation_shape: [84, 84]
 frame_stack: 8
 action_repeat: 1
 
-demos: 10
+demos: 50
 use_min_max_normalization: true
 min_max_margin: 0
 norm_obs: true
@@ -19,7 +19,7 @@ batch_size: 256
 demo_batch_size: 256
 num_pretrain_steps: 0
 num_explore_steps: 0
-replay_size_before_train: 500
+replay_size_before_train: 1000000
 use_self_imitation: true
 num_train_frames: 50100
 save_snapshot: true
@@ -42,7 +42,7 @@ rlhf:
   comparison_type: sequential_pairwise
   query_type: timestep
   max_feedback: 2000
-  update_every_steps: 500
+  update_every_steps: 5000
   num_pretrain_steps: 10
   num_train_frames: 10
   max_episode_number: 10
@@ -53,7 +53,7 @@ reward_replay:
   num_labels: 1
   seq_len: 50
   feedback_batch_size: 16
-  max_episode_number: 20
+  max_episode_number: 4
 
 hydra:
   run:

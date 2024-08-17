@@ -326,16 +326,12 @@ class Workspace:
             self.query_replay_loader = DataLoader(
                 self.query_replay_buffer,
                 batch_size=self.query_replay_buffer.batch_size,
-                num_workers=cfg.replay.num_workers,
-                pin_memory=cfg.replay.pin_memory,
-                worker_init_fn=_worker_init_fn,
+                num_workers=0,
             )
             self.feedback_replay_loader = DataLoader(
                 self.feedback_replay_buffer,
                 batch_size=self.feedback_replay_buffer.batch_size,
-                num_workers=cfg.replay.num_workers,
-                pin_memory=cfg.replay.pin_memory,
-                worker_init_fn=_worker_init_fn,
+                num_workers=0,
             )
             self._query_replay_iter, self._feedback_replay_iter = None, None
 
@@ -377,9 +373,7 @@ class Workspace:
                 self.demo_query_replay_loader = DataLoader(
                     self.demo_query_replay_buffer,
                     batch_size=self.demo_query_replay_buffer.batch_size,
-                    num_workers=cfg.replay.num_workers,
-                    pin_memory=cfg.replay.pin_memory,
-                    worker_init_fn=partial(_worker_init_fn, offset=3407),
+                    num_workers=0,
                 )
 
         if self.prioritized_replay:
@@ -957,7 +951,10 @@ class Workspace:
                         )
                     metrics = {}
 
-                if self.total_feedback < self.cfg.rlhf.max_feedback and should_save_reward_model_snapshot(self.main_loop_iterations):
+                if (
+                    self.total_feedback < self.cfg.rlhf.max_feedback
+                    and should_save_reward_model_snapshot(self.main_loop_iterations)
+                ):
                     self.save_reward_model_snapshot()
 
             (
@@ -1068,7 +1065,11 @@ class Workspace:
             self.__dict__[k] = v
 
     def save_reward_model_snapshot(self):
-        snapshot = self.work_dir / "reward_model_snapshots" / f"{self.global_env_steps}_snapshot.pt"
+        snapshot = (
+            self.work_dir
+            / "reward_model_snapshots"
+            / f"{self.global_env_steps}_snapshot.pt"
+        )
         snapshot.parent.mkdir(parents=True, exist_ok=True)
         keys_to_save = [
             "_pretrain_step",
@@ -1081,7 +1082,9 @@ class Workspace:
         payload["reward_model"] = self.reward_model.state_dict()
         with snapshot.open("wb") as f:
             torch.save(payload, f)
-        latest_snapshot = self.work_dir / "reward_model_snapshots" / "latest_snapshot.pt"
+        latest_snapshot = (
+            self.work_dir / "reward_model_snapshots" / "latest_snapshot.pt"
+        )
         shutil.copy(snapshot, latest_snapshot)
 
     def load_reward_model_snapshot(self, path_to_snapshot_to_load=None):
