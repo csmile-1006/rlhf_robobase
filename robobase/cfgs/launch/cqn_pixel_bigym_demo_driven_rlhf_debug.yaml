@@ -1,0 +1,60 @@
+# @package _global_
+
+defaults:
+  - ../method: cqn
+  - ../reward_method: preference_transformer
+  - ../env: null
+
+pixels: true
+visual_observation_shape: [84, 84]
+frame_stack: 8
+action_repeat: 1
+
+demos: 10
+use_min_max_normalization: true
+min_max_margin: 0
+norm_obs: true
+use_stnadardization: false
+batch_size: 256
+demo_batch_size: 256
+num_pretrain_steps: 0
+num_explore_steps: 0
+replay_size_before_train: 500
+use_self_imitation: true
+num_train_frames: 50100
+save_snapshot: true
+log_pretrain_every: 10
+log_every: 100
+
+num_eval_episodes: 5
+eval_every_steps: 5000
+
+update_every_steps: 1
+replay:
+  nstep: 1
+  size: 50000
+  demo_size: 50000
+  num_workers: 4
+
+rlhf:
+  use_rlhf: true
+  feedback_type: random
+  comparison_type: sequential_pairwise
+  query_type: timestep
+  max_feedback: 2000
+  update_every_steps: 500
+  num_pretrain_steps: 10
+  num_train_frames: 10
+  max_episode_number: 10
+  snapshot_every_n: ${rlhf.update_every_steps}
+
+reward_replay:
+  num_queries: 50
+  num_labels: 1
+  seq_len: 50
+  feedback_batch_size: 16
+  max_episode_number: 20
+
+hydra:
+  run:
+    dir: ./exp_local/debug/pixel_cqn/cqn-bigym-${env.task_name}-pt-feedback_${rlhf.feedback_type}-comp_${rlhf.comparison_type}-query_${rlhf.query_type}-${reward_replay.num_queries}q-${rlhf.max_feedback}max-${rlhf.update_every_steps}interact-seed${seed}-${now:%Y%m%d%H%M%S}

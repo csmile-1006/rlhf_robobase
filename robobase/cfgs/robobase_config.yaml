@@ -82,6 +82,7 @@ reward_replay:
   num_labels: 1
   seq_len: 50
   feedback_batch_size: 256
+  max_episode_number: 20
 
 # logging settings
 wandb:  # weight and bias

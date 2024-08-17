@@ -25,7 +25,7 @@ num_train_frames: 500100
 save_snapshot: true
 
 num_eval_episodes: 5
-eval_every_steps: 10000
+eval_every_steps: 2000
 
 update_every_steps: 1
 replay:
@@ -40,16 +40,17 @@ rlhf:
   comparison_type: sequential_pairwise
   query_type: timestep
   max_feedback: 2000
-  update_every_steps: 2500
+  update_every_steps: 5000
   num_pretrain_steps: 200
   num_train_frames: 200
-  snapshot_every_n: 2500
+  snapshot_every_n: ${rlhf.update_every_steps}
 
 reward_replay:
   num_queries: 50
   num_labels: 1
   seq_len: 50
   feedback_batch_size: 16
+  max_episode_number: 20
 
 method:
   use_dueling: true
@@ -84,4 +85,4 @@ method:
 
 hydra:
   run:
-    dir: ./exp_local/pixel_cqn/cqn-bigym-${env.task_name}-seed${seed}-${now:%Y%m%d%H%M%S}
+    dir: ./exp_local/pixel_cqn/cqn-bigym-${env.task_name}-pt-feedback_${rlhf.feedback_type}-comp_${rlhf.comparison_type}-query_${rlhf.query_type}-${reward_replay.num_queries}q-${rlhf.max_feedback}max-${rlhf.update_every_steps}interact-seed${seed}-${now:%Y%m%d%H%M%S}
