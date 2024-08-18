@@ -80,7 +80,9 @@ def _create_default_replay_buffer(
     )
     # Create replay_class with common hyperparameters
     return replay_class(
-        save_dir=cfg.replay.save_dir,
+        save_dir=cfg.replay.save_dir
+        if not demo_replay
+        else cfg.replay.save_dir + "_demo",
         batch_size=cfg.batch_size if not demo_replay else cfg.demo_batch_size,
         replay_capacity=cfg.replay.size if not demo_replay else cfg.replay.demo_size,
         action_shape=action_space.shape,
@@ -134,10 +136,7 @@ def _create_default_query_replay_buffer(
         num_workers=cfg.replay.num_workers,
         sequential=True,
         transition_seq_len=cfg.reward_replay.seq_len,
-        max_episode_number=cfg.reward_replay.max_episode_number
-        // cfg.replay.num_workers
-        if not use_demo
-        else 0,
+        max_episode_number=cfg.reward_replay.max_episode_number if not use_demo else 0,
     )
 
 
@@ -721,11 +720,14 @@ class Workspace:
             if (self.main_loop_iterations + i) % self.cfg.update_every_steps != 0:
                 # Skip update
                 continue
-            metrics.update(
-                self.agent.update(
-                    self.replay_iter, self.main_loop_iterations + i, self.replay_buffer
+            for _ in range(self.cfg.num_update_steps):
+                metrics.update(
+                    self.agent.update(
+                        self.replay_iter,
+                        self.main_loop_iterations + i,
+                        self.replay_buffer,
+                    )
                 )
-            )
         self.agent.train(False)
         if self.agent.logging:
             execution_time_for_update = time.time() - start_time

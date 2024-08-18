@@ -39,14 +39,14 @@ rlhf:
   feedback_type: random
   comparison_type: sequential_pairwise
   query_type: timestep
-  max_feedback: 2000
-  update_every_steps: 5000
+  max_feedback: 500
+  update_every_steps: 10000
   num_pretrain_steps: 200
   num_train_frames: 200
   snapshot_every_n: ${rlhf.update_every_steps}
 
 reward_replay:
-  num_queries: 50
+  num_queries: 100
   num_labels: 1
   seq_len: 50
   feedback_batch_size: 16
