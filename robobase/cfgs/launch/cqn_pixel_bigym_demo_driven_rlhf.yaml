@@ -1,13 +1,13 @@
 # @package _global_
 
 defaults:
+  - ../env: null
   - ../method: cqn
   - ../reward_method: preference_transformer
-  - ../env: null
 
 pixels: true
 visual_observation_shape: [84, 84]
-frame_stack: 8
+frame_stack: 4
 action_repeat: 1
 
 demos: 50
@@ -23,11 +23,13 @@ replay_size_before_train: 500
 use_self_imitation: true
 num_train_frames: 500100
 save_snapshot: true
+save_snapshot_every_n: 50000
 
 num_eval_episodes: 5
 eval_every_steps: 2000
 
-update_every_steps: 1
+update_every_steps: 100
+num_update_steps: 100
 replay:
   nstep: 1
   size: 500000
