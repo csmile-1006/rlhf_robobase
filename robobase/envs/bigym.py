@@ -12,6 +12,7 @@ from gymnasium.wrappers import TimeLimit
 from robobase.envs.env import EnvFactory
 from robobase.envs.wrappers import (
     RescaleFromTanhWithMinMax,
+    RescaleFromTanh,
     OnehotTime,
     ActionSequence,
     AppendDemoInfo,
@@ -83,6 +84,9 @@ class BiGymEnvFactory(EnvFactory):
             )
             if cfg.norm_obs:
                 obs_stats = self._obs_stats
+        else:
+            assert cfg.norm_obs is False, "Need to provide demos to normalize obs"
+            env = RescaleFromTanh(env=env)
 
         env = ConcatDim(
             env,
