@@ -68,20 +68,21 @@ def _task_name_to_env_class(task_name: str) -> type[BiGymEnv]:
 class BiGymEnvFactory(EnvFactory):
     def _wrap_env(self, env, cfg, demo_env=False, train=True, return_raw_spaces=False):
         # last two are grippers
-        assert cfg.demos > 0
+        # assert cfg.demos > 0
         assert cfg.action_repeat == 1
 
         action_space = copy.deepcopy(env.action_space)
         observation_space = copy.deepcopy(env.observation_space)
 
-        env = RescaleFromTanhWithMinMax(
-            env=env,
-            action_stats=self._action_stats,
-            min_max_margin=cfg.min_max_margin,
-        )
         obs_stats = None
-        if cfg.norm_obs:
-            obs_stats = self._obs_stats
+        if cfg.demos > 0:
+            env = RescaleFromTanhWithMinMax(
+                env=env,
+                action_stats=self._action_stats,
+                min_max_margin=cfg.min_max_margin,
+            )
+            if cfg.norm_obs:
+                obs_stats = self._obs_stats
 
         env = ConcatDim(
             env,
