@@ -28,8 +28,8 @@ save_snapshot_every_n: 50000
 num_eval_episodes: 5
 eval_every_steps: 2000
 
-update_every_steps: 100
-num_update_steps: 100
+update_every_steps: 1
+num_update_steps: 1
 replay:
   nstep: 3
   size: 500000
