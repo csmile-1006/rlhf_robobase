@@ -190,7 +190,7 @@ class PreferenceTransformer(RewardMethod):
 
     @override
     def compute_reward(
-        self, seq: Sequence, _obs_signature: Sequence = None
+        self, seq: Sequence, _obs_signature: Sequence = None, member: int = -1
     ) -> torch.Tensor:
         """
         Compute the reward from sequences.
@@ -212,8 +212,7 @@ class PreferenceTransformer(RewardMethod):
 
             if len(seq) < self.seq_len:
                 raise InvalidSequenceError(
-                    f"Input sequence must be at least {self.seq_len_steps} steps long.\
-                    Seq len is {len(seq)}"
+                    f"Input sequence must be at least {self.seq_len} steps long. Seq len is {len(seq)}"
                 )
 
             # seq: list of (action, obs, reward, term, trunc, info, next_info)
@@ -236,12 +235,12 @@ class PreferenceTransformer(RewardMethod):
             # actions: (T, action_shape)
         elif isinstance(seq, dict):
             assert _obs_signature is not None, "Need obs_signature for dict input."
+            # print("action length", len(seq["action"]))
             T = len(seq["action"]) - start_idx
 
             if T < self.seq_len:
                 raise InvalidSequenceError(
-                    f"Input sequence must be at least {self.seq_len_steps} steps long.\
-                    Seq len is {T}"
+                    f"Input sequence must be at least {self.seq_len} steps long. Seq len is {T}"
                 )
 
             actions = torch.from_numpy(seq["action"])
@@ -296,6 +295,7 @@ class PreferenceTransformer(RewardMethod):
                     batch_fused_rgb_feats[_range],
                     batch_qposes[_range],
                     batch_actions[_range],
+                    member=member,
                 )
             rewards.append(_reward)
 
@@ -330,6 +330,7 @@ class PreferenceTransformer(RewardMethod):
                 first_qposes,
                 first_actions,
                 attn_mask=first_attn_masks,
+                member=member,
             )[:-1]
 
         assert (
@@ -374,7 +375,8 @@ class PreferenceTransformer(RewardMethod):
         # actions = batch["action"]
         # reward = batch["reward"]
 
-        r_hats = []
+        loss, loss_dict = 0.0, dict()
+        r_hats = [[] for _ in range(self.reward.num_ensembles)]
         for i in range(2):
             actions = batch[f"seg{i}_action"]
             if self.low_dim_size > 0:
@@ -389,10 +391,18 @@ class PreferenceTransformer(RewardMethod):
                 )
                 fused_rgb_feats = self.encode_rgb_feats(rgb, train=True)
 
-            r_hat = self.reward(fused_rgb_feats, qpos, actions)
-            r_hats.append(r_hat)
+            for member in range(self.reward.num_ensembles):
+                r_hat = self.reward(fused_rgb_feats, qpos, actions, member=member)
+                r_hats[member].append(r_hat)
 
-        loss, loss_dict = self.reward.calculate_loss(r_hats, batch["label"])
+        for member in range(self.reward.num_ensembles):
+            _loss, _loss_dict = self.reward.calculate_loss(
+                r_hats[member], batch["label"]
+            )
+            loss += _loss
+            for key in _loss_dict:
+                loss_dict[f"{key}_member_{member}"] = _loss_dict[key]
+        loss_dict["loss"] = loss / self.reward.num_ensembles
 
         # calculate gradient
         if self.use_pixels and self.encoder_opt is not None:
@@ -416,10 +426,11 @@ class PreferenceTransformer(RewardMethod):
 
         if self.logging:
             metrics["reward_loss"] = loss_dict["loss"].item()
-            for label in range(self.num_labels):
-                metrics[f"pref_acc_label_{label}"] = loss_dict[
-                    f"pref_acc_label_{label}"
-                ].item()
+            for member in range(self.reward.num_ensembles):
+                for label in range(self.num_labels):
+                    metrics[f"pref_acc_label_{label}_member_{member}"] = loss_dict[
+                        f"pref_acc_label_{label}_member_{member}"
+                    ].item()
 
         return metrics
 

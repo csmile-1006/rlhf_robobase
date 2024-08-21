@@ -32,10 +32,11 @@ reward_method:
     input_shape: ???
     state_dim: ???
     action_dim: ???
-    hidden_dim: 256
+    hidden_dim: 128
     enc_layers: 1
     dec_layers: 1
-    dim_feedforward: 512
+    dim_feedforward: 768
+    num_ensembles: 5
     dropout: 0.1
     nheads: 4
     pre_norm: False

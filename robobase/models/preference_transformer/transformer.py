@@ -215,6 +215,7 @@ class MultiViewTransformerDecoderPT(FusionModule):
         num_queries (int): Number of queries. Equivalent to length of action sequence.
         kl_weight (int): Weight for KL divergence.
         use_lang_cond (bool): Use film for language conditioning
+        num_ensembles (int): Number of ensemble models.
 
     """
 
@@ -235,6 +236,7 @@ class MultiViewTransformerDecoderPT(FusionModule):
         position_embedding: str = "sine",
         causal_attn: bool = True,
         num_labels: int = 1,
+        num_ensembles: int = 1,
     ):
         super().__init__(input_shape=input_shape)
         self.dec_layers = dec_layers
@@ -292,7 +294,11 @@ class MultiViewTransformerDecoderPT(FusionModule):
             norm_first=pre_norm,
             return_intermediate_dec=False,
         )
-        self.reward_head = nn.Linear(hidden_dim * 3, self.num_labels)
+        self.num_ensembles = num_ensembles
+        self.reward_head = nn.ModuleList(
+            nn.Sequential(nn.Linear(hidden_dim * 3, self.num_labels, nn.ReLU()))
+            for _ in range(self.num_ensembles)
+        )
         self.criterion = nn.CrossEntropyLoss()
 
     @property
@@ -305,6 +311,7 @@ class MultiViewTransformerDecoderPT(FusionModule):
         qpos: torch.Tensor,
         actions: torch.Tensor = None,
         attn_mask: Optional[torch.Tensor] = None,
+        member: int = -1,
     ) -> Tuple[torch.Tensor, torch.Tensor, List[torch.Tensor]]:
         """
         Forward pass of the MultiViewTransformerEncoderDecoderACT model.
@@ -343,9 +350,14 @@ class MultiViewTransformerDecoderPT(FusionModule):
         hs = self.transformer(
             input, self.mask if attn_mask is None else attn_mask, pos_embed
         )[:, -1]
-        reward_hat = self.reward_head(hs)
-
-        return reward_hat
+        if member == -1:
+            reward_hats = []
+            for reward_head in self.reward_head:
+                reward_hats.append(reward_head(hs))
+            return torch.mean(torch.stack(reward_hats), dim=0)
+        else:
+            reward_hat = self.reward_head[member](hs)
+            return reward_hat
 
     def calculate_loss(
         self,
