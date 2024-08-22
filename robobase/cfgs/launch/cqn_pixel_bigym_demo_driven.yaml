@@ -25,7 +25,8 @@ save_snapshot: true
 snapshot_every_n: 50000
 
 num_eval_episodes: 5
-eval_every_steps: 2000
+eval_every_steps: 250
+log_every: 125
 
 update_every_steps: 1
 num_update_steps: 1

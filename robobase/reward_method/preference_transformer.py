@@ -4,7 +4,6 @@ import logging
 
 import numpy as np
 import torch
-from tqdm import trange
 
 from robobase.models import RoboBaseModule
 from robobase.models.fusion import FusionModule
@@ -281,13 +280,10 @@ class PreferenceTransformer(RewardMethod):
         )
 
         rewards = []
-        for i in trange(
+        for i in range(
             0,
             len(idxs),
             self.compute_batch_size,
-            leave=False,
-            ncols=0,
-            desc="reward compute per batch",
         ):
             _range = list(range(i, min(i + self.compute_batch_size, len(idxs))))
             with torch.no_grad():
