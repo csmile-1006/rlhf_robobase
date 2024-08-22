@@ -88,6 +88,8 @@ class BiGymEnvFactory(EnvFactory):
             assert cfg.norm_obs is False, "Need to provide demos to normalize obs"
             env = RescaleFromTanh(env=env)
 
+        # We normalize the low dimensional observations in the ConcatDim wrapper.
+        # This is to be consistent with the original ACT implementation.
         env = ConcatDim(
             env,
             shape_length=1,
