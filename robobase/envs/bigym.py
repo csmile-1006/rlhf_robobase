@@ -6,7 +6,7 @@ from robobase.utils import (
     add_demo_to_query_replay_buffer,
     convert_demo_to_episode_rollouts,
 )
-from robobase.envs.utils.bigym_utils import TASK_MAP
+from robobase.envs.utils.bigym_utils import TASK_MAP, TASK_DESCRIPTION
 import gymnasium as gym
 from gymnasium.wrappers import TimeLimit
 from robobase.envs.env import EnvFactory
@@ -64,6 +64,10 @@ def rescale_demo_actions(
 
 def _task_name_to_env_class(task_name: str) -> type[BiGymEnv]:
     return TASK_MAP[task_name]
+
+
+def _task_name_to_description(task_name: str) -> str:
+    return TASK_DESCRIPTION[task_name]
 
 
 class BiGymEnvFactory(EnvFactory):
@@ -389,3 +393,6 @@ class BiGymEnvFactory(EnvFactory):
             action_stats=self._action_stats,
             min_max_margin=cfg.min_max_margin,
         )
+
+    def get_task_description(self, cfg: DictConfig) -> str:
+        return _task_name_to_description.get(cfg.env.task_name, None)

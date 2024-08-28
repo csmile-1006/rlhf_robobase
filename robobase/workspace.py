@@ -29,8 +29,7 @@ from robobase.replay_buffer.uniform_replay_buffer import (
 )
 from robobase.replay_buffer.rlhf.query_replay_buffer import QueryReplayBuffer
 from robobase.replay_buffer.rlhf.feedback_replay_buffer import FeedbackReplayBuffer
-from robobase.rlhf_module.comparison import get_comparison_fn
-from robobase.rlhf_module.feedback import get_feedback_fn
+from robobase.rlhf_module.iter import get_rlhf_iter_fn
 from robobase.rlhf_module.query import get_query_fn
 
 torch.backends.cudnn.benchmark = True
@@ -338,10 +337,13 @@ class Workspace:
             self._reward_pretrain_step = 0
             self._total_feedback = 0
 
-            feedback_fn = get_feedback_fn(cfg.rlhf.feedback_type)
-            self._comparison_fn = partial(
-                get_comparison_fn(cfg.rlhf.comparison_type), feedback_fn=feedback_fn
-            )
+            if cfg.rlhf.feedback_type == "gemini":
+                cfg.rlhf.gemini.task_description = (
+                    self.env_factory.get_task_description(cfg)
+                )
+                cfg.rlhf.gemini.output_path = self.work_dir / "gemini"
+
+            self._comparison_fn = get_rlhf_iter_fn(cfg)
             self._query_fn = get_query_fn(cfg.rlhf.query_type)
 
         # Create a separate demo replay that contains successful episodes.

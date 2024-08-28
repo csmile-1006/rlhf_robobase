@@ -87,3 +87,8 @@ TASK_MAP = dict(
     store_groceries_lower=GroceriesStoreLower,  # 32000, 25
     store_groceries_upper=GroceriesStoreUpper,  # 19000, 25
 )
+
+TASK_DESCRIPTION = dict(
+    move_plate="Grasping a dish on the dining rack and moving it to the another dining rack.",
+    dishwasher_open="Opening the dishwasher door and pulling out two trays.",
+)
