@@ -691,3 +691,18 @@ def pref_accuracy(logits: torch.Tensor, target_class: torch.Tensor):
     predicted_class = torch.argmax(logits, axis=1)
     return np.mean((predicted_class == target_class).detach().cpu().numpy())
     # return torch.mean(torch.LongTensor(predicted_class == target_class))
+
+
+def convert_torch_to_numpy(tensor):
+    if isinstance(tensor, torch.Tensor):
+        if tensor.is_cuda:
+            tensor = tensor.cpu()
+        return tensor.detach().numpy()
+    elif isinstance(tensor, np.ndarray):
+        return tensor
+    elif isinstance(tensor, list):
+        return [convert_torch_to_numpy(value) for value in tensor]
+    elif isinstance(tensor, dict):
+        return {key: convert_torch_to_numpy(value) for key, value in tensor.items()}
+    else:
+        return tensor

@@ -518,7 +518,9 @@ class UniformReplayBuffer(ReplayBuffer):
 
         for name, store_element in signature.items():
             arg_element = transition[store_element.name]
-            if isinstance(arg_element, np.ndarray):
+            if isinstance(arg_element, np.ndarray) or isinstance(
+                arg_element, torch.Tensor
+            ):
                 arg_shape = arg_element.shape
             elif isinstance(arg_element, tuple) or isinstance(arg_element, list):
                 # TODO: This is not efficient when arg_element is a list.

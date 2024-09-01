@@ -3,6 +3,7 @@ from copy import deepcopy
 import numpy as np
 import gymnasium as gym
 from gymnasium import spaces
+import torch
 
 
 class FrameStack(gym.ObservationWrapper, gym.utils.RecordConstructorArgs):
@@ -35,6 +36,7 @@ class FrameStack(gym.ObservationWrapper, gym.utils.RecordConstructorArgs):
         self,
         env: gym.Env,
         num_stack: int,
+        lib: str = "numpy",
     ):
         """Observation wrapper that stacks the observations in a rolling manner.
 
@@ -61,21 +63,34 @@ class FrameStack(gym.ObservationWrapper, gym.utils.RecordConstructorArgs):
                 shape=shape,
                 dtype=orig_space.dtype,
             )
-            self.frames[name] = np.zeros_like(new_obs_dict[name].sample())
+            self.frames[name] = (
+                np.zeros_like(new_obs_dict[name].sample())
+                if lib == "numpy"
+                else torch.zeros_like(
+                    torch.from_numpy(new_obs_dict[name].sample()),
+                    device=env.unwrapped.device,
+                )
+            )
         self.observation_space = spaces.Dict(new_obs_dict)
+        self._concat_fn = np.concatenate if lib == "numpy" else torch.cat
 
     def _add_frame(self, observation):
         for name, value in observation.items():
             if self.is_vector_env:
-                self.frames[name] = np.concatenate(
-                    [self.frames[name][:, 1:], np.expand_dims(value, 1)], 1
-                )
+                if self.unwrapped.lib == "torch":
+                    self.frames[name] = self._concat_fn(
+                        [self.frames[name][:, 1:], value.unsqueeze(1)], 1
+                    )
+                else:
+                    self.frames[name] = self._concat_fn(
+                        [self.frames[name][:, 1:], np.expand_dims(value, 1)], 1
+                    )
             else:
-                self.frames[name] = np.concatenate([self.frames[name][1:], [value]], 0)
+                self.frames[name] = self._concat_fn([self.frames[name][1:], [value]], 0)
 
     def _add_frame_at_idx(self, observation, idx: int = None):
         for name, value in observation.items():
-            self.frames[name][idx] = np.concatenate(
+            self.frames[name][idx] = self._concat_fn(
                 [self.frames[name][idx, 1:], np.expand_dims(value, 0)], 0
             )
 

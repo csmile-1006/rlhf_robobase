@@ -1,5 +1,4 @@
 import logging
-import random
 import shutil
 import signal
 import sys
@@ -12,193 +11,39 @@ import gymnasium as gym
 import hydra
 import numpy as np
 import torch
-from gymnasium import spaces
 from hydra.core.hydra_config import HydraConfig
 from omegaconf import DictConfig
 from torch.utils.data import DataLoader
 
 from robobase import utils
-from robobase.envs.env import EnvFactory
+from robobase.envs.isaaclab import IsaacLabEnvFactory
 from robobase.logger import Logger
-from robobase.replay_buffer.prioritized_replay_buffer import PrioritizedReplayBuffer
 from robobase.replay_buffer.replay_buffer import ReplayBuffer
-from robobase.replay_buffer.uniform_replay_buffer import (
-    UniformReplayBuffer,
-    load_episode,
-    save_episode,
-)
-from robobase.replay_buffer.rlhf.query_replay_buffer import QueryReplayBuffer
-from robobase.replay_buffer.rlhf.feedback_replay_buffer import FeedbackReplayBuffer
 from robobase.rlhf_module.iter import get_rlhf_iter_fn
 from robobase.rlhf_module.query import get_query_fn
+
+from robobase.workspace import (
+    _worker_init_fn,
+    relabel_with_predictor,
+    _create_default_replay_buffer,
+    _create_default_query_replay_buffer,
+    _create_default_feedback_replay_buffer,
+)
 
 torch.backends.cudnn.benchmark = True
 
 
-def _worker_init_fn(worker_id, offset=0):
-    seed = np.random.get_state()[1][0] + worker_id + offset
-    np.random.seed(seed)
-    random.seed(int(seed))
-
-
-def relabel_with_predictor(reward_model, replay_buffer):
-    """Relabels the rewards in the replay buffer using a reward model.
-
-    Args:
-        reward_model (torch.nn.Module): The reward model to use for relabelling.
-    """
-    replay_dir = replay_buffer._replay_dir
-    _obs_signature = replay_buffer._obs_signature
-    episodes = list(replay_dir.glob("*.npz"))
-    logging.info(f"Relabelling {len(episodes)} episodes with reward model")
-    for ep_fn in episodes:
-        episode = load_episode(ep_fn)
-        new_episode = reward_model.compute_reward(
-            episode, _obs_signature=_obs_signature
-        )
-        save_episode(new_episode, ep_fn)
-
-
-def _create_default_replay_buffer(
-    cfg: DictConfig,
-    observation_space: gym.Space,
-    action_space: gym.Space,
-    demo_replay: bool = False,
-    extra_replay_elements: dict[str, gym.Space] = None,
-) -> ReplayBuffer:
-    if extra_replay_elements is None:
-        extra_replay_elements = spaces.Dict({})
-    if cfg.demos > 0:
-        extra_replay_elements["demo"] = spaces.Box(0, 1, shape=(), dtype=np.uint8)
-    # Create replay_class with buffer-specific hyperparameters
-    replay_class = UniformReplayBuffer
-    if cfg.replay.prioritization:
-        replay_class = PrioritizedReplayBuffer
-    replay_class = partial(
-        replay_class,
-        nstep=cfg.replay.nstep,
-        gamma=cfg.replay.gamma,
-    )
-    # Create replay_class with common hyperparameters
-    return replay_class(
-        save_dir=cfg.replay.save_dir
-        if not demo_replay
-        else cfg.replay.save_dir + "_demo",
-        batch_size=cfg.batch_size if not demo_replay else cfg.demo_batch_size,
-        replay_capacity=cfg.replay.size if not demo_replay else cfg.replay.demo_size,
-        action_shape=action_space.shape,
-        action_dtype=action_space.dtype,
-        reward_shape=(),
-        reward_dtype=np.float32,
-        observation_elements=observation_space,
-        extra_replay_elements=extra_replay_elements,
-        num_workers=cfg.replay.num_workers,
-        sequential=cfg.replay.sequential,
-        purge_replay_on_shutdown=False,
-    )
-
-
-def _create_default_query_replay_buffer(
-    cfg: DictConfig,
-    observation_space: gym.Space,
-    action_space: gym.Space,
-    save_dir: Path = None,
-    use_demo: bool = False,
-    extra_replay_elements: dict[str, gym.Space] = None,
-) -> ReplayBuffer:
-    if extra_replay_elements is None:
-        extra_replay_elements = spaces.Dict({})
-    if cfg.demos > 0:
-        extra_replay_elements["demo"] = spaces.Box(0, 1, shape=(), dtype=np.uint8)
-
-    if cfg.demos > 0:
-        batch_size = (
-            (
-                cfg.reward_replay.num_queries // 2 + 1
-                if not use_demo
-                else cfg.reward_replay.num_queries // 2
-            )
-            if "pairwise" in cfg.rlhf.comparison_type
-            else cfg.reward_replay.num_queries
-        )
-    else:
-        batch_size = (
-            cfg.reward_replay.num_queries + 1
-            if "pairwise" in cfg.rlhf.comparison_type
-            else cfg.reward_replay.num_queries * 2
-        )
-
-    return QueryReplayBuffer(
-        save_dir=save_dir / "queries" if not use_demo else save_dir / "demo_queries",
-        batch_size=batch_size,
-        replay_capacity=cfg.reward_replay.size,
-        action_shape=action_space.shape,
-        action_dtype=action_space.dtype,
-        observation_elements=observation_space,
-        extra_replay_elements=extra_replay_elements,
-        num_workers=cfg.replay.num_workers,
-        sequential=True,
-        transition_seq_len=cfg.reward_replay.seq_len,
-        max_episode_number=cfg.reward_replay.max_episode_number if not use_demo else 0,
-    )
-
-
-def _create_default_feedback_replay_buffer(
-    cfg: DictConfig,
-    observation_space: gym.Space,
-    action_space: gym.Space,
-    save_dir: Path = None,
-    extra_replay_elements: dict[str, gym.Space] = None,
-) -> ReplayBuffer:
-    return FeedbackReplayBuffer(
-        save_dir=save_dir / "feedbacks",
-        batch_size=cfg.reward_replay.feedback_batch_size,
-        replay_capacity=cfg.reward_replay.size,
-        action_shape=action_space.shape,
-        action_dtype=action_space.dtype,
-        observation_elements=observation_space,
-        extra_replay_elements=extra_replay_elements,
-        num_workers=cfg.replay.num_workers,
-        sequential=False,
-        transition_seq_len=cfg.reward_replay.seq_len,
-        num_labels=cfg.reward_replay.num_labels,
-        purge_replay_on_shutdown=False,
-    )
-
-
-def _create_default_envs(cfg: DictConfig) -> EnvFactory:
-    factory = None
-    if cfg.env.env_name == "rlbench":
-        from robobase.envs.rlbench import RLBenchEnvFactory
-
-        factory = RLBenchEnvFactory()
-    elif cfg.env.env_name == "dmc":
-        from robobase.envs.dmc import DMCEnvFactory
-
-        factory = DMCEnvFactory()
-    elif cfg.env.env_name == "bigym":
-        from robobase.envs.bigym import BiGymEnvFactory
-
-        factory = BiGymEnvFactory()
-    elif cfg.env.env_name == "d4rl":
-        from robobase.envs.d4rl import D4RLEnvFactory
-
-        factory = D4RLEnvFactory()
-    else:
-        ValueError()
-    return factory
-
-
-class Workspace:
+class IsaacLabWorkspace:
     def __init__(
         self,
         cfg: DictConfig,
-        env_factory: EnvFactory = None,
+        env: gym.Env,
+        env_factory: IsaacLabEnvFactory = None,
         create_replay_fn: Callable[[DictConfig], ReplayBuffer] = None,
         work_dir: str = None,
     ):
         if env_factory is None:
-            env_factory = _create_default_envs(cfg)
+            env_factory = IsaacLabEnvFactory()
         if create_replay_fn is None:
             create_replay_fn = _create_default_replay_buffer
 
@@ -212,13 +57,13 @@ class Workspace:
         # Sanity checks
         if (
             cfg.replay_size_before_train * cfg.action_repeat * cfg.action_sequence
-            < cfg.env.episode_length // cfg.env.get("demo_down_sample_rate", 1)
+            < env.unwrapped.max_episode_length
             and cfg.replay_size_before_train > 0
         ):
             raise ValueError(
                 "replay_size_before_train * action_repeat "
                 f"({cfg.replay_size_before_train} * {cfg.action_repeat}) "
-                f"must be >= episode_length ({cfg.env.episode_length})."
+                f"must be >= episode_length ({env.unwrapped.max_episode_length})."
             )
 
         if cfg.method.is_rl and cfg.action_sequence != 1:
@@ -255,22 +100,37 @@ class Workspace:
             self.env_factory.collect_or_fetch_demos(cfg, num_demos)
 
         # Make training environment
-        if cfg.num_train_envs > 0:
-            self.train_envs = self.env_factory.make_train_env(cfg)
-        else:
-            self.train_envs = None
-            logging.warning("Train env is not created. Training will not be supported ")
+        self.train_envs = self.env_factory.make_train_env(env, cfg)
 
         # Create evaluation environment
-        self.eval_env = self.env_factory.make_eval_env(cfg)
+        self.eval_env = None
+        # self.eval_env = self.env_factory.make_eval_env(cfg)
 
         if num_demos > 0:
             # Post-process demos using the information from environments
             self.env_factory.post_collect_or_fetch_demos(cfg)
 
         # Create the RL Agent
-        observation_space = self.eval_env.observation_space
-        action_space = self.eval_env.action_space
+        # observation_space = self.eval_env.observation_space
+        # action_space = self.eval_env.action_space
+
+        # observation_space = self.train_envs.unwrapped.single_observation_space
+        observation_space = {}
+        for key in self.train_envs.observation_space.spaces.keys():
+            observation_space[key] = gym.spaces.Box(
+                low=self.train_envs.observation_space.spaces[key].low[0],
+                high=self.train_envs.observation_space.spaces[key].high[0],
+                shape=self.train_envs.observation_space.spaces[key].shape[1:],
+            )
+        observation_space = gym.spaces.Dict(observation_space)
+
+        action_space = gym.spaces.Box(
+            low=self.train_envs.action_space.low[:1],
+            high=self.train_envs.action_space.high[:1],
+            shape=(1, self.train_envs.action_space.shape[-1]),
+        )
+
+        reward_space = self.train_envs.unwrapped.single_reward_space
 
         intrinsic_reward_module = None
         if cfg.get("intrinsic_reward_module", None):
@@ -294,7 +154,9 @@ class Workspace:
         )
         self.agent.train(False)
 
-        self.replay_buffer = create_replay_fn(cfg, observation_space, action_space)
+        self.replay_buffer = create_replay_fn(
+            cfg, observation_space, action_space, extra_replay_elements=reward_space
+        )
         self.prioritized_replay = cfg.replay.prioritization
         self.extra_replay_elements = self.replay_buffer.extra_replay_elements
 
@@ -319,11 +181,19 @@ class Workspace:
             self.replay_buffer.set_reward_model(self.reward_model)
 
             self.query_replay_buffer = _create_default_query_replay_buffer(
-                cfg, observation_space, action_space, save_dir=self.work_dir
+                cfg,
+                observation_space,
+                action_space,
+                save_dir=self.work_dir,
+                extra_replay_elements=reward_space,
             )
 
             self.feedback_replay_buffer = _create_default_feedback_replay_buffer(
-                cfg, observation_space, action_space, save_dir=self.work_dir
+                cfg,
+                observation_space,
+                action_space,
+                save_dir=self.work_dir,
+                extra_replay_elements=reward_space,
             )
 
             self.query_replay_loader = DataLoader(
@@ -359,7 +229,11 @@ class Workspace:
         self.use_demo_replay = cfg.demo_batch_size is not None
         if self.use_demo_replay:
             self.demo_replay_buffer = create_replay_fn(
-                cfg, observation_space, action_space, demo_replay=True
+                cfg,
+                observation_space,
+                action_space,
+                demo_replay=True,
+                extra_replay_elements=reward_space,
             )
             self.demo_replay_loader = DataLoader(
                 self.demo_replay_buffer,
@@ -375,6 +249,7 @@ class Workspace:
                     action_space,
                     save_dir=self.work_dir,
                     use_demo=True,
+                    extra_replay_elements=reward_space,
                 )
                 self.demo_query_replay_loader = DataLoader(
                     self.demo_query_replay_buffer,
@@ -390,26 +265,23 @@ class Workspace:
 
         # RLBench doesn't like it when we import cv2 before it, so moving
         # import here.
-        from robobase.video import VideoRecorder
+        # from robobase.video import VideoRecorder
 
-        self.eval_video_recorder = VideoRecorder(
-            (self.work_dir / "eval_videos") if self.cfg.log_eval_video else None
-        )
+        # self.eval_video_recorder = VideoRecorder((self.work_dir / "eval_videos") if self.cfg.log_eval_video else None)
 
         self._timer = utils.Timer()
         self._pretrain_step = 0
         self._main_loop_iterations = 0
         self._global_env_episode = 0
-        self._act_dim = self.eval_env.action_space.shape[0]
         if self.train_envs:
-            self._episode_rollouts = [[] for _ in range(self.train_envs.num_envs)]
+            self._episode_rollouts = [[] for _ in range(cfg.num_train_envs)]
         else:
             self._episode_rollouts = []
 
-        if cfg.num_eval_episodes == 0:
-            # We no longer need the eval env
-            self.eval_env.close()
-            self.eval_env = None
+        # if cfg.num_eval_episodes == 0:
+        #     # We no longer need the eval env
+        #     self.eval_env.close()
+        #     self.eval_env = None
 
         self._shutting_down = False
 
@@ -446,7 +318,7 @@ class Workspace:
         return (
             self._main_loop_iterations
             * self.cfg.action_repeat
-            * self.train_envs.num_envs
+            * self.cfg.num_train_envs
             * self.cfg.action_sequence
             + self.pretrain_steps
         )
@@ -516,9 +388,12 @@ class Workspace:
 
         self.shutdown()
 
+    # Deprecated
     def eval(self) -> dict[str, Any]:
+        raise RuntimeError("This method is deprecated. Please do not use.")
         return self._eval(eval_record_all_episode=True)
 
+    # Deprecated
     def _eval(self, eval_record_all_episode: bool = False) -> dict[str, Any]:
         # TODO: In future, this func could do with a further refactor
         self.agent.set_eval_env_running(True)
@@ -529,7 +404,7 @@ class Workspace:
         while eval_until_episode(episode):
             observation, info = self.eval_env.reset()
             # eval agent always has last id (ids start from 0)
-            self.agent.reset(self.main_loop_iterations, [self.train_envs.num_envs])
+            self.agent.reset(self.main_loop_iterations, [self.cfg.num_train_envs])
             enabled = eval_record_all_episode or episode == 0
             self.eval_video_recorder.init(self.eval_env, enabled=enabled)
             termination, truncation = False, False
@@ -594,7 +469,7 @@ class Workspace:
             dict(zip(observations, t)) for t in zip(*observations.values())
         ]
         agents_reset = []
-        for i in range(self.train_envs.num_envs):
+        for i in range(self.cfg.num_train_envs):
             # Add transitions to episode rollout
             self._episode_rollouts[i].append(
                 (
@@ -603,8 +478,8 @@ class Workspace:
                     rewards[i],
                     terminations[i],
                     truncations[i],
-                    {k: infos[k][i] for k in infos.keys()},
-                    {k: next_infos[k][i] for k in next_infos.keys()},
+                    {k: infos[k][i] for k in infos.keys() if k != "log"},
+                    {k: next_infos[k][i] for k in next_infos.keys() if k != "log"},
                 )
             )
 
@@ -613,11 +488,14 @@ class Workspace:
                 agents_reset.append(i)
                 ep = self._episode_rollouts[i]
                 last_next_info = ep[-1][-1]
-                assert last_next_info["_final_observation"]
+                # assert last_next_info["_final_observation"]
                 # `next_info` containing `final_info` is the first info of next episode
                 # we need to extract `final_info` and use it as true next_info
-                final_obs = last_next_info["final_observation"]
-                final_info = last_next_info["final_info"]
+                # final_obs = last_next_info["final_observation"]
+                # final_info = last_next_info["final_info"]
+
+                final_obs = list_of_obs_dicts[i]
+                final_info = last_next_info.get("final_info", {})
                 task_success = int(final_info.get("task_success", 0) > 0.0)
 
                 # Re-labeling demonstrations with reward model
@@ -779,15 +657,14 @@ class Workspace:
 
         return metrics
 
+    # TODO: change this part according to isaaclab
     def _perform_env_steps(
         self, observations: dict[str, np.ndarray], env: gym.Env, eval_mode: bool
     ) -> tuple[np.ndarray, tuple, dict[str, Any]]:
         if self.agent.logging:
             start_time = time.time()
         with torch.no_grad(), utils.eval_mode(self.agent):
-            torch_observations = {
-                k: torch.from_numpy(v).to(self.device) for k, v in observations.items()
-            }
+            torch_observations = observations
             if eval_mode:
                 torch_observations = {
                     k: v.unsqueeze(0) for k, v in torch_observations.items()
@@ -802,7 +679,7 @@ class Workspace:
             if isinstance(action, tuple):
                 action, act_info = action
                 metrics["agent_act_info"] = act_info
-            action = action.cpu().detach().numpy()
+            # action = action.cpu().detach().numpy()
             if action.ndim != 3:
                 raise ValueError(
                     "Expected actions from `agent.act` to have shape "
@@ -814,20 +691,23 @@ class Workspace:
         if self.agent.logging:
             execution_time_for_act = time.time() - start_time
             metrics["agent_act_steps_per_second"] = (
-                self.train_envs.num_envs / execution_time_for_act
+                self.cfg.num_train_envs / execution_time_for_act
             )
             start_time = time.time()
 
-        *env_step_tuple, next_info = env.step(action)
+        # hard-coded part for removing temporal axis in robobase stuffs.
+        *env_step_tuple, next_info = env.step(action.squeeze(1))
 
         if self.agent.logging:
             execution_time_for_env_step = time.time() - start_time
             metrics["env_steps_per_second"] = (
-                self.train_envs.num_envs / execution_time_for_env_step
+                self.cfg.num_train_envs / execution_time_for_env_step
             )
-            for k, v in next_info.items():
+            for k, v in next_info["log"].items():
                 # if train env, then will be vectorised, so get first elem
-                metrics[f"env_info/{k}"] = v if eval_mode else v[0]
+                metrics[f"env_info/{k}"] = (
+                    v.detach().cpu().numpy() if isinstance(v, torch.Tensor) else v
+                )
 
         return action, (*env_step_tuple, next_info), metrics
 
@@ -907,8 +787,8 @@ class Workspace:
         train_until_frame = utils.Until(self.cfg.num_train_frames)
         seed_until_size = utils.Until(self.cfg.replay_size_before_train)
         should_log = utils.Every(self.cfg.log_every)
-        eval_every_n = self.cfg.eval_every_steps if self.eval_env is not None else 0
-        should_eval = utils.Every(eval_every_n)
+        # eval_every_n = self.cfg.eval_every_steps if self.eval_env is not None else 0
+        # should_eval = utils.Every(eval_every_n)
         snapshot_every_n = self.cfg.snapshot_every_n if self.cfg.save_snapshot else 0
         should_save_snapshot = utils.Every(snapshot_every_n)
         snapshot_reward_model_every_n = (
@@ -921,7 +801,11 @@ class Workspace:
         #  We use agent 0 to accumulate stats about how the training agents are doing
         agent_0_ep_len = agent_0_reward = 0
         agent_0_prev_ep_len = agent_0_prev_reward = None
-        while train_until_frame(self.global_env_steps):
+
+        agent_0_ep_len = agent_0_reward = 0
+        agent_0_prev_ep_len = agent_0_prev_reward = None
+
+        while train_until_frame(self.main_loop_iterations):
             metrics = {}
 
             self.agent.logging = False
@@ -980,7 +864,7 @@ class Workspace:
                 agent_0_ep_len = agent_0_reward = 0
 
             metrics.update(env_metrics)
-            self._add_to_replay(
+            transitions = (
                 action,
                 observations,
                 rewards,
@@ -989,6 +873,12 @@ class Workspace:
                 info,
                 next_info,
             )
+            numpy_transitions = list(map(utils.convert_torch_to_numpy, transitions))
+            self._add_to_replay(*numpy_transitions)
+            # Example usage:
+            # tensor = torch.tensor([1, 2, 3]).cuda()
+            # converted_array = convert_torch_to_numpy(tensor)
+            # print(converted_array)
             observations = next_observations
             info = next_info
             if should_log(self.main_loop_iterations):
@@ -1003,7 +893,8 @@ class Workspace:
                     )
                 self.logger.log_metrics(metrics, self.global_env_steps, prefix="train")
 
-            if should_eval(self.main_loop_iterations):
+            # temporarily disable evaluation in IsaacLab.
+            if False:
                 eval_metrics = self._eval()
                 eval_metrics.update(self._get_common_metrics())
                 self.logger.log_metrics(

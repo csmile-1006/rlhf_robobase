@@ -1,4 +1,5 @@
 """Concatenates dictionary of observations that share same shape."""
+import torch
 import numpy as np
 
 import gymnasium as gym
@@ -17,6 +18,7 @@ class ConcatDim(gym.ObservationWrapper, gym.utils.RecordConstructorArgs):
         norm_obs: bool = False,
         obs_stats: dict = None,
         keys_to_ignore: list[str] = None,
+        lib: str = "numpy",
     ):
         """Init.
 
@@ -46,6 +48,7 @@ class ConcatDim(gym.ObservationWrapper, gym.utils.RecordConstructorArgs):
                 combined.append(v)
             else:
                 new_obs_dict[k] = v
+        self.lib = lib
         new_min = np.concatenate(list(map(lambda s: s.low, combined)), self._dim)
         new_max = np.concatenate(list(map(lambda s: s.high, combined)), self._dim)
         new_obs_dict[new_name] = Box(new_min, new_max, dtype=np.float32)
@@ -67,7 +70,10 @@ class ConcatDim(gym.ObservationWrapper, gym.utils.RecordConstructorArgs):
                 combined.append(v)
             else:
                 new_obs[k] = v
-        new_obs[self._new_name] = np.concatenate(combined, dim)
+        if isinstance(combined[0], np.ndarray):
+            new_obs[self._new_name] = np.concatenate(combined, dim)
+        elif isinstance(combined[0], torch.Tensor):
+            new_obs[self._new_name] = torch.cat(combined, dim)
         return new_obs
 
     def observation(self, observation):
