@@ -64,8 +64,8 @@ class RNNFullyConnectedModule(FullyConnectedModule, ABC):
         self._assert_shapes()
 
         self.input_time_dim_size = -1
-        for v in input_shapes.values():
-            if len(v) == 2:
+        for k, v in input_shapes.items():
+            if "time" in k and len(v) == 2:
                 self.input_time_dim_size = v[0]  # T part of tuple
                 break
         hidden_state = torch.zeros(

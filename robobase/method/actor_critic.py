@@ -209,6 +209,8 @@ class ActorCritic(OffPolicyMethod, ABC):
                 self.intr_critic_opt,
             ) = self.build_critic()
 
+        self.state_ent_stats = utils.TorchRunningMeanStd(shape=(1,), device=self.device)
+
     def build_actor(self):
         input_shapes = self.get_fully_connected_inputs()
         if "time_obs" in input_shapes:
@@ -414,8 +416,19 @@ class ActorCritic(OffPolicyMethod, ABC):
         next_time_obs,
         loss_coeff,
         updating_intrinsic_critic,
+        updating_unsup_critic,
     ):
-        lp = "intrinsic_" if updating_intrinsic_critic else ""
+        assert not (
+            updating_intrinsic_critic and updating_unsup_critic
+        ), "Cannot update both intrinsic and unsup critic."
+        lp = (
+            "intrinsic_"
+            if updating_intrinsic_critic
+            else "unsup_"
+            if updating_unsup_critic
+            else ""
+        )
+
         if updating_intrinsic_critic:
             critic, critic_opt = (
                 self.intr_critic,
@@ -747,6 +760,7 @@ class ActorCritic(OffPolicyMethod, ABC):
                 next_time_obs,
                 loss_coeff,
                 False,
+                False,
             )
         )
 
@@ -776,10 +790,118 @@ class ActorCritic(OffPolicyMethod, ABC):
                     next_time_obs,
                     loss_coeff,
                     True,
+                    False,
                 )
             )
             utils.soft_update_params(
                 self.intr_critic, self.intr_critic_target, self.critic_target_tau
+            )
+
+        if fused_view_feats is not None:
+            fused_view_feats = fused_view_feats.detach()
+        metrics.update(
+            self.update_actor(
+                low_dim_obs, fused_view_feats, action, step, time_obs, demos, loss_coeff
+            )
+        )
+
+        # update critic target
+        utils.soft_update_params(
+            self.critic, self.critic_target, self.critic_target_tau
+        )
+
+        return metrics
+
+    def _extract_large_batch(
+        self, replay_iter: Iterator[dict[str, torch.Tensor]]
+    ) -> dict[str, torch.Tensor]:
+        batch = []
+        # Extract 10 batches from the replay iterator and concatenate them
+        for _ in range(20):
+            batch.append(next(replay_iter))
+        batch = {key: torch.cat([b[key] for b in batch], dim=0) for key in batch[0]}
+
+        batch = {k: v.to(self.device) for k, v in batch.items()}
+        return batch
+
+    def update_state_entropy(
+        self,
+        replay_iter: Iterator[dict[str, torch.Tensor]],
+        step: int,
+        replay_buffer: ReplayBuffer = None,
+    ):
+        (
+            metrics,
+            batch,
+            action,
+            reward,
+            discount,
+            terminal,
+            truncated,
+            bootstrap,
+            demos,
+            time_obs,
+            next_time_obs,
+            loss_coeff,
+        ) = self.extract_batch(replay_iter)
+
+        large_batch = self._extract_large_batch(replay_iter)
+
+        low_dim_obs = next_low_dim_obs = None
+        fused_view_feats = next_fused_view_feats = None
+        if self.low_dim_size > 0:
+            low_dim_obs, next_low_dim_obs = self.extract_low_dim_state(batch)
+            # use only the low-dim obs from the large batch
+            full_low_dim_obs, full_next_low_dim_obs = self.extract_low_dim_state(
+                large_batch
+            )
+
+        if self.use_pixels:
+            rgb_obs, next_rgb_obs, rgb_metrics = self.extract_pixels(batch)
+            metrics.update(rgb_metrics)
+            enc_metrics, rgb_feats, next_rgb_feats = self.encode(rgb_obs, next_rgb_obs)
+            metrics.update(enc_metrics)
+            (
+                fusion_metrics,
+                fused_view_feats,
+                next_fused_view_feats,
+            ) = self.multi_view_fusion(rgb_obs, rgb_feats, next_rgb_feats)
+            metrics.update(fusion_metrics)
+            if not self.frame_stack_on_channel:
+                fused_view_feats = fused_view_feats.view(
+                    -1, self.time_dim, *fused_view_feats.shape[1:]
+                )
+                next_fused_view_feats = next_fused_view_feats.view(
+                    -1, self.time_dim, *next_fused_view_feats.shape[1:]
+                )
+
+        state_entropy = utils.compute_state_entropy(low_dim_obs, full_low_dim_obs, k=5)
+        self.state_ent_stats.update(state_entropy)
+        state_entropy = state_entropy / self.state_ent_stats.std
+
+        metrics.update(
+            self.update_critic(
+                low_dim_obs,
+                fused_view_feats,
+                action,
+                state_entropy,  # instead of reward
+                discount,
+                bootstrap,
+                next_low_dim_obs,
+                next_fused_view_feats,
+                step,
+                time_obs,
+                next_time_obs,
+                loss_coeff,
+                False,
+                True,
+            )
+        )
+
+        if isinstance(replay_buffer, PrioritizedReplayBuffer):
+            replay_buffer.set_priority(
+                indices=batch["indices"].cpu().detach().numpy(),
+                priorities=self._td_error**self.replay_alpha,
             )
 
         if fused_view_feats is not None:

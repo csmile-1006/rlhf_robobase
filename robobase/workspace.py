@@ -597,7 +597,7 @@ class Workspace:
         for i in range(self.train_envs.num_envs):
             # Add transitions to episode rollout
             self._episode_rollouts[i].append(
-                (
+                [
                     actions[i],
                     list_of_obs_dicts[i],
                     rewards[i],
@@ -605,7 +605,7 @@ class Workspace:
                     truncations[i],
                     {k: infos[k][i] for k in infos.keys()},
                     {k: next_infos[k][i] for k in next_infos.keys()},
-                )
+                ]
             )
 
             # If episode finishes, add to replay buffer.

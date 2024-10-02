@@ -56,9 +56,9 @@ def collect_random_feedback(*_, **kwargs):
     return random_label
 
 
-def collect_script_feedback(segments, indices):
-    segment_return_1 = segments["reward"][indices[0]]
-    segment_return_2 = segments["reward"][indices[1]]
+def collect_script_feedback(segments, indices, **kwargs):
+    segment_return_1 = segments["reward"][indices[0]].sum(dim=-1)
+    segment_return_2 = segments["reward"][indices[1]].sum(dim=-1)
 
     if segment_return_1 > segment_return_2:
         script_label = 0

@@ -32,6 +32,7 @@ from robobase.replay_buffer.uniform_replay_buffer import (
     save_episode,
     load_episode,
     ACTION,
+    REWARD,
     TERMINAL,
     TRUNCATED,
     INDICES,
@@ -305,6 +306,7 @@ class QueryReplayBuffer(ReplayBuffer):
         """
         storage_elements = {
             ACTION: ReplayElement(ACTION, self._action_shape, self._action_dtype),
+            REWARD: ReplayElement(REWARD, (), np.float32),
             TERMINAL: ReplayElement(TERMINAL, (), np.int8),
             TRUNCATED: ReplayElement(TRUNCATED, (), np.int8),
         }
@@ -357,6 +359,7 @@ class QueryReplayBuffer(ReplayBuffer):
         transition = {}
 
         transition[ACTION] = action
+        transition[REWARD] = reward
         transition[TERMINAL] = terminal
         transition[TRUNCATED] = truncated
         transition[INDICES] = index
@@ -605,28 +608,19 @@ class QueryReplayBuffer(ReplayBuffer):
         # Sample transition index
         if global_index is None:
             # NOTE: here global index is the index of the start of episode.
-            episode, global_index = self._sample_episode()
+            while True:
+                episode, global_index = self._sample_episode()
+                episode_length = episode_len(episode)
 
-            # When using sequential, we ensure that frame stack does not repeat
-            # the initial frames when sampling the beginning of the episode.
-            min_idx = self._transition_seq_len - 1
-            # There's no need to handle self._nstep at the end of episode, which
-            # allows for sampling last timestep without using separate next_idxs
-            # max_idx = episode_len(episode) + self._transition_seq_len
-            max_idx = episode_len(episode)
-            idx = np.random.randint(min_idx, max_idx)
-            # total_len = episode_len(episode)
-            episodes_to_flatten = [episode]
-            # while idx >= total_len:
-            #     # Spill over into another episode
-            #     _episode, _global_index = self._sample_episode()
-            #     total_len += episode_len(_episode)
-            #     episodes_to_flatten.append(_episode)
-            episode = self._flatten_episodes(episodes_to_flatten)
+                min_idx = self._transition_seq_len - 1
+                max_idx = episode_length
 
-            # global index of the transition = index of episode_start + transition_idx
+                if max_idx > min_idx:
+                    idx = np.random.randint(min_idx, max_idx)
+                    break
+
+            episode = self._flatten_episodes([episode])
             global_index += idx
-
         else:
             if global_index not in self._global_idxs_to_episode_and_transition_idx:
                 # This worker does not have this sample
@@ -653,6 +647,7 @@ class QueryReplayBuffer(ReplayBuffer):
             # manually add the action_seq dimension = 1,
             ACTION: episode[ACTION][transition_idxs],
             TERMINAL: episode[TERMINAL][transition_idxs],
+            REWARD: episode[REWARD][transition_idxs],
             TRUNCATED: episode[TRUNCATED][transition_idxs],
             INDICES: idx,
             IS_FIRST: episode[IS_FIRST][transition_idxs],
@@ -665,7 +660,7 @@ class QueryReplayBuffer(ReplayBuffer):
         # Add remaining (extra) items
         for name in self._storage_signature.keys():
             if name not in replay_sample:
-                replay_sample[name] = episode[name][idx]
+                replay_sample[name] = episode[name][transition_idxs]
 
         return replay_sample
 

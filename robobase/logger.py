@@ -35,6 +35,19 @@ COMMON_TRAIN_FORMAT = [
     ("total_time", "T", "time"),
 ]
 
+COMMON_UNSUP_TRAIN_FORMAT = [
+    ("iteration", "Iter", "int"),
+    ("unsup_critic_loss", "Unsup Critic Loss", "float"),
+    ("env_steps", "S", "int"),
+    ("env_episodes", "E", "int"),
+    ("buffer_size", "BS", "int"),
+    ("buffer_sample_time", "BST", "float"),
+    ("env_steps_per_second", "Env FPS", "float"),
+    ("agent_batched_updates_per_second", "Batched Update FPS", "float"),
+    ("total_time", "T", "time"),
+]
+
+
 COMMON_REWARD_TRAIN_FORMAT = [
     ("iteration", "Iter", "int"),
     ("pref_acc_label_0", "ACC", "float"),
@@ -96,6 +109,8 @@ class MetersGroup(object):
                 key = key[len("train_reward") + 1 :]
             elif key.startswith("train"):
                 key = key[len("train") + 1 :]
+            elif key.startswith("unsup_train"):
+                key = key[len("unsup_train") + 1 :]
             else:
                 key = key[len("eval") + 1 :]
             key = key.replace("/", "_")
@@ -150,6 +165,10 @@ class MetersGroup(object):
             color = "yellow"
         elif prefix == "pretrain":
             color = "red"
+        elif prefix == "unsup_train":
+            color = "blue"
+        elif "reward" in prefix:
+            color = "magenta"
         else:
             color = "green"
         prefix = colored(prefix, color)
@@ -185,6 +204,9 @@ class Logger(object):
             log_dir / "eval.csv", COMMON_EVAL_FORMAT, cfg.save_csv
         )
         if cfg.rlhf.use_rlhf:
+            self._unsup_train_mg = MetersGroup(
+                log_dir / "unsup_train.csv", COMMON_UNSUP_TRAIN_FORMAT, cfg.save_csv
+            )
             self._pretrain_reward_mg = MetersGroup(
                 log_dir / "pretrain_reward.csv",
                 COMMON_REWARD_PRETRAIN_FORMAT,
@@ -285,7 +307,9 @@ class Logger(object):
             return
         self._try_log(key, value, step, is_video)
         if np.isscalar(value):
-            if key.startswith("train_reward"):
+            if key.startswith("unsup_train"):
+                mg = self._unsup_train_mg
+            elif key.startswith("train_reward"):
                 mg = self._train_reward_mg
             elif key.startswith("train"):
                 mg = self._train_mg
@@ -312,6 +336,8 @@ class Logger(object):
             self._pretrain_reward_mg.dump(step, "pretrain_reward")
         if prefix is None or prefix == "train_reward":
             self._train_reward_mg.dump(step, "train_reward")
+        if prefix is None or prefix == "unsup_train":
+            self._unsup_train_mg.dump(step, "unsup_train")
         if self._use_wandb and len(self._wandb_logs):
             wandb.log(self._wandb_logs, step=step)
             self._wandb_logs = {}

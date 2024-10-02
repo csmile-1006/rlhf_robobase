@@ -77,7 +77,7 @@ class FrameStack(gym.ObservationWrapper, gym.utils.RecordConstructorArgs):
     def _add_frame(self, observation):
         for name, value in observation.items():
             if self.is_vector_env:
-                if self.unwrapped.lib == "torch":
+                if self.lib == "torch":
                     self.frames[name] = self._concat_fn(
                         [self.frames[name][:, 1:], value.unsqueeze(1)], 1
                     )

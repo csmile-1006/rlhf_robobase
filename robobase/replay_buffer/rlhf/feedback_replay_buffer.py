@@ -161,6 +161,16 @@ class FeedbackReplayBuffer(ReplayBuffer):
             )
         observation_elements = new_observation_elements
 
+        new_extra_replay_elements = {}
+        for name, space in extra_replay_elements.items():
+            new_extra_replay_elements[name] = spaces.Box(
+                np.stack([space.low for _ in range(transition_seq_len)]),
+                np.stack([space.high for _ in range(transition_seq_len)]),
+                shape=(transition_seq_len,) + space.shape[1:],
+                dtype=space.dtype,
+            )
+        extra_replay_elements = new_extra_replay_elements
+
         # Now remove temporal aspect from action, as we won't be storing them.
         # action_seq_len = action_shape[0]
         action_seq_len = transition_seq_len
