@@ -717,9 +717,7 @@ class IsaacLabWorkspace:
             )
             for k, v in next_info["log"].items():
                 # if train env, then will be vectorised, so get first elem
-                metrics[f"env_info/{k}"] = (
-                    v.detach().cpu().numpy() if isinstance(v, torch.Tensor) else v
-                )
+                metrics[k] = v.detach().cpu().numpy() if isinstance(v, torch.Tensor) else v
 
         return action, (*env_step_tuple, next_info), metrics
 
@@ -859,7 +857,17 @@ class IsaacLabWorkspace:
                             * self.cfg.action_repeat,
                         }
                     )
-                self.logger.log_metrics(metrics, self.global_env_steps, prefix="train")
+
+                eureka_metrics = {key: value for key, value in metrics.items() if "Eureka" in key}
+                non_eureka_metrics = {key: value for key, value in metrics.items() if "Eureka" not in key}
+                self.logger.log_metrics(non_eureka_metrics, self.global_env_steps, prefix="train")
+                # Hack code for logging Eureka metrics
+                for key, value in eureka_metrics.items():
+                    if isinstance(value, np.ndarray) and len(value.shape) == 1:
+                        self.logger._log(key, np.mean(value), self.global_env_steps)  # type: ignore
+                    else:
+                        self.logger._log(key, value, self.global_env_steps)  # type: ignore
+                self.logger._dump(self.global_env_steps, "train")  # type: ignore
 
             # temporarily disable evaluation in IsaacLab.
             if False:
@@ -1044,7 +1052,7 @@ class IsaacLabWorkspace:
         if self.eval_env:
             self.eval_env.close()
 
-        self.train_envs.close()
+        # self.train_envs.close()
         self.replay_buffer.shutdown()
         if self.use_demo_replay:
             self.demo_replay_buffer.shutdown()
