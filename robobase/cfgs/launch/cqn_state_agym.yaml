@@ -11,13 +11,12 @@ action_repeat: 1
 update_every_steps: 1
 replay:
   nstep: 3  # Use 1 for walker_walk
-num_eval_episodes: 5
-eval_every_steps: 20000
 
 method:
   use_dueling: false
-  v_min: 0.0
-  v_max: 200.0
+  # estimate value in [v_min, v_max] with resolution delta_z, v_min/v_max are computed from empirical evidences
+  v_min: -300.0
+  v_max: 100.0
   atoms: 51
 
 hydra:

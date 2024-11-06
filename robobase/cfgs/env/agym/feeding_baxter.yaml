@@ -1,0 +1,9 @@
+# @package _global_
+
+defaults:
+  - agym/default
+  - agym
+  - _self_
+
+env:
+  task_name: FeedingBaxter-v1
