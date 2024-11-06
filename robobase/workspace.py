@@ -557,7 +557,7 @@ class Workspace:
                 step += 1
             if episode == 0:
                 first_rollout = np.array(self.eval_video_recorder.frames)
-            self.eval_video_recorder.save(f"{self.global_env_steps}.mp4")
+            self.eval_video_recorder.save(f"{self.global_env_steps}_{episode}.mp4")
             success = info.get("task_success")
             if success is not None:
                 successes += np.array(success).astype(int).item()
