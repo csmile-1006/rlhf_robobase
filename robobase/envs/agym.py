@@ -71,8 +71,17 @@ class AGym(gym.Env):
         agym_obs, info = self._agym_env.reset(seed=seed, options=options)
         return self._get_obs(agym_obs), info
 
-    def render(self):
-        img, depth = self._agym_env.env.get_camera_image_depth()
+    def render(self, view: str = "front") -> None:
+        """Render the environment.
+
+        Args:
+            view (str, optional): Camera view to render from.
+        """
+        if view not in ["front", "side", "top"]:
+            raise ValueError(
+                f'view must be one of ["front", "side", "top"], got {view}'
+            )
+        img, depth = self._agym_env.env.get_camera_image_depth(view=view)
 
         if self._render_mode == "rgb_array":
             return img.astype(np.uint8)
@@ -97,7 +106,9 @@ class AGymEnvFactory(EnvFactory):
             # Used in unit tests.
             env = TimeLimit(env, cfg.env.episode_length)
         if cfg.use_onehot_time_and_no_bootstrap:
-            env = OnehotTime(env, cfg.env.episode_length // cfg.action_repeat)  # Time limits are handles by DMC
+            env = OnehotTime(
+                env, cfg.env.episode_length // cfg.action_repeat
+            )  # Time limits are handles by DMC
         env = ActionSequence(env, cfg.action_sequence)
         env = FrameStack(env, cfg.frame_stack)
         return env
