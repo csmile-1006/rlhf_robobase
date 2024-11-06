@@ -125,8 +125,8 @@ class IsaacLabWorkspace:
         observation_space = gym.spaces.Dict(observation_space)
 
         action_space = gym.spaces.Box(
-            low=self.train_envs.action_space.low[:1],
-            high=self.train_envs.action_space.high[:1],
+            low=np.full((1, self.train_envs.action_space.shape[-1]), -1.0),
+            high=np.full((1, self.train_envs.action_space.shape[-1]), 1.0),
             shape=(1, self.train_envs.action_space.shape[-1]),
         )
 

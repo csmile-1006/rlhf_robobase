@@ -1,0 +1,14 @@
+# @package _global_
+
+defaults:
+  - ../env: agym/dressing_pr2
+  - ../method: sac_lix
+
+pixels: false
+frame_stack: 1
+action_repeat: 1
+num_train_envs: 1
+num_eval_episodes: 5
+eval_every_steps: 50000
+temporal_ensemble: false
+log_every: 500

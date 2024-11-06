@@ -184,6 +184,10 @@ def _create_default_envs(cfg: DictConfig) -> EnvFactory:
         from robobase.envs.d4rl import D4RLEnvFactory
 
         factory = D4RLEnvFactory()
+    elif cfg.env.env_name == "agym":
+        from robobase.envs.agym import AGymEnvFactory
+
+        factory = AGymEnvFactory()
     else:
         ValueError()
     return factory
