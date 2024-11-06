@@ -1,7 +1,7 @@
 # @package _global_
 
 defaults:
-  - ../env: agym/dressing_pr2
+  - ../env: null  # Please specify environment to use in command line
   - ../method: sac_lix
 
 pixels: false

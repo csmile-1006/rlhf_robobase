@@ -16,6 +16,7 @@ from gymnasium import spaces
 from hydra.core.hydra_config import HydraConfig
 from omegaconf import DictConfig
 from torch.utils.data import DataLoader
+from tqdm import tqdm
 
 from robobase import utils
 from robobase.envs.env import EnvFactory
@@ -530,6 +531,7 @@ class Workspace:
         eval_until_episode = utils.Until(self.cfg.num_eval_episodes)
         first_rollout = []
         metrics = {}
+        pbar = tqdm(total=self.cfg.num_eval_episodes, desc="Evaluating", leave=False, position=0)
         while eval_until_episode(episode):
             observation, info = self.eval_env.reset()
             # eval agent always has last id (ids start from 0)
@@ -537,6 +539,7 @@ class Workspace:
             enabled = eval_record_all_episode or episode == 0
             self.eval_video_recorder.init(self.eval_env, enabled=enabled)
             termination, truncation = False, False
+            episode_pbar = tqdm(total=self.cfg.env.episode_length, desc="Episode", leave=False, position=1)
             while not (termination or truncation):
                 (
                     action,
@@ -555,6 +558,7 @@ class Workspace:
                 self.eval_video_recorder.record(self.eval_env)
                 total_reward += reward
                 step += 1
+                episode_pbar.update(1)
             if episode == 0:
                 first_rollout = np.array(self.eval_video_recorder.frames)
             self.eval_video_recorder.save(f"{self.global_env_steps}_{episode}.mp4")
@@ -564,6 +568,7 @@ class Workspace:
             else:
                 successes = None
             episode += 1
+            pbar.update(1)
         metrics.update(
             {
                 "episode_reward": total_reward / episode,
@@ -1008,7 +1013,7 @@ class Workspace:
                 self.logger.log_metrics(metrics, self.global_env_steps, prefix="train")
 
             if should_eval(self.main_loop_iterations):
-                eval_metrics = self._eval()
+                eval_metrics = self._eval(eval_record_all_episode=True)
                 eval_metrics.update(self._get_common_metrics())
                 self.logger.log_metrics(
                     eval_metrics, self.global_env_steps, prefix="eval"

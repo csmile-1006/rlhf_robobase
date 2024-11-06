@@ -48,5 +48,6 @@ class VideoRecorder:
 
     def save(self, file_name):
         if self.enabled and len(self.frames) > 0:
+            print(f"Saving video to {self.save_dir / file_name}")
             path = self.save_dir / file_name
             imageio.mimsave(str(path), np.array(self.frames), fps=self.fps)

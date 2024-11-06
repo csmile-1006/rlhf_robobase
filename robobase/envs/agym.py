@@ -32,6 +32,7 @@ class AGym(gym.Env):
         assert render_mode is None or render_mode in self.metadata["render_modes"]
         self._render_mode = render_mode
 
+        print(f"Creating AGym environment with task name: {task_name}")
         self._agym_env = gym_old.make(task_name)
         self._agym_env = gym.wrappers.EnvCompatibility(self._agym_env)
 
