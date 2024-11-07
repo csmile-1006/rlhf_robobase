@@ -17,6 +17,10 @@ from robobase.envs.wrappers import (
     ActionSequence,
 )
 
+import logging
+
+logging.getLogger("pybullet").setLevel(logging.ERROR)
+
 
 class AGym(gym.Env):
     metadata = {"render_modes": ["rgb_array", "human"], "render_fps": 4}
@@ -25,7 +29,7 @@ class AGym(gym.Env):
         self,
         task_name,
         action_repeat: int = 1,
-        render_mode: str = None,
+        render_mode: str = "rgb_array",
     ):
         self._action_repeat = action_repeat
         self._viewer = None
@@ -34,7 +38,7 @@ class AGym(gym.Env):
 
         print(f"Creating AGym environment with task name: {task_name}")
         self._agym_env = gym_old.make(task_name)
-        self._agym_env = gym.wrappers.EnvCompatibility(self._agym_env)
+        self._agym_env = gym.wrappers.EnvCompatibility(self._agym_env, render_mode)
 
         self.observation_space = spaces.Dict(
             {
@@ -67,21 +71,27 @@ class AGym(gym.Env):
                 break
         return self._get_obs(agym_obs), reward, terminated, truncated, info
 
+    def get_image(self, view: str = "right"):
+        img, depth = self._agym_env.env.get_camera_image_depth(view=view)
+        img = img.copy()[:, :, :3]
+        return img
+
     def reset(self, seed=None, options=None):
         agym_obs, info = self._agym_env.reset(seed=seed, options=options)
         return self._get_obs(agym_obs), info
 
-    def render(self, view: str = "front") -> None:
+    def render(self, view: str = "right") -> None:
         """Render the environment.
 
         Args:
             view (str, optional): Camera view to render from.
         """
-        if view not in ["front", "side", "top"]:
+        if view not in ["front", "right", "top"]:
             raise ValueError(
-                f'view must be one of ["front", "side", "top"], got {view}'
+                f'view must be one of ["front", "right", "top"], got {view}'
             )
         img, depth = self._agym_env.env.get_camera_image_depth(view=view)
+        img = img[:, :, :3]
 
         if self._render_mode == "rgb_array":
             return img.astype(np.uint8)
