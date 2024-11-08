@@ -6,4 +6,4 @@ defaults:
   - _self_
 
 env:
-  task_name: DressingPR2-v1
+  task_name: DressingPR2-v0
