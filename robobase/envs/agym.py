@@ -41,8 +41,8 @@ class AGym(gym.Env):
         self._render_mode = render_mode
 
         print(f"Creating AGym environment with task name: {task_name}")
-        self._agym_env = gym_old.make(task_name)
-        self._agym_env = gym.wrappers.EnvCompatibility(self._agym_env, render_mode)
+        self.__agym_env = gym_old.make(task_name)
+        self._agym_env = gym.wrappers.EnvCompatibility(self.__agym_env, render_mode)
 
         self.observation_space = spaces.Dict(
             {
@@ -54,6 +54,9 @@ class AGym(gym.Env):
             }
         )
         self.action_space = self._agym_env.action_space
+
+    def agym_env(self):
+        return self.__agym_env
 
     def _get_obs(self, observation):
         return {"low_dim_state": observation.astype(np.float32)}
@@ -108,7 +111,8 @@ class AGym(gym.Env):
         if self._viewer is not None:
             self._viewer.close()
             self._viewer = None
-        return self._agym_env.close()
+        self.__agym_env.close()
+        self._agym_env.close()
 
 
 class AGymEnvFactory(EnvFactory):
