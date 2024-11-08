@@ -217,11 +217,11 @@ class Logger(object):
             )
         self._use_wandb = cfg.wandb.use
         self._use_tb = cfg.tb.use
-        if self._use_wandb and self._use_tb:
-            raise ValueError(
-                "You have request to log with both TensorBoard and W&B. "
-                "We will assume this is a mistake."
-            )
+        # if self._use_wandb and self._use_tb:
+        #     raise ValueError(
+        #         "You have request to log with both TensorBoard and W&B. "
+        #         "We will assume this is a mistake."
+        #     )
         self._wandb_logs = {}
         if self._use_wandb:
             import wandb
@@ -235,7 +235,7 @@ class Logger(object):
                 name=cfg.wandb.name,
                 config=cfg_dict,
             )
-        elif self._use_tb:
+        if self._use_tb:
             try:
                 from torch.utils.tensorboard import SummaryWriter
             except ImportError as e:
@@ -268,7 +268,7 @@ class Logger(object):
                 if channel_first:
                     v = np.moveaxis(v, 0, -1)
                 self._wandb_logs[key] = wandb.Image(v)
-        elif self._use_tb:
+        if self._use_tb:
             if is_video:
                 if value["video"].ndim == 5:
                     v = value["video"]
