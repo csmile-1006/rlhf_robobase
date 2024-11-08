@@ -259,13 +259,6 @@ class Workspace:
             # to consider demo-based action space (e.g., standardization)
             self.env_factory.collect_or_fetch_demos(cfg, num_demos)
 
-        # Make training environment
-        if cfg.num_train_envs > 0:
-            self.train_envs = self.env_factory.make_train_env(cfg)
-        else:
-            self.train_envs = None
-            logging.warning("Train env is not created. Training will not be supported ")
-
         # Create evaluation environment
         self.eval_env = self.env_factory.make_eval_env(cfg)
 
@@ -298,6 +291,13 @@ class Workspace:
             intrinsic_reward_module=intrinsic_reward_module,
         )
         self.agent.train(False)
+
+        # Make training environment
+        if cfg.num_train_envs > 0:
+            self.train_envs = self.env_factory.make_train_env(cfg)
+        else:
+            self.train_envs = None
+            logging.warning("Train env is not created. Training will not be supported ")
 
         self.replay_buffer = create_replay_fn(cfg, observation_space, action_space)
         self.prioritized_replay = cfg.replay.prioritization
@@ -531,7 +531,9 @@ class Workspace:
         eval_until_episode = utils.Until(self.cfg.num_eval_episodes)
         first_rollout = []
         metrics = {}
-        pbar = tqdm(total=self.cfg.num_eval_episodes, desc="Evaluating", leave=False, position=0)
+        pbar = tqdm(
+            total=self.cfg.num_eval_episodes, desc="Evaluating", leave=False, position=0
+        )
         while eval_until_episode(episode):
             observation, info = self.eval_env.reset()
             # eval agent always has last id (ids start from 0)
@@ -539,7 +541,12 @@ class Workspace:
             enabled = eval_record_all_episode or episode == 0
             self.eval_video_recorder.init(self.eval_env, enabled=enabled)
             termination, truncation = False, False
-            episode_pbar = tqdm(total=self.cfg.env.episode_length, desc="Episode", leave=False, position=1)
+            episode_pbar = tqdm(
+                total=self.cfg.env.episode_length,
+                desc="Episode",
+                leave=False,
+                position=1,
+            )
             while not (termination or truncation):
                 (
                     action,

@@ -22,8 +22,7 @@ def _render_single_env_if_vector(env: gym.vector.VectorEnv):
         else:
             raise ValueError("Unrecognized vector env.")
     else:
-        # img = env.render()
-        img = env.get_image()
+        img = env.render()
     return img
 
 

@@ -29,11 +29,15 @@ class AGym(gym.Env):
         self,
         task_name,
         action_repeat: int = 1,
+        frame_skip: int = 2,
         render_mode: str = "rgb_array",
     ):
         self._action_repeat = action_repeat
         self._viewer = None
         assert render_mode is None or render_mode in self.metadata["render_modes"]
+        self._i = 0
+        self._frame_skip = frame_skip
+        self._prev_image = None
         self._render_mode = render_mode
 
         print(f"Creating AGym environment with task name: {task_name}")
@@ -69,12 +73,8 @@ class AGym(gym.Env):
             reward += reward
             if terminated or truncated:
                 break
+        self._i += 1
         return self._get_obs(agym_obs), reward, terminated, truncated, info
-
-    def get_image(self, view: str = "right"):
-        img, depth = self._agym_env.env.get_camera_image_depth(view=view)
-        img = img.copy()[:, :, :3]
-        return img
 
     def reset(self, seed=None, options=None):
         agym_obs, info = self._agym_env.reset(seed=seed, options=options)
@@ -90,15 +90,17 @@ class AGym(gym.Env):
             raise ValueError(
                 f'view must be one of ["front", "right", "top"], got {view}'
             )
-        img, depth = self._agym_env.env.get_camera_image_depth(view=view)
-        img = img[:, :, :3]
+        if self._i % self._frame_skip == 0:
+            img, depth = self._agym_env.env.get_camera_image_depth(view=view)
+            img = img[:, :, :3]
+            self._prev_image = img
 
         if self._render_mode == "rgb_array":
-            return img.astype(np.uint8)
+            return self._prev_image.astype(np.uint8)
         elif self._render_mode == "human":
             from PIL import Image
 
-            return Image.fromarray(img)
+            return Image.fromarray(self._prev_image)
         else:
             raise NotImplementedError(f"`{self._render_mode}` mode is not implemented")
 
@@ -112,9 +114,7 @@ class AGym(gym.Env):
 class AGymEnvFactory(EnvFactory):
     def _wrap_env(self, env, cfg):
         env = RescaleFromTanh(env)
-        if cfg.env.episode_length != 200:
-            # Used in unit tests.
-            env = TimeLimit(env, cfg.env.episode_length)
+        env = TimeLimit(env, cfg.env.episode_length)
         if cfg.use_onehot_time_and_no_bootstrap:
             env = OnehotTime(
                 env, cfg.env.episode_length // cfg.action_repeat
@@ -132,6 +132,7 @@ class AGymEnvFactory(EnvFactory):
                     AGym(
                         cfg.env.task_name,
                         cfg.action_repeat,
+                        cfg.env.frame_skip,
                         "rgb_array",
                     ),
                     cfg,
@@ -146,6 +147,7 @@ class AGymEnvFactory(EnvFactory):
             AGym(
                 cfg.env.task_name,
                 cfg.action_repeat,
+                cfg.env.frame_skip,
                 "rgb_array",
             ),
             cfg,

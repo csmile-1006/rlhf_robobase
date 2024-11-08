@@ -6,4 +6,4 @@ defaults:
   - _self_
 
 env:
-  task_name: FeedingBaxter-v1
+  task_name: FeedingBaxter-v0
