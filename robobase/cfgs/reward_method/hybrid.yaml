@@ -1,9 +1,10 @@
 # @package _global_
 reward_method:
-  _target_: robobase.reward_method.weight_tuner.WeightTunerReward
+  _target_: robobase.reward_method.hybrid.HybridReward
   device: ${device}
   lr: 1e-4
   weight_decay: 1e-4
+  lambda_weight: 1.0
   num_train_steps: ${num_pretrain_steps}
   adaptive_lr: false
   # This would expect language embeddings using openai-clip
@@ -11,6 +12,7 @@ reward_method:
   # But this would be environment-specific
   use_lang_cond: False
   num_label: 1
+  num_reward_models: 1
   compute_batch_size: ${batch_size}
   seq_len: ${rlhf_replay.seq_len}
   use_augmentation: True
@@ -38,4 +40,18 @@ reward_method:
     bottleneck_size: 50
     norm_after_bottleneck: true
     tanh_after_bottleneck: true
-    mlp_nodes: [1024, 1024]
+    mlp_nodes: [128, 128]
+
+  weight_model:
+    _target_: robobase.models.MLPWithBottleneckFeatures
+    _partial_: true
+    input_shapes: ???
+    output_shape: 1
+    num_envs: 1
+    num_rnn_layers: 1
+    rnn_hidden_size: 128
+    keys_to_bottleneck: [fused_view_feats, low_dim_obs, time_obs]
+    bottleneck_size: 50
+    norm_after_bottleneck: true
+    tanh_after_bottleneck: true
+    mlp_nodes: [128, 128]
