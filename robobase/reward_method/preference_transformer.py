@@ -14,7 +14,6 @@ from diffusers.optimization import get_scheduler
 
 from robobase.replay_buffer.replay_buffer import ReplayBuffer
 from robobase.method.utils import (
-    extract_from_spec,
     extract_many_from_spec,
     extract_from_batch,
     stack_tensor_dictionary,
@@ -97,16 +96,6 @@ class PreferenceTransformer(RewardMethod):
             )
 
         self._is_relabel = True
-
-    @property
-    def low_dim_size(self) -> int:
-        low_dim_state_spec = extract_from_spec(
-            self.observation_space, "low_dim_state", missing_ok=True
-        )
-        low_dim_in_size = 0
-        if low_dim_state_spec is not None:
-            low_dim_in_size = low_dim_state_spec.shape[1] * low_dim_state_spec.shape[0]
-        return low_dim_in_size
 
     def build_encoder(self):
         rgb_spaces = extract_many_from_spec(

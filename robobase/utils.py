@@ -1,22 +1,23 @@
 import math
 import random
 import re
-import time
-import warnings
 import selectors
 import sys
+import time
+import warnings
+from io import BytesIO
+from typing import Callable, List
 
-from gymnasium.spaces import Box
-from omegaconf import DictConfig
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch import distributions as pyd
-from torch.distributions.utils import _standard_normal
-from torch.autograd import Variable
-from typing import List, Callable
+from gymnasium.spaces import Box
+from omegaconf import DictConfig
 from scipy.spatial.transform import Rotation as R
+from torch import distributions as pyd
+from torch.autograd import Variable
+from torch.distributions.utils import _standard_normal
 
 from robobase.envs.env import Demo, DemoEnv
 from robobase.replay_buffer.replay_buffer import ReplayBuffer
@@ -763,3 +764,10 @@ def update_mean_var_count_from_moments(
     new_count = tot_count
 
     return new_mean, new_var, new_count
+
+
+def read_video_from_bytes(video_bytes):
+    if isinstance(video_bytes, torch.Tensor):
+        video_bytes = video_bytes.detach().cpu().numpy()
+    with BytesIO(video_bytes) as fin:
+        return fin.read().decode("utf-8")

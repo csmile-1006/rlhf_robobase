@@ -115,32 +115,33 @@ def _create_default_query_replay_buffer(
     if cfg.demos > 0:
         batch_size = (
             (
-                cfg.reward_replay.num_queries // 2 + 1
+                cfg.rlhf_replay.num_queries // 2 + 1
                 if not use_demo
-                else cfg.reward_replay.num_queries // 2
+                else cfg.rlhf_replay.num_queries // 2
             )
             if "pairwise" in cfg.rlhf.comparison_type
-            else cfg.reward_replay.num_queries
+            else cfg.rlhf_replay.num_queries
         )
     else:
         batch_size = (
-            cfg.reward_replay.num_queries + 1
+            cfg.rlhf_replay.num_queries + 1
             if "pairwise" in cfg.rlhf.comparison_type
-            else cfg.reward_replay.num_queries * 2
+            else cfg.rlhf_replay.num_queries * 2
         )
 
     return QueryReplayBuffer(
         save_dir=save_dir / "queries" if not use_demo else save_dir / "demo_queries",
         batch_size=batch_size,
-        replay_capacity=cfg.reward_replay.size,
+        replay_capacity=cfg.rlhf_replay.size,
         action_shape=action_space.shape,
         action_dtype=action_space.dtype,
         observation_elements=observation_space,
         extra_replay_elements=extra_replay_elements,
         num_workers=cfg.replay.num_workers,
         sequential=True,
-        transition_seq_len=cfg.reward_replay.seq_len,
-        max_episode_number=cfg.reward_replay.max_episode_number if not use_demo else 0,
+        transition_seq_len=cfg.rlhf_replay.seq_len,
+        max_episode_number=cfg.rlhf_replay.max_episode_number if not use_demo else 0,
+        upload_gemini=cfg.rlhf.feedback_type == "gemini",
     )
 
 
@@ -153,16 +154,16 @@ def _create_default_feedback_replay_buffer(
 ) -> ReplayBuffer:
     return FeedbackReplayBuffer(
         save_dir=save_dir / "feedbacks",
-        batch_size=cfg.reward_replay.feedback_batch_size,
-        replay_capacity=cfg.reward_replay.size,
+        batch_size=cfg.rlhf_replay.feedback_batch_size,
+        replay_capacity=cfg.rlhf_replay.size,
         action_shape=action_space.shape,
         action_dtype=action_space.dtype,
         observation_elements=observation_space,
         extra_replay_elements=extra_replay_elements,
         num_workers=cfg.replay.num_workers,
         sequential=False,
-        transition_seq_len=cfg.reward_replay.seq_len,
-        num_labels=cfg.reward_replay.num_labels,
+        transition_seq_len=cfg.rlhf_replay.seq_len,
+        num_labels=cfg.rlhf_replay.num_labels,
         purge_replay_on_shutdown=False,
     )
 
@@ -269,6 +270,13 @@ class Workspace:
         # Create the RL Agent
         observation_space = self.eval_env.observation_space
         action_space = self.eval_env.action_space
+        reward_space = gym.spaces.Dict(
+            {
+                k: gym.spaces.Box(low=v.low, high=v.high, shape=v.shape)
+                for k, v in self.eval_env.reward_space.items()
+            }
+        )
+        extra_replay_elements = reward_space
 
         intrinsic_reward_module = None
         if cfg.get("intrinsic_reward_module", None):
@@ -299,7 +307,12 @@ class Workspace:
             self.train_envs = None
             logging.warning("Train env is not created. Training will not be supported ")
 
-        self.replay_buffer = create_replay_fn(cfg, observation_space, action_space)
+        self.replay_buffer = create_replay_fn(
+            cfg,
+            observation_space,
+            action_space,
+            extra_replay_elements=extra_replay_elements,
+        )
         self.prioritized_replay = cfg.replay.prioritization
         self.extra_replay_elements = self.replay_buffer.extra_replay_elements
 
@@ -319,16 +332,25 @@ class Workspace:
                 device=self.device,
                 observation_space=observation_space,
                 action_space=action_space,
+                reward_space=reward_space,
             )
             self.reward_model.train(False)
             self.replay_buffer.set_reward_model(self.reward_model)
 
             self.query_replay_buffer = _create_default_query_replay_buffer(
-                cfg, observation_space, action_space, save_dir=self.work_dir
+                cfg,
+                observation_space,
+                action_space,
+                save_dir=self.work_dir,
+                extra_replay_elements=extra_replay_elements,
             )
 
             self.feedback_replay_buffer = _create_default_feedback_replay_buffer(
-                cfg, observation_space, action_space, save_dir=self.work_dir
+                cfg,
+                observation_space,
+                action_space,
+                save_dir=self.work_dir,
+                extra_replay_elements=extra_replay_elements,
             )
 
             self.query_replay_loader = DataLoader(
@@ -347,13 +369,7 @@ class Workspace:
             self._reward_pretrain_step = 0
             self._total_feedback = 0
 
-            if cfg.rlhf.feedback_type == "gemini":
-                cfg.rlhf.gemini.task_description = (
-                    self.env_factory.get_task_description(cfg)
-                )
-                cfg.rlhf.gemini.output_path = self.work_dir / "gemini"
-
-            self._comparison_fn = get_rlhf_iter_fn(cfg)
+            self._comparison_fn = get_rlhf_iter_fn(cfg, env_factory)
             self._query_fn = get_query_fn(cfg.rlhf.query_type)
 
         # Create a separate demo replay that contains successful episodes.
@@ -364,7 +380,11 @@ class Workspace:
         self.use_demo_replay = cfg.demo_batch_size is not None
         if self.use_demo_replay:
             self.demo_replay_buffer = create_replay_fn(
-                cfg, observation_space, action_space, demo_replay=True
+                cfg,
+                observation_space,
+                action_space,
+                demo_replay=True,
+                extra_replay_elements=extra_replay_elements,
             )
             self.demo_replay_loader = DataLoader(
                 self.demo_replay_buffer,
@@ -380,6 +400,7 @@ class Workspace:
                     action_space,
                     save_dir=self.work_dir,
                     use_demo=True,
+                    extra_replay_elements=extra_replay_elements,
                 )
                 self.demo_query_replay_loader = DataLoader(
                     self.demo_query_replay_buffer,
@@ -664,7 +685,7 @@ class Workspace:
                     extra_replay_elements = {
                         k: v
                         for k, v in info.items()
-                        if k in self.extra_replay_elements.keys()
+                        if k in list(self.extra_replay_elements.keys())
                     }
 
                     self.replay_buffer.add(
@@ -790,7 +811,7 @@ class Workspace:
                 1 / execution_time_for_update
             )
             metrics["agent_updates_per_second"] = (
-                1 * self.cfg.reward_replay.feedback_batch_size
+                1 * self.cfg.rlhf_replay.feedback_batch_size
             ) / execution_time_for_update
 
         return metrics
@@ -952,13 +973,11 @@ class Workspace:
                 if (
                     self.total_feedback < self.cfg.rlhf.max_feedback
                     and should_update_reward_model(self.main_loop_iterations)
-                    and (
-                        self.main_loop_iterations > 0 or self.reward_pretrain_steps == 0
-                    )
+                    and not seed_until_size(len(self.query_replay_buffer))
                 ):
                     self.reward_model.logging = True
                     logging.info(
-                        f"[Feedback {self.total_feedback} / {self.cfg.rlhf.max_feedback}] Collecting feedback for {self.cfg.reward_replay.num_queries} queries"  # noqa
+                        f"[Feedback {self.total_feedback} / {self.cfg.rlhf.max_feedback}] Collecting feedback for {self.cfg.rlhf_replay.num_queries} queries"  # noqa
                     )
                     self.collect_feedback()
                     for it in range(self.cfg.rlhf.num_train_frames):

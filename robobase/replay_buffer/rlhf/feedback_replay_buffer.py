@@ -146,6 +146,8 @@ class FeedbackReplayBuffer(ReplayBuffer):
         time_dims = []
         new_observation_elements = {}
         for name, space in observation_elements.items():
+            if "query_video" in name:
+                continue
             if len(space.shape) <= 1:
                 raise ValueError(
                     f"Expected observation space {name} to have >= 1 dimensions."

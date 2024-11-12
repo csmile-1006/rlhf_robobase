@@ -4,7 +4,10 @@ import numpy as np
 from IPython.display import HTML, clear_output, display
 
 from robobase.rlhf_module.prompt import pairwise_comparison_prompt
-from robobase.rlhf_module.third_party.gemini import postprocess_gemini_response
+from robobase.rlhf_module.third_party.gemini import (
+    postprocess_gemini_response,
+    get_gemini_video_ids,
+)
 from robobase.rlhf_module.utils import (
     get_label,
     get_video_embed,
@@ -72,7 +75,7 @@ def collect_script_feedback(segments, indices, **kwargs):
 
 @retry_on_error(10, callback_fn=return_random_label)
 def collect_gemini_feedback(
-    idx2link,
+    segments,
     indices,
     gemini_model,
     general_criteria,
@@ -93,8 +96,8 @@ def collect_gemini_feedback(
                 video1_subtask=identified_subtasks[indices[0]],
                 video2_subtask=identified_subtasks[indices[1]],
             ),
-            *idx2link[indices[0]],
-            *idx2link[indices[1]],
+            *get_gemini_video_ids(segments, indices[0], target_viewpoints),
+            *get_gemini_video_ids(segments, indices[1], target_viewpoints),
         ]
     )
     label = postprocess_gemini_response(response)

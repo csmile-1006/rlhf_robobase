@@ -7,37 +7,96 @@ off-policy corrections.
 """
 
 from __future__ import annotations
+
+import io
+import logging
 import os
 import tempfile
+from collections import defaultdict
 from datetime import datetime
+from functools import partial
+from multiprocessing import Value
 from pathlib import Path
 from typing import Callable, Type
-from multiprocessing import Value
-from collections import defaultdict
-import logging
-from typing_extensions import override
 
+import imageio
+import numpy as np
 import torch
 from gymnasium import spaces
 from natsort import natsort
-import numpy as np
+from typing_extensions import override
+import google.generativeai as genai
 
+from robobase.utils import read_video_from_bytes
 from robobase.replay_buffer.replay_buffer import (
     ReplayBuffer,
     ReplayElement,
 )
-
 from robobase.replay_buffer.uniform_replay_buffer import (
-    episode_len,
-    save_episode,
-    load_episode,
     ACTION,
+    INDICES,
+    IS_FIRST,
     REWARD,
     TERMINAL,
     TRUNCATED,
-    INDICES,
-    IS_FIRST,
+    episode_len,
 )
+from robobase.rlhf_module.third_party.gemini import upload_video_to_genai
+
+
+def save_episode_with_video(episode, episode_fn, video_dir, upload_gemini=False):
+    videos = {key: episode[key] for key in episode if "query_video" in key}
+    # save videos in mp4 format
+    video_file_paths = {}
+    for key, video in videos.items():
+        key = key.replace("query_video_", "")
+        video_file_path = video_dir / f"{episode_fn.stem}_{key}.mp4"
+        imageio.mimsave(video_file_path, video, fps=20)
+        video_file_paths[key] = video_file_path
+
+    if upload_gemini:
+        gemini_video_file_paths = {}
+        for key, video_file_path in video_file_paths.items():
+            gemini_video_file_path = upload_video_to_genai(video_file_path)
+            gemini_video_file_paths[key] = gemini_video_file_path.name
+
+    episode = {key: episode[key] for key in episode if "query_video" not in key}
+    for key in video_file_paths:
+        episode[f"local_video_path_{key}"] = np.frombuffer(
+            str(video_file_paths[key]).encode("utf-8"), dtype=np.uint8
+        )
+    if upload_gemini:
+        for key in gemini_video_file_paths:
+            episode[f"gemini_video_path_{key}"] = np.frombuffer(
+                str(gemini_video_file_paths[key]).encode("utf-8"), dtype=np.uint8
+            )
+    with io.BytesIO() as bs:
+        np.savez_compressed(bs, **episode)
+        bs.seek(0)
+        with episode_fn.open("wb") as f:
+            f.write(bs.read())
+
+
+def load_episode_with_video(episode_fn, upload_gemini=False):
+    with episode_fn.open("rb") as f:
+        episode = np.load(f)
+        episode = {k: episode[k] for k in episode.keys()}
+    local_video_file_paths = {}
+    for key in episode:
+        if key.startswith("local_video_path_"):
+            local_video_file_paths[key] = episode[key]
+            # with BytesIO(episode[key]) as fin:
+            #     local_video_file_paths[key] = fin.read().decode("utf-8")
+    if upload_gemini:
+        gemini_video_file_paths = {}
+        for key in episode:
+            if key.startswith("gemini_video_path_"):
+                gemini_video_file_paths[key] = episode[key]
+                # with BytesIO(episode[key]) as fin:
+                #     gemini_video_file_paths[key] = fin.read().decode("utf-8")
+        return episode, local_video_file_paths, gemini_video_file_paths
+    else:
+        return episode, local_video_file_paths, None
 
 
 class QueryReplayBuffer(ReplayBuffer):
@@ -103,6 +162,7 @@ class QueryReplayBuffer(ReplayBuffer):
         sequential: bool = True,
         transition_seq_len: int = 50,
         max_episode_number: int = 0,
+        upload_gemini: bool = False,
     ):
         """Initializes OutOfGraphReplayBuffer.
 
@@ -179,9 +239,11 @@ class QueryReplayBuffer(ReplayBuffer):
             self._tmpdir = tempfile.TemporaryDirectory()
             save_dir = self._tmpdir.name
         self._replay_dir = Path(save_dir)
+        self._video_dir = self._replay_dir / "videos"
         self._purge_replay_on_shutdown = purge_replay_on_shutdown
         logging.info("\t saving to disk: %s", self._replay_dir)
         os.makedirs(save_dir, exist_ok=True)
+        os.makedirs(self._video_dir, exist_ok=True)
 
         self._action_shape = new_action_shape
         self._action_dtype = action_dtype
@@ -202,10 +264,27 @@ class QueryReplayBuffer(ReplayBuffer):
 
         self._preprocessing_fn = preprocessing_fn
         self._preprocess_every_sample = preprocess_every_sample
+        self._upload_gemini = upload_gemini
+        self._save_episode_fn = (
+            partial(save_episode_with_video, upload_gemini=upload_gemini)
+            if save_dir
+            else None
+        )
+        self._load_episode_fn = (
+            partial(load_episode_with_video, upload_gemini=upload_gemini)
+            if save_dir
+            else None
+        )
 
         # =======
         self._episode_files = []  # list of episode file path
         self._episodes = {}  # Key: eps_file_path, value: episode
+        self._local_video_paths = (
+            {}
+        )  # Key: eps_file_path, value: list of video file paths
+        self._gemini_video_paths = (
+            {}
+        )  # Key: eps_file_path, value: list of gemini video file paths
         # Key: global_idx. Global_idx refers to the index in the entire replay buffer.
         # Value: (episode_file_path, transition_idx) where transition_idx
         # refers to the index of transition in the episode
@@ -410,8 +489,7 @@ class QueryReplayBuffer(ReplayBuffer):
         self._num_transitions += eps_len
         ts = datetime.now().strftime("%Y%m%dT%H%M%S")
         eps_fn = f"{ts}_{eps_idx}_{eps_len}_{global_idx}.npz"
-        save_episode(episode, self._replay_dir / eps_fn)
-
+        self._save_episode_fn(episode, self._replay_dir / eps_fn, self._video_dir)
         if self._is_first:
             # A special case for first insert. So that the user can have arbitrary
             # num_workers, we replicate the first episode across all workers.
@@ -421,7 +499,9 @@ class QueryReplayBuffer(ReplayBuffer):
                 eps_fn = (
                     f"{ts}.{worker_id}_{eps_idx+worker_id}_{eps_len}_{global_idx}.npz"
                 )
-                save_episode(episode, self._replay_dir / eps_fn)
+                self._save_episode_fn(
+                    episode, self._replay_dir / eps_fn, self._video_dir
+                )
 
     def _final_transition(self, kwargs):
         transition = {}
@@ -523,13 +603,22 @@ class QueryReplayBuffer(ReplayBuffer):
     def _sample_episode(self):
         eps_fn = np.random.choice(self._episode_files[-self._max_episode_number :])
         _, _, global_index = [int(x) for x in eps_fn.stem.split("_")[1:]]
-        return self._episodes[eps_fn], global_index
+        gemini_video_path = (
+            self._gemini_video_paths[eps_fn] if self._upload_gemini else None
+        )
+
+        return self._episodes[eps_fn], global_index, gemini_video_path
 
     def _load_episode_into_worker(self, eps_fn: Path, global_idx: int):
         # Load episode into memory
         try:
-            episode = load_episode(eps_fn)
-        except Exception:
+            (
+                episode,
+                local_video_file_paths,
+                gemini_video_file_paths,
+            ) = self._load_episode_fn(eps_fn)
+        except Exception as e:
+            print(f"Error loading episode {eps_fn}: {e}")
             return False
 
         # Remove earliest episode if buffer is full.
@@ -537,17 +626,27 @@ class QueryReplayBuffer(ReplayBuffer):
         while eps_len + self._size > self._max_size_per_worker:
             early_eps_files = self._episode_files.pop(0)
             early_eps = self._episodes.pop(early_eps_files)
+            early_local_video_paths = self._local_video_paths.pop(early_eps_files)
+            if self._upload_gemini:
+                early_gemini_video_paths = self._gemini_video_paths.pop(early_eps_files)
+                for video_path in early_gemini_video_paths.values():
+                    genai.delete_file(read_video_from_bytes(video_path))
             self._size -= episode_len(early_eps)
             keys = list(self._global_idxs_to_episode_and_transition_idx.keys())
             for k in keys[: episode_len(early_eps)]:
                 del self._global_idxs_to_episode_and_transition_idx[k]
             if not self._save_snapshot:
                 early_eps_files.unlink(missing_ok=True)
+                for video_path in early_local_video_paths.values():
+                    read_video_from_bytes(video_path).unlink(missing_ok=True)
 
         self._episode_files.append(eps_fn)
         self._episode_files.sort()  # NOTE: eps_fn starts with created timestamp.
         # so after sort, earliest episode appears first.
         self._episodes[eps_fn] = episode
+        self._local_video_paths[eps_fn] = local_video_file_paths
+        if self._upload_gemini:
+            self._gemini_video_paths[eps_fn] = gemini_video_file_paths
         global_idxs = np.arange(global_idx, global_idx + eps_len)
         global_idxs_wrapped = (global_idxs % self.replay_capacity).tolist()
         self._global_idxs_to_episode_and_transition_idx.update(
@@ -609,7 +708,7 @@ class QueryReplayBuffer(ReplayBuffer):
         if global_index is None:
             # NOTE: here global index is the index of the start of episode.
             while True:
-                episode, global_index = self._sample_episode()
+                episode, global_index, gemini_video_path = self._sample_episode()
                 episode_length = episode_len(episode)
 
                 min_idx = self._transition_seq_len - 1
@@ -655,13 +754,24 @@ class QueryReplayBuffer(ReplayBuffer):
 
         # Add observations
         for name in self._obs_signature.keys():
+            if (
+                "query_video" in name
+            ):  # NOTE: query_video is not an visual observation used for reward learning.
+                continue
             replay_sample[name] = episode[name][transition_idxs]
 
         # Add remaining (extra) items
         for name in self._storage_signature.keys():
+            if (
+                "query_video" in name
+            ):  # NOTE: query_video is not an visual observation used for reward learning.
+                continue
             if name not in replay_sample:
                 replay_sample[name] = episode[name][transition_idxs]
 
+        if self._upload_gemini:
+            for key in gemini_video_path:
+                replay_sample[key] = gemini_video_path[key]
         return replay_sample
 
     def sample_single(self, global_index: int = None) -> dict:

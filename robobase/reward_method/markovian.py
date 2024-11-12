@@ -14,7 +14,6 @@ from robobase import utils
 from robobase.method.utils import (
     TimeConsistentRandomShiftsAug,
     extract_from_batch,
-    extract_from_spec,
     extract_many_from_batch,
     extract_many_from_spec,
     stack_tensor_dictionary,
@@ -94,8 +93,7 @@ class MarkovianRewardModel(nn.Module):
             loss_dict[f"pref_acc_label_{idx}"] = utils.pref_accuracy(logit, label)
 
         loss_dict["loss"] = reward_loss
-
-        return (loss_dict["loss"], loss_dict)
+        return loss_dict
 
 
 class MarkovianReward(RewardMethod):
@@ -167,26 +165,6 @@ class MarkovianReward(RewardMethod):
                 num_training_steps=num_train_steps,
             )
 
-    @property
-    def time_obs_size(self) -> int:
-        time_obs_spec = extract_from_spec(
-            self.observation_space, "time", missing_ok=True
-        )
-        time_obs_size = 0
-        if time_obs_spec is not None:
-            time_obs_size = time_obs_spec.shape[1]
-        return time_obs_size
-
-    @property
-    def low_dim_size(self) -> int:
-        low_dim_state_spec = extract_from_spec(
-            self.observation_space, "low_dim_state", missing_ok=True
-        )
-        low_dim_in_size = 0
-        if low_dim_state_spec is not None:
-            low_dim_in_size = low_dim_state_spec.shape[1] * low_dim_state_spec.shape[0]
-        return low_dim_in_size
-
     def build_encoder(self):
         rgb_spaces = extract_many_from_spec(
             self.observation_space, r"rgb.*", missing_ok=True
@@ -230,20 +208,6 @@ class MarkovianReward(RewardMethod):
         else:
             self.view_fusion = lambda x: x[:, 0]
             self.rgb_latent_size = self.encoder.output_shape[-1]
-
-    def get_fully_connected_inputs(self):
-        """Get input_sizes for FullyConnectedModules"""
-        input_sizes = {}
-        if self.rgb_latent_size > 0:
-            input_sizes["fused_view_feats"] = (self.rgb_latent_size,)
-        if self.low_dim_size > 0:
-            input_sizes["low_dim_obs"] = (self.low_dim_size,)
-        if self.time_obs_size > 0:
-            input_sizes["time_obs"] = (self.time_obs_size,)
-        if self.time_dim > 0:
-            for k, v in input_sizes.items():
-                input_sizes[k] = (self.time_dim,) + v
-        return input_sizes
 
     def build_reward_model(self):
         input_shapes = self.get_fully_connected_inputs()
@@ -375,12 +339,7 @@ class MarkovianReward(RewardMethod):
 
         metrics = dict()
         batch = next(replay_iter)
-        # elem = {key: val.shape for key, val in batch.items()}
-        # print(elem)
         batch = {k: v.to(self.device) for k, v in batch.items()}
-
-        # actions = batch["action"]
-        # reward = batch["reward"]
 
         r_hats = []
         for i in range(2):
@@ -411,7 +370,7 @@ class MarkovianReward(RewardMethod):
             ).mean(dim=-2)
             r_hats.append(r_hat)
 
-        loss, loss_dict = self.reward.calculate_loss(r_hats, batch["label"])
+        loss_dict = self.reward.calculate_loss(r_hats, batch["label"])
 
         # calculate gradient
         if self.use_pixels and self.encoder_opt is not None:
