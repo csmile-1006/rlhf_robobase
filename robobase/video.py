@@ -1,8 +1,11 @@
 from pathlib import Path
 
 import imageio
+import logging
 import numpy as np
 import gymnasium as gym
+
+logging.getLogger("imageio_ffmpeg").setLevel(logging.ERROR)
 
 
 def _render_single_env_if_vector(env: gym.vector.VectorEnv):

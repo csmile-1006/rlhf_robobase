@@ -3,8 +3,9 @@ import logging
 import numpy as np
 from IPython.display import HTML, clear_output, display
 
-from robobase.rlhf_module.prompt import pairwise_comparison_prompt
+from robobase.rlhf_module.prompt import get_zeroshot_pairwise_comparison_prompt
 from robobase.rlhf_module.third_party.gemini import (
+    load_gemini_model,
     postprocess_gemini_response,
     get_gemini_video_ids,
 )
@@ -22,7 +23,7 @@ How to collect feedbacks
 """
 
 
-def collect_human_feedback(segments, indices, **kwargs):
+def human_feedback_fn(segments, indices, **kwargs):
     index, len_tot_queries = kwargs["index"], kwargs["len_tot_queries"]
     camera_keys = [key for key in segments.keys() if "rgb" in key]
     anim = get_video_embed(
@@ -54,12 +55,12 @@ def collect_human_feedback(segments, indices, **kwargs):
     clear_output(True)
 
 
-def collect_random_feedback(*_, **kwargs):
+def random_feedback_fn(*_, **kwargs):
     random_label = np.random.choice([0, 1])
     return random_label
 
 
-def collect_script_feedback(segments, indices, **kwargs):
+def scripted_feedback_fn(segments, indices, **kwargs):
     segment_return_1 = segments["reward"][indices[0]].sum(dim=-1)
     segment_return_2 = segments["reward"][indices[1]].sum(dim=-1)
 
@@ -74,10 +75,10 @@ def collect_script_feedback(segments, indices, **kwargs):
 
 
 @retry_on_error(10, callback_fn=return_random_label)
-def collect_gemini_feedback(
+def gemini_feedback_fn(
     segments,
     indices,
-    gemini_model,
+    gemini_model_config,
     general_criteria,
     task_description,
     target_viewpoints,
@@ -85,34 +86,31 @@ def collect_gemini_feedback(
     identified_subtasks,
 ):
     # Collect feedbacks for pair of videos.
-    response = gemini_model.generate_content(
-        [
-            pairwise_comparison_prompt.format(
-                task_description=task_description,
-                subtasks=subtasks,
-                viewpoint_order="/".join(target_viewpoints),
-                general_criteria=general_criteria,
-                identified_subtasks=identified_subtasks,
-                video1_subtask=identified_subtasks[indices[0]],
-                video2_subtask=identified_subtasks[indices[1]],
-            ),
-            *get_gemini_video_ids(segments, indices[0], target_viewpoints),
-            *get_gemini_video_ids(segments, indices[1], target_viewpoints),
-        ]
+    quest = get_zeroshot_pairwise_comparison_prompt(
+        general_criteria=general_criteria,
+        task_description=task_description,
+        subtasks=subtasks,
+        viewpoints=target_viewpoints,
+        video1=get_gemini_video_ids(segments, indices[0], target_viewpoints),
+        video2=get_gemini_video_ids(segments, indices[1], target_viewpoints),
+        video1_evaluations=identified_subtasks[indices[0]],
+        video2_evaluations=identified_subtasks[indices[1]],
     )
+    gemini_model = load_gemini_model(gemini_model_config)
+    response = gemini_model.generate_content(quest)
     label = postprocess_gemini_response(response)
     return label
 
 
 def get_feedback_fn(feedback_type):
     if feedback_type == "random":
-        return collect_random_feedback
+        return random_feedback_fn
     elif feedback_type == "script":
-        return collect_script_feedback
+        return scripted_feedback_fn
     elif feedback_type == "human":
-        return collect_human_feedback
+        return human_feedback_fn
     elif feedback_type == "gemini":
-        return collect_gemini_feedback
+        return gemini_feedback_fn
     else:
         raise ValueError(
             "Invalid feedback type. Please choose between 'random' or 'script' or 'human'."

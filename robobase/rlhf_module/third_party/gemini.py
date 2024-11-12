@@ -4,15 +4,16 @@ import time
 
 import google.generativeai as genai
 
-
 from robobase.rlhf_module.utils import retry_on_error
 from robobase.utils import read_video_from_bytes
 
 
-def load_model(cfg):
+def configure_gemini():
     api_key = os.getenv("GEMINI_API_KEY")
-
     genai.configure(api_key=api_key)
+
+
+def load_gemini_model(cfg):
     generation_config = {
         "temperature": cfg.temperature,
         "top_p": cfg.top_p,
@@ -56,16 +57,19 @@ def postprocess_gemini_response(response):
     text = response.text
     try:
         stripped_text = text[:17]
-        postprocessed_text = int(stripped_text.split(":")[1].strip().split(" ")[-1])
+        postprocessed_text = float(stripped_text.split(":")[1].strip().split(" ")[-1])
         return postprocessed_text
     except Exception as e:
-        print(f"Error in postprocessing: {text} / {e}")
-        return "Equally preferred"
+        print(f"Error in postprocessing: {e}")
+        return 0.5
 
 
 def get_gemini_video_ids(segments, idx, target_viewpoints):
-    video_files = [
-        read_video_from_bytes(segments[f"gemini_video_path_{target_viewpoint}"][idx])
+    return {
+        target_viewpoint: genai.get_file(
+            read_video_from_bytes(
+                segments[f"gemini_video_path_{target_viewpoint}"][idx]
+            )
+        )
         for target_viewpoint in target_viewpoints
-    ]
-    return [genai.get_file(video_file) for video_file in video_files]
+    }

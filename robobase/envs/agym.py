@@ -35,7 +35,7 @@ def _task_name_to_subtask_list(task_name: str) -> str:
     return SUBTASK_LIST.get(task_name, None)
 
 
-def _get_general_criteria(_: None) -> str:
+def _get_general_criteria() -> str:
     return GENERAL_CRITERIA
 
 

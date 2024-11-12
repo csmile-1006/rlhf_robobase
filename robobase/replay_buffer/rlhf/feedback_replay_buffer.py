@@ -293,7 +293,7 @@ class FeedbackReplayBuffer(ReplayBuffer):
         """
         storage_elements, obs_elements = {}, {}
         storage_elements.update(
-            {LABEL: ReplayElement(LABEL, (self._num_labels,), np.int8)}
+            {LABEL: ReplayElement(LABEL, (self._num_labels,), np.float32)}
         )
         for i in range(2):
             storage_elements.update(

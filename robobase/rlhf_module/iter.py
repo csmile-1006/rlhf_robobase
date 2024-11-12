@@ -9,9 +9,9 @@ from tqdm import tqdm, trange
 from robobase.envs.env import EnvFactory
 from robobase.rlhf_module.comparison import get_comparison_fn, SequentialComparisonFn
 from robobase.rlhf_module.feedback import get_feedback_fn
-from robobase.rlhf_module.prompt import subtask_identification_prompt
+from robobase.rlhf_module.prompt import get_zeroshot_video_evaluation_prompt
 from robobase.rlhf_module.third_party.gemini import (
-    load_model,
+    load_gemini_model,
     get_gemini_video_ids,
 )
 from robobase.rlhf_module.utils import retry_on_error
@@ -72,14 +72,14 @@ def collect_gemini_preferences(
 
     @retry_on_error(10)
     def identify_subtasks(idx):
-        gemini_model = load_model(gemini_model_config)
-        args = [
-            subtask_identification_prompt.format(
-                task_description=task_description, subtasks=subtasks
-            ),
-            *get_gemini_video_ids(segments, idx, target_viewpoints),
-        ]
-        return gemini_model.generate_content(args)
+        gemini_model = load_gemini_model(gemini_model_config)
+        quest = get_zeroshot_video_evaluation_prompt(
+            task_description=task_description,
+            subtasks=subtasks,
+            videos=get_gemini_video_ids(segments, idx, target_viewpoints),
+            viewpoints=target_viewpoints,
+        )
+        return gemini_model.generate_content(quest).text
 
     identified_subtasks = {}
     for idx in trange(n_queries, desc="Identifying subtasks", position=0, leave=False):

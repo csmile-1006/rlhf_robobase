@@ -32,6 +32,7 @@ from robobase.replay_buffer.rlhf.query_replay_buffer import QueryReplayBuffer
 from robobase.replay_buffer.rlhf.feedback_replay_buffer import FeedbackReplayBuffer
 from robobase.rlhf_module.iter import get_rlhf_iter_fn
 from robobase.rlhf_module.query import get_query_fn
+from robobase.rlhf_module.third_party.gemini import configure_gemini
 
 torch.backends.cudnn.benchmark = True
 
@@ -371,6 +372,9 @@ class Workspace:
 
             self._comparison_fn = get_rlhf_iter_fn(cfg, env_factory)
             self._query_fn = get_query_fn(cfg.rlhf.query_type)
+
+            if cfg.rlhf.feedback_type == "gemini":
+                configure_gemini()
 
         # Create a separate demo replay that contains successful episodes.
         # This is designed for RL. IL algorithms don't have to use this!
