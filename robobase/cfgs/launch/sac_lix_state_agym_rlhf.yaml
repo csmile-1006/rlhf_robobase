@@ -1,0 +1,37 @@
+# @package _global_
+
+defaults:
+  - ../env: null  # Please specify environment to use in command line
+  - ../method: sac_lix
+  - ../reward_method: hybrid
+
+pixels: false
+frame_stack: 1
+action_repeat: 1
+num_train_envs: 1
+num_eval_episodes: 1
+
+rlhf:
+  use_rlhf: true
+  feedback_type: gemini
+  comparison_type: sequential_pairwise
+  query_type: timestep
+  max_feedback: 2000
+  update_every_steps: 200
+  num_pretrain_steps: 0
+  num_train_frames: 200
+  snapshot_every_n: ${rlhf.update_every_steps}
+  gemini:
+    model_type: gemini-1.5-flash
+    target_viewpoints: [right]
+
+rlhf_replay:
+  num_queries: 50
+  num_labels: 1
+  seq_len: 200
+  feedback_batch_size: 256
+  max_episode_number: 0
+
+hydra:
+  run:
+    dir: ./exp_local_debug/state_sac_lix/agym_${env.task_name}_${now:%Y%m%d%H%M%S}

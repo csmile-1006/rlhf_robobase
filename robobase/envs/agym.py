@@ -16,10 +16,27 @@ from robobase.envs.wrappers import (
     RescaleFromTanh,
     ActionSequence,
 )
+from robobase.envs.utils.agym_utils import (
+    TASK_DESCRIPTION,
+    SUBTASK_LIST,
+    GENERAL_CRITERIA,
+)
 
 import logging
 
 logging.getLogger("pybullet").setLevel(logging.ERROR)
+
+
+def _task_name_to_description(task_name: str) -> str:
+    return TASK_DESCRIPTION.get(task_name, None)
+
+
+def _task_name_to_subtask_list(task_name: str) -> str:
+    return SUBTASK_LIST.get(task_name, None)
+
+
+def _get_general_criteria(_: None) -> str:
+    return GENERAL_CRITERIA
 
 
 class AGym(gym.Env):
@@ -31,6 +48,7 @@ class AGym(gym.Env):
         action_repeat: int = 1,
         frame_skip: int = 2,
         render_mode: str = "rgb_array",
+        query_keys: list[str] = ["right"],
     ):
         self._action_repeat = action_repeat
         self._viewer = None
@@ -44,22 +62,33 @@ class AGym(gym.Env):
         self.__agym_env = gym_old.make(task_name)
         self._agym_env = gym.wrappers.EnvCompatibility(self.__agym_env, render_mode)
 
-        self.observation_space = spaces.Dict(
-            {
-                "low_dim_state": spaces.Box(
-                    low=self._agym_env.observation_space.low,
-                    high=self._agym_env.observation_space.high,
-                    dtype=np.float32,
-                )
-            }
+        self._query_keys = query_keys
+        obs_dict = {}
+        obs_dict["low_dim_state"] = spaces.Box(
+            low=self._agym_env.observation_space.low,
+            high=self._agym_env.observation_space.high,
+            dtype=np.float32,
         )
+        for key in self._query_keys:
+            obs_dict[f"query_video_{key}"] = spaces.Box(
+                low=0,
+                high=255,
+                shape=(self.__agym_env.height, self.__agym_env.width, 3),
+                dtype=np.uint8,
+            )
+        self.observation_space = spaces.Dict(obs_dict)
+
         self.action_space = self._agym_env.action_space
+        self.reward_space = self._agym_env.env.reward_space
 
     def agym_env(self):
         return self.__agym_env
 
-    def _get_obs(self, observation):
-        return {"low_dim_state": observation.astype(np.float32)}
+    def _get_obs(self, observation, image):
+        return {
+            "low_dim_state": observation.astype(np.float32),
+            **{f"query_video_{key}": image[key] for key in self._query_keys},
+        }
 
     def _flatten_obs(self, observation):
         obs_pieces = []
@@ -73,15 +102,18 @@ class AGym(gym.Env):
         reward = 0
         for _ in range(self._action_repeat):
             agym_obs, reward, terminated, truncated, info = self._agym_env.step(action)
+            images = {key: self.render(key) for key in self._query_keys}
             reward += reward
             if terminated or truncated:
                 break
         self._i += 1
-        return self._get_obs(agym_obs), reward, terminated, truncated, info
+        return self._get_obs(agym_obs, images), reward, terminated, truncated, info
 
     def reset(self, seed=None, options=None):
         agym_obs, info = self._agym_env.reset(seed=seed, options=options)
-        return self._get_obs(agym_obs), info
+        images = {key: self.render(key) for key in self._query_keys}
+        info.update({key: 0.0 for key in self.reward_space.keys()})
+        return self._get_obs(agym_obs, images), info
 
     def render(self, view: str = "right") -> None:
         """Render the environment.
@@ -111,7 +143,6 @@ class AGym(gym.Env):
         if self._viewer is not None:
             self._viewer.close()
             self._viewer = None
-        self.__agym_env.close()
         self._agym_env.close()
 
 
@@ -156,3 +187,12 @@ class AGymEnvFactory(EnvFactory):
             ),
             cfg,
         )
+
+    def get_task_description(self, cfg: DictConfig) -> str:
+        return _task_name_to_description(cfg.env.task_name)
+
+    def get_subtask_list(self, cfg: DictConfig) -> str:
+        return _task_name_to_subtask_list(cfg.env.task_name)
+
+    def get_general_criteria(self, cfg: DictConfig) -> str:
+        return _get_general_criteria()

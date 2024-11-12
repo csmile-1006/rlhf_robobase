@@ -8,3 +8,7 @@ pixels: false
 frame_stack: 1
 action_repeat: 1
 num_train_envs: 2
+
+hydra:
+  run:
+    dir: ./exp_local/state_sac_lix/agym_${env.task_name}_${now:%Y%m%d%H%M%S}
