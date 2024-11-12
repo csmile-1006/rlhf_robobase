@@ -46,7 +46,7 @@ rlhf:
   num_train_frames: 200
   snapshot_every_n: 2500
 
-reward_replay:
+rlhf_replay:
   num_queries: 50
   num_labels: 1
   seq_len: 50
@@ -78,4 +78,4 @@ log_eval_video: true
 
 hydra:
   run:
-    dir: ./exp_local/pixel_drqv2+/bigym-${env.task_name}-pt-feedback_${rlhf.feedback_type}-comp_${rlhf.comparison_type}-query_${rlhf.query_type}-${reward_replay.num_queries}q-${rlhf.max_feedback}max-${rlhf.update_every_steps}interact-seed${seed}-${now:%Y%m%d%H%M%S}
+    dir: ./exp_local/pixel_drqv2+/bigym-${env.task_name}-pt-feedback_${rlhf.feedback_type}-comp_${rlhf.comparison_type}-query_${rlhf.query_type}-${rlhf_replay.num_queries}q-${rlhf.max_feedback}max-${rlhf.update_every_steps}interact-seed${seed}-${now:%Y%m%d%H%M%S}

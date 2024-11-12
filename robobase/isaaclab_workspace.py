@@ -664,7 +664,7 @@ class IsaacLabWorkspace:
                 1 / execution_time_for_update
             )
             metrics["agent_updates_per_second"] = (
-                1 * self.cfg.reward_replay.feedback_batch_size
+                1 * self.cfg.rlhf_replay.feedback_batch_size
             ) / execution_time_for_update
 
         return metrics
@@ -717,7 +717,9 @@ class IsaacLabWorkspace:
             )
             for k, v in next_info["log"].items():
                 # if train env, then will be vectorised, so get first elem
-                metrics[k] = v.detach().cpu().numpy() if isinstance(v, torch.Tensor) else v
+                metrics[k] = (
+                    v.detach().cpu().numpy() if isinstance(v, torch.Tensor) else v
+                )
 
         return action, (*env_step_tuple, next_info), metrics
 
@@ -858,9 +860,15 @@ class IsaacLabWorkspace:
                         }
                     )
 
-                eureka_metrics = {key: value for key, value in metrics.items() if "Eureka" in key}
-                non_eureka_metrics = {key: value for key, value in metrics.items() if "Eureka" not in key}
-                self.logger.log_metrics(non_eureka_metrics, self.global_env_steps, prefix="train")
+                eureka_metrics = {
+                    key: value for key, value in metrics.items() if "Eureka" in key
+                }
+                non_eureka_metrics = {
+                    key: value for key, value in metrics.items() if "Eureka" not in key
+                }
+                self.logger.log_metrics(
+                    non_eureka_metrics, self.global_env_steps, prefix="train"
+                )
                 # Hack code for logging Eureka metrics
                 for key, value in eureka_metrics.items():
                     if isinstance(value, np.ndarray) and len(value.shape) == 1:
@@ -922,7 +930,7 @@ class IsaacLabWorkspace:
             ):
                 self.reward_model.logging = True
                 logging.info(
-                    f"[Feedback {self.total_feedback} / {self.cfg.rlhf.max_feedback}] Collecting feedback for {self.cfg.reward_replay.num_queries} queries"  # noqa
+                    f"[Feedback {self.total_feedback} / {self.cfg.rlhf.max_feedback}] Collecting feedback for {self.cfg.rlhf_replay.num_queries} queries"  # noqa
                 )
                 self.collect_feedback()
                 for it in range(self.cfg.rlhf.num_train_frames):

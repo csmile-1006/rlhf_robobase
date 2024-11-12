@@ -10,9 +10,9 @@ reward_method:
   # TODO: add an environment wrapper for an extra observation with language embeddings
   # But this would be environment-specific
   use_lang_cond: False
-  num_labels: ${reward_replay.num_labels}
+  num_labels: ${rlhf_replay.num_labels}
   compute_batch_size: ${batch_size}
-  seq_len: ${reward_replay.seq_len}
+  seq_len: ${rlhf_replay.seq_len}
   use_augmentation: True
 
   encoder_model:

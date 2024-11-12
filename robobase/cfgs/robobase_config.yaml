@@ -86,7 +86,7 @@ rlhf:
 
 
 # Reward Model Replay buffer settings
-reward_replay:
+rlhf_replay:
   size: 1000000
   query_save_dir: null
   feedback_save_dir: null
@@ -97,6 +97,7 @@ reward_replay:
   seq_len: 50
   feedback_batch_size: 256
   max_episode_number: 20
+  upload_gemini: false
 
 # logging settings
 wandb:  # weight and bias

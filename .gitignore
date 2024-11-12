@@ -32,7 +32,7 @@ pip-delete-this-directory.txt
 
 # Project specific
 debug/
-exp_local/
+exp_local*/
 wandb/
 eval_video/
 *.csv

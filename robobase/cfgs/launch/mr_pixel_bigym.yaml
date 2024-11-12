@@ -19,7 +19,7 @@ action_repeat: 1
 execution_length: 1
 
 update_every_steps: 1
-reward_replay:
+rlhf_replay:
   num_queries: 100
   seq_len: 50
   segment_save_dir: ./preferences

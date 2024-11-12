@@ -48,7 +48,7 @@ rlhf:
   max_episode_number: 10
   snapshot_every_n: ${rlhf.update_every_steps}
 
-reward_replay:
+rlhf_replay:
   num_queries: 50
   num_labels: 1
   seq_len: 50
@@ -57,4 +57,4 @@ reward_replay:
 
 hydra:
   run:
-    dir: ./exp_local/debug/pixel_cqn/cqn-bigym-${env.task_name}-pt-feedback_${rlhf.feedback_type}-comp_${rlhf.comparison_type}-query_${rlhf.query_type}-${reward_replay.num_queries}q-${rlhf.max_feedback}max-${rlhf.update_every_steps}interact-seed${seed}-${now:%Y%m%d%H%M%S}
+    dir: ./exp_local/debug/pixel_cqn/cqn-bigym-${env.task_name}-pt-feedback_${rlhf.feedback_type}-comp_${rlhf.comparison_type}-query_${rlhf.query_type}-${rlhf_replay.num_queries}q-${rlhf.max_feedback}max-${rlhf.update_every_steps}interact-seed${seed}-${now:%Y%m%d%H%M%S}
