@@ -66,6 +66,7 @@ class HybridReward(RewardMethod):
             np.stack([space.high for space in self.reward_space.spaces.values()])
         ).to(self.device)
 
+        self._i = 0
         self.lr = lr
         self.lr_backbone = lr_backbone
         self.weight_decay = weight_decay
@@ -200,6 +201,7 @@ class HybridReward(RewardMethod):
         self,
         seq: Sequence,
         _obs_signature: Dict[str, gym.Space] = None,
+        activate_reward_model: bool = True,
     ) -> torch.Tensor:
         """
         Compute the reward from sequences.
@@ -213,6 +215,14 @@ class HybridReward(RewardMethod):
             torch.Tensor: The reward tensor.
 
         """
+
+        if not activate_reward_model:
+            logging.info("Reward model is not activated. Return original reward.")
+            return seq
+
+        logging.info(
+            f"Reward model is activated. Compute reward with reward model trained with {self._i} steps."
+        )
 
         start_idx = 0
         T = len(seq) - start_idx
@@ -469,6 +479,7 @@ class HybridReward(RewardMethod):
                     + metrics[f"computed_pref_acc_label_{label}"]
                 ) / 2
 
+        self._i += 1
         return metrics
 
     def reset(self, step: int, agents_to_reset: list[int]):

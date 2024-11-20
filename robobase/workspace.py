@@ -43,11 +43,12 @@ def _worker_init_fn(worker_id, offset=0):
     random.seed(int(seed))
 
 
-def relabel_with_predictor(reward_model, replay_buffer):
+def relabel_with_predictor(reward_model, replay_buffer, is_initial: bool = False):
     """Relabels the rewards in the replay buffer using a reward model.
 
     Args:
         reward_model (torch.nn.Module): The reward model to use for relabelling.
+        replay_buffer (ReplayBuffer): The replay buffer to relabel.
     """
     replay_dir = replay_buffer._replay_dir
     _obs_signature = replay_buffer._obs_signature
@@ -56,7 +57,7 @@ def relabel_with_predictor(reward_model, replay_buffer):
     for ep_fn in episodes:
         episode = load_episode(ep_fn)
         new_episode = reward_model.compute_reward(
-            episode, _obs_signature=_obs_signature
+            episode, _obs_signature=_obs_signature, activate_reward_model=True
         )
         save_episode(new_episode, ep_fn)
 
@@ -336,6 +337,10 @@ class Workspace:
                 reward_space=reward_space,
             )
             self.reward_model.train(False)
+
+            # Unactivate reward model at the beginning, until the first reward model update
+            self.activate_reward_model = False
+
             self.replay_buffer.set_reward_model(self.reward_model)
 
             self.query_replay_buffer = _create_default_query_replay_buffer(
@@ -533,8 +538,8 @@ class Workspace:
         # Perform pretraining. This is suitable for behaviour cloning or Offline RL
         self._pretrain_on_demos()
 
-        if self.use_rlhf:
-            self._pretrain_reward_model_on_demos()
+        # if self.use_rlhf:
+        #     self._pretrain_reward_model_on_demos()
 
         # Perform online rl with exploration.
         self._online_rl()
@@ -663,7 +668,9 @@ class Workspace:
 
                 # Re-labeling demonstrations with reward model
                 if self.use_rlhf:
-                    ep = self.reward_model.compute_reward(ep)
+                    ep = self.reward_model.compute_reward(
+                        ep, activate_reward_model=self.activate_reward_model
+                    )
 
                 # Re-labeling successful demonstrations as success, following CQN
                 relabeling_as_demo = (
@@ -700,10 +707,11 @@ class Workspace:
                             obs, act, rew, term, trunc, **extra_replay_elements
                         )
                     if self.use_rlhf:
+                        task_rew = info["task_reward"]
                         self.query_replay_buffer.add(
                             obs,
                             act,
-                            rew,
+                            task_rew,
                             term,
                             trunc,
                             ep_index,
@@ -957,6 +965,7 @@ class Workspace:
         )
         should_save_reward_model_snapshot = utils.Every(snapshot_reward_model_every_n)
         if self.use_rlhf:
+            reward_until_frame = utils.Until(self.cfg.rlhf.num_pretrain_steps)
             should_update_reward_model = utils.Every(self.cfg.rlhf.update_every_steps)
         observations, info = self.train_envs.reset()
         #  We use agent 0 to accumulate stats about how the training agents are doing
@@ -976,9 +985,11 @@ class Workspace:
                 self.reward_model.logging = False
                 if (
                     self.total_feedback < self.cfg.rlhf.max_feedback
-                    and should_update_reward_model(self.main_loop_iterations)
+                    and should_update_reward_model(self.global_env_steps)
+                    and not reward_until_frame(self.global_env_steps)
                     and not seed_until_size(len(self.query_replay_buffer))
                 ):
+                    self.activate_reward_model = True
                     self.reward_model.logging = True
                     logging.info(
                         f"[Feedback {self.total_feedback} / {self.cfg.rlhf.max_feedback}] Collecting feedback for {self.cfg.rlhf_replay.num_queries} queries"  # noqa

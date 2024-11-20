@@ -80,6 +80,7 @@ class AGym(gym.Env):
 
         self.action_space = self._agym_env.action_space
         self.reward_space = self._agym_env.env.reward_space
+        self.reward_scale = 0.1
 
     def agym_env(self):
         return self.__agym_env
@@ -101,9 +102,15 @@ class AGym(gym.Env):
     def step(self, action):
         reward = 0
         for _ in range(self._action_repeat):
-            agym_obs, reward, terminated, truncated, info = self._agym_env.step(action)
+            agym_obs, task_reward, terminated, truncated, info = self._agym_env.step(
+                action
+            )
+            info["task_reward"] = task_reward
+            _reward = np.sum(
+                [self.reward_scale * info[key] for key in self.reward_space.keys()]
+            )
             images = {key: self.render(key) for key in self._query_keys}
-            reward += reward
+            reward += _reward
             if terminated or truncated:
                 break
         self._i += 1
@@ -113,6 +120,7 @@ class AGym(gym.Env):
         agym_obs, info = self._agym_env.reset(seed=seed, options=options)
         images = {key: self.render(key) for key in self._query_keys}
         info.update({key: 0.0 for key in self.reward_space.keys()})
+        info.update({"task_reward": 0.0})
         return self._get_obs(agym_obs, images), info
 
     def render(self, view: str = "right") -> None:

@@ -26,13 +26,13 @@ TASK_DESCRIPTION = {
 SUBTASK_LIST = {
     "DressingPR2-v0": """
     Subtask 1: Pull Sleeve Opening Toward Hand
-    - Description: Success is when: 1) The bright green-colored sphere hand is covered inside the sleeve opening, 2) After a moment, the hand becomes visible again after passing through the sleeve. Must succeed before proceeding.
+    - Description: Success is when: 1) The magenta-colored sphere hand is covered inside the sleeve opening, 2) After a moment, the hand becomes visible again after passing through the sleeve. Must succeed before proceeding.
 
     Subtask 2: Pull Sleeve Up to Elbow
     - Description: After the hand is through the sleeve, pull the sleeve up along the arm until it reaches the bright green marker at the elbow.
 
     Subtask 3: Pull Sleeve Up to Shoulder
-    - Description: After reaching the elbow, keep pulling the sleeve up along the arm until it reaches the bright green marker at the shoulder.
+    - Description: After reaching the elbow, keep pulling the sleeve up along the arm until it reaches the cyan marker at the shoulder.
     """,
     "FeedingBaxter-v0": """
     Subtask 1: Move Spoon to Mouth

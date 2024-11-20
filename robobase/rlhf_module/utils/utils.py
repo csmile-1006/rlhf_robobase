@@ -27,6 +27,31 @@ def retry_on_error(times, callback_fn=lambda x: x):
     return decorator
 
 
+def timeout_callback(max_time=20):
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            import signal
+
+            def handler(signum, frame):
+                raise TimeoutError(
+                    f"Function execution timed out after {max_time} seconds"
+                )
+
+            # Set signal handler
+            signal.signal(signal.SIGALRM, handler)
+            signal.alarm(max_time)  # Trigger alarm in max_time seconds
+
+            try:
+                result = func(*args, **kwargs)
+            finally:
+                signal.alarm(0)  # Disable alarm
+            return result
+
+        return wrapper
+
+    return decorator
+
+
 def get_video_embed(video, num_pairs=2, num_cameras=3):
     # Video shape must be (N, H, W, C)
     fig = plt.figure(figsize=(num_pairs * 2, num_cameras * 2))
