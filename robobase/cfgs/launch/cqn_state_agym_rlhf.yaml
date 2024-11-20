@@ -10,6 +10,7 @@ frame_stack: 1
 action_repeat: 1
 num_train_envs: 1
 num_eval_episodes: 10
+eval_every_steps: 20000
 save_snapshot: true
 snapshot_every_n: 10000
 num_train_frames: 1001000
@@ -29,7 +30,7 @@ rlhf:
   query_type: timestep
   max_feedback: 1000
   update_every_steps: 20000
-  num_pretrain_steps: 10000
+  num_pretrain_steps: 20000
   num_train_frames: 500
   snapshot_every_n: ${rlhf.update_every_steps}
   gemini:
