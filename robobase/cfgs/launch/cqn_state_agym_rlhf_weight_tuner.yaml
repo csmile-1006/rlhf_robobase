@@ -3,7 +3,7 @@
 defaults:
   - ../env: null  # Please specify environment to use in command line
   - ../method: cqn
-  - ../reward_method: hybrid
+  - ../reward_method: weight_tuner
 
 pixels: false
 frame_stack: 1

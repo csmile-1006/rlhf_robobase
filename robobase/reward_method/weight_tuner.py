@@ -156,6 +156,7 @@ class WeightTunerReward(RewardMethod):
             np.stack([space.high for space in self.reward_space.spaces.values()])
         ).to(self.device)
 
+        self._i = 0
         self.lr = lr
         self.lr_backbone = lr_backbone
         self.weight_decay = weight_decay
@@ -313,7 +314,7 @@ class WeightTunerReward(RewardMethod):
         self,
         seq: Sequence,
         _obs_signature: Dict[str, gym.Space] = None,
-        use_reward_model: bool = False,
+        activate_reward_model: bool = False,
     ) -> torch.Tensor:
         """
         Compute the reward from sequences.
@@ -327,6 +328,14 @@ class WeightTunerReward(RewardMethod):
             torch.Tensor: The reward tensor.
 
         """
+
+        if not activate_reward_model:
+            logging.info("Reward model is not activated. Return original reward.")
+            return seq
+
+        logging.info(
+            f"Reward model is activated. Compute reward with reward model trained with {self._i} steps."
+        )
 
         start_idx = 0
         T = len(seq) - start_idx
@@ -412,34 +421,27 @@ class WeightTunerReward(RewardMethod):
         reward_terms = stack_tensor_dictionary(reward_terms, dim=-1).to(self.device)
 
         rewards = []
-        if use_reward_model:
-            for i in trange(
-                0,
-                T,
-                self.compute_batch_size,
-                leave=False,
-                ncols=0,
-                desc="reward compute per batch",
-            ):
-                _range = list(range(i, min(i + self.compute_batch_size, T)))
-                with torch.no_grad():
-                    _reward_weights = self.reward(
-                        qpos[_range] if qpos is not None else None,
-                        fused_rgb_feats[_range]
-                        if fused_rgb_feats is not None
-                        else None,
-                        actions[_range],
-                        time_obs[_range] if time_obs is not None else None,
-                    )
-                    _reward = (_reward_weights * reward_terms[_range]).sum(
-                        dim=-1, keepdim=True
-                    )
-                rewards.append(_reward)
-            rewards = torch.cat(rewards, dim=0)
-        else:
-            rewards = (
-                torch.clip(self.reward_highs, -torch.inf, 0.5) * reward_terms
-            ).sum(dim=-1, keepdim=True)
+        for i in trange(
+            0,
+            T,
+            self.compute_batch_size,
+            leave=False,
+            ncols=0,
+            desc="reward compute per batch",
+        ):
+            _range = list(range(i, min(i + self.compute_batch_size, T)))
+            with torch.no_grad():
+                _reward_weights = self.reward(
+                    qpos[_range] if qpos is not None else None,
+                    fused_rgb_feats[_range] if fused_rgb_feats is not None else None,
+                    actions[_range],
+                    time_obs[_range] if time_obs is not None else None,
+                )
+                _reward = (_reward_weights * reward_terms[_range]).sum(
+                    dim=-1, keepdim=True
+                )
+            rewards.append(_reward)
+        rewards = torch.cat(rewards, dim=0)
 
         assert len(rewards) == T, f"Expected {T} rewards, got {len(rewards)}"
 
