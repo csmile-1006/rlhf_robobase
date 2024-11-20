@@ -38,6 +38,10 @@ core_requirements = [
     "scipy",
     "einops",
     "diffusers==0.29.0",
+    "google-generativeai",
+    "matplotlib",
+    "jupyter",
+    "python-dotenv",
 ]
 
 setuptools.setup(
