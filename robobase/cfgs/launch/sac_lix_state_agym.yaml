@@ -7,7 +7,11 @@ defaults:
 pixels: false
 frame_stack: 1
 action_repeat: 1
-num_train_envs: 2
+num_train_envs: 4
+num_eval_episodes: 10
+save_snapshot: true
+snapshot_every_n: 10000
+num_train_frames: 1001000
 
 hydra:
   run:

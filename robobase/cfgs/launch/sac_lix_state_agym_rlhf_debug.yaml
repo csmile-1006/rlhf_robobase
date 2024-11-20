@@ -9,27 +9,28 @@ pixels: false
 frame_stack: 1
 action_repeat: 1
 num_train_envs: 1
-num_eval_episodes: 10
-save_snapshot: true
-snapshot_every_n: 10000
-num_train_frames: 1001000
+num_eval_episodes: 1
+log_every: 10
+
+num_explore_steps: 200
+replay_size_before_train: 200
 
 rlhf:
   use_rlhf: true
   feedback_type: gemini
   comparison_type: sequential_pairwise
   query_type: timestep
-  max_feedback: 1000
-  update_every_steps: 20000
-  num_pretrain_steps: 10000
-  num_train_frames: 500
+  max_feedback: 100
+  update_every_steps: 200
+  num_pretrain_steps: 400
+  num_train_frames: 200
   snapshot_every_n: ${rlhf.update_every_steps}
   gemini:
-    model_type: gemini-1.5-pro
+    model_type: gemini-1.5-flash
     target_viewpoints: [right]
 
 rlhf_replay:
-  num_queries: 50
+  num_queries: 10
   num_labels: 1
   seq_len: 200
   feedback_batch_size: 256
