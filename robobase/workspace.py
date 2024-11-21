@@ -982,13 +982,13 @@ class Workspace:
                 metrics.update(update_metrics)
 
             if self.use_rlhf:
-                self.reward_model.logging = False
                 if (
                     self.total_feedback < self.cfg.rlhf.max_feedback
                     and should_update_reward_model(self.global_env_steps)
                     and not reward_until_frame(self.global_env_steps)
                     and not seed_until_size(len(self.query_replay_buffer))
                 ):
+                    self.reward_model.build_reward_model()
                     self.activate_reward_model = True
                     self.reward_model.logging = True
                     logging.info(

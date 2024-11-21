@@ -87,3 +87,6 @@ class RewardMethod(nn.Module, ABC):
             for k, v in input_sizes.items():
                 input_sizes[k] = (self.time_dim,) + v
         return input_sizes
+
+    def initialize_reward_model(self):
+        self.build_reward_model()

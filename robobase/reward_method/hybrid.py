@@ -196,6 +196,16 @@ class HybridReward(RewardMethod):
             fused_rgb_feats = fused_rgb_feats.view(*rgb.shape[:2], -1)
         return fused_rgb_feats
 
+    def initialize_reward_model(self):
+        input_shapes = self.get_fully_connected_inputs()
+        input_shapes["actions"] = (np.prod(self.action_space.shape),)
+        reward_model = self.reward_model(input_shapes=input_shapes)
+        self.markovian = MarkovianRewardModel(
+            reward_model=reward_model, num_reward_models=self.num_reward_models
+        )
+        self.markovian.to(self.device)
+        self.markovian_opt = torch.optim.Adam(self.markovian.parameters(), lr=self.lr)
+
     @override
     def compute_reward(
         self,
