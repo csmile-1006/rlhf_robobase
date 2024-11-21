@@ -69,9 +69,17 @@ def save_episode_with_video(episode, episode_fn, video_dir, upload_gemini=False)
         )
     if upload_gemini:
         for key in gemini_video_file_paths:
-            episode[f"gemini_video_path_{key}"] = np.frombuffer(
-                str(gemini_video_file_paths[key]).encode("utf-8"), dtype=np.uint8
+            # Use fixed length buffer of 256 bytes for video paths
+            path_bytes = str(gemini_video_file_paths[key]).encode("utf-8")
+            path_len = len(path_bytes)
+            fixed_buffer = np.zeros(256 + 4, dtype=np.uint8)  # Extra 4 bytes for length
+            # Store length in first 4 bytes
+            fixed_buffer[0:4] = np.frombuffer(
+                np.array([path_len], dtype=np.int32).tobytes(), dtype=np.uint8
             )
+            # Store path bytes after length
+            fixed_buffer[4 : 4 + path_len] = np.frombuffer(path_bytes, dtype=np.uint8)
+            episode[f"gemini_video_path_{key}"] = fixed_buffer
     with io.BytesIO() as bs:
         np.savez_compressed(bs, **episode)
         bs.seek(0)
