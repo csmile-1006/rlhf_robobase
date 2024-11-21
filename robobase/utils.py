@@ -770,4 +770,6 @@ def read_video_from_bytes(video_bytes):
     if isinstance(video_bytes, torch.Tensor):
         video_bytes = video_bytes.detach().cpu().numpy()
     with BytesIO(video_bytes) as fin:
-        return fin.read().decode("utf-8")
+        path_len = np.frombuffer(fin.read(4), dtype=np.int32)[0]
+        path_bytes = fin.read(path_len)
+        return path_bytes.decode("utf-8")
