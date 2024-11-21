@@ -10,7 +10,7 @@ def return_random_label(*_):
     return np.random.choice([0, 1])
 
 
-def retry_on_error(times, callback_fn=lambda x: x):
+def retry_on_error(times, callback_fn=lambda *_: None):
     def decorator(func):
         def wrapper(*args, **kwargs):
             for _ in range(times):
@@ -20,7 +20,7 @@ def retry_on_error(times, callback_fn=lambda x: x):
                     print(f"Function execution failed. Retrying... {e}")
                     pass
             logging.warning(f"Function execution failed after {times} attempts, ")
-            return callback_fn()
+            return callback_fn(*args, **kwargs)
 
         return wrapper
 
