@@ -66,6 +66,7 @@ def _create_default_replay_buffer(
     cfg: DictConfig,
     observation_space: gym.Space,
     action_space: gym.Space,
+    save_dir: Path = None,
     demo_replay: bool = False,
     extra_replay_elements: dict[str, gym.Space] = None,
 ) -> ReplayBuffer:
@@ -84,9 +85,10 @@ def _create_default_replay_buffer(
     )
     # Create replay_class with common hyperparameters
     return replay_class(
-        save_dir=cfg.replay.save_dir
-        if not demo_replay
-        else cfg.replay.save_dir + "_demo",
+        # save_dir=cfg.replay.save_dir
+        # if not demo_replay
+        # else cfg.replay.save_dir + "_demo",
+        save_dir=save_dir / "replay" if not demo_replay else save_dir / "demo_replay",
         batch_size=cfg.batch_size if not demo_replay else cfg.demo_batch_size,
         replay_capacity=cfg.replay.size if not demo_replay else cfg.replay.demo_size,
         action_shape=action_space.shape,
@@ -313,6 +315,7 @@ class Workspace:
             cfg,
             observation_space,
             action_space,
+            save_dir=self.work_dir,
             extra_replay_elements=extra_replay_elements,
         )
         self.prioritized_replay = cfg.replay.prioritization
@@ -392,6 +395,7 @@ class Workspace:
                 cfg,
                 observation_space,
                 action_space,
+                save_dir=self.work_dir,
                 demo_replay=True,
                 extra_replay_elements=extra_replay_elements,
             )
