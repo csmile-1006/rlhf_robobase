@@ -597,7 +597,7 @@ class Workspace:
                     if hasattr(self.eval_env, "give_agent_info"):
                         self.eval_env.give_agent_info(env_metrics["agent_act_info"])
                 self.eval_video_recorder.record(self.eval_env)
-                total_reward += reward
+                total_reward += info.get("task_reward", reward)
                 step += 1
                 episode_pbar.update(1)
             if episode == 0:
