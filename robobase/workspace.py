@@ -1026,7 +1026,7 @@ class Workspace:
                 env_metrics,
             ) = self._perform_env_steps(observations, self.train_envs, False)
 
-            agent_0_reward += rewards[0]
+            agent_0_reward += next_info.get("task_reward", rewards)[0]
             agent_0_ep_len += 1
             if terminations[0] or truncations[0]:
                 agent_0_prev_ep_len = agent_0_ep_len
