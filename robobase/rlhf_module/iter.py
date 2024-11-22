@@ -2,7 +2,6 @@ import logging
 from functools import partial
 from typing import Callable, Sequence
 
-import time
 import numpy as np
 from omegaconf import DictConfig
 from tqdm import tqdm, trange
@@ -73,7 +72,7 @@ def collect_gemini_preferences(
 
     @retry_on_error(
         10,
-        sleep_time=1,
+        sleep_time=0,
         callback_fn=lambda *_: "[Failure from Gemini API] Subtask identification failed.",
     )
     def identify_subtasks(idx):
@@ -89,16 +88,10 @@ def collect_gemini_preferences(
     identified_subtasks = {}
     for idx in trange(n_queries, desc="Identifying subtasks", position=0, leave=False):
         # Ensure we don't exceed 2 requests per second to Gemini
-        if idx > 0 and idx % 2 == 0:
-            # Sleep for 1 second after every 2 requests
-            time.sleep(1)
         identified_subtasks[idx] = identify_subtasks(idx)
 
     feedbacks = []
     for i in tqdm(tot_queries, desc="Collecting preferences", position=0, leave=False):
-        if i > 0 and i % 2 == 0:
-            # Sleep for 1 second after every 2 requests
-            time.sleep(1)
         pair = comparison_fn(i)
         label = feedback_fn(
             segments,

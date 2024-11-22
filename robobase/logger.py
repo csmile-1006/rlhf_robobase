@@ -51,12 +51,8 @@ COMMON_UNSUP_TRAIN_FORMAT = [
 COMMON_REWARD_TRAIN_FORMAT = [
     ("iteration", "Iter", "int"),
     ("pref_acc_label_0", "ACC", "float"),
-    ("env_steps", "S", "int"),
-    ("env_episodes", "E", "int"),
     ("buffer_size", "BS", "int"),
-    ("buffer_sample_time", "BST", "float"),
-    ("env_steps_per_second", "Env FPS", "float"),
-    ("agent_batched_updates_per_second", "Batched Update FPS", "float"),
+    ("reward_loss", "Loss", "float"),
     ("total_time", "T", "time"),
 ]
 

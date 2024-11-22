@@ -2,32 +2,39 @@
 
 defaults:
   - ../env: null  # Please specify environment to use in command line
-  - ../method: sac_lix
+  - ../method: cqn
   - ../reward_method: hybrid
 
 pixels: false
 frame_stack: 1
 action_repeat: 1
-num_train_envs: 1
+num_train_envs: 4
 num_eval_episodes: 1
 log_every: 10
 
 num_explore_steps: 200
 replay_size_before_train: 200
 
+method:
+  use_dueling: false
+  # estimate value in [v_min, v_max] with resolution delta_z, v_min/v_max are computed from empirical evidences
+  v_min: -300.0
+  v_max: 100.0
+  atoms: 51
+
 rlhf:
   use_rlhf: true
-  feedback_type: gemini
+  feedback_type: script
   comparison_type: sequential_pairwise
   query_type: timestep
   max_feedback: 100
   update_every_steps: 200
   num_pretrain_steps: 400
-  num_train_frames: 200
+  num_train_frames: 10
   snapshot_every_n: ${rlhf.update_every_steps}
   gemini:
     model_type: gemini-1.5-flash
-    target_viewpoints: [right]
+    target_viewpoints: ${env.query_keys}
 
 rlhf_replay:
   num_queries: 10

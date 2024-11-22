@@ -39,15 +39,17 @@ def load_gemini_model(cfg):
 @retry_on_error(
     10, callback_fn=lambda *_: ValueError("Failed to upload video to Gemini")
 )
-def upload_video_to_genai(video_path):
+def upload_video_to_genai(video_path, verbose=False):
     video_file = genai.upload_file(path=video_path)
     while video_file.state.name == "PROCESSING":
-        logging.info("Waiting for video to be processed.")
+        if verbose:
+            logging.info("Waiting for video to be processed.")
         time.sleep(1.5)
         video_file = genai.get_file(video_file.name)
     if video_file.state.name == "FAILED":
         raise ValueError(video_file.state.name)
-    logging.info("Video processing complete: " + video_file.uri)
+    if verbose:
+        logging.info("Video processing complete: " + video_file.uri)
     return video_file
 
 

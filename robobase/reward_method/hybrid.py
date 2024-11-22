@@ -226,14 +226,6 @@ class HybridReward(RewardMethod):
 
         """
 
-        if not activate_reward_model:
-            logging.info("Reward model is not activated. Return original reward.")
-            return seq
-
-        logging.info(
-            f"Reward model is activated. Compute reward with reward model trained with {self._i} steps."
-        )
-
         start_idx = 0
         T = len(seq) - start_idx
 
@@ -472,6 +464,9 @@ class HybridReward(RewardMethod):
         if self.logging:
             metrics["weighted_reward_loss"] = weighted_loss_dict["loss"].item()
             metrics["computed_reward_loss"] = computed_loss_dict["loss"].item()
+            metrics["reward_loss"] = (
+                weighted_loss_dict["loss"] + computed_loss_dict["loss"]
+            ).item()
             r_hat_weights = torch.cat(r_hat_weights, dim=0)
             for idx, term in enumerate(self.reward_space):
                 metrics[f"r_hat_weights_{term.split('/')[-1]}"] = (

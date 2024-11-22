@@ -54,7 +54,9 @@ def relabel_with_predictor(reward_model, replay_buffer, is_initial: bool = False
     _obs_signature = replay_buffer._obs_signature
     episodes = list(replay_dir.glob("*.npz"))
     logging.info(f"Relabelling {len(episodes)} episodes with reward model")
-    for ep_fn in episodes:
+    for ep_fn in tqdm(
+        episodes, desc="Relabelling episodes", leave=False, position=0, unit="episode"
+    ):
         episode = load_episode(ep_fn)
         new_episode = reward_model.compute_reward(
             episode, _obs_signature=_obs_signature, activate_reward_model=True
@@ -960,6 +962,7 @@ class Workspace:
         train_until_frame = utils.Until(self.cfg.num_train_frames)
         seed_until_size = utils.Until(self.cfg.replay_size_before_train)
         should_log = utils.Every(self.cfg.log_every)
+        should_reward_log = utils.Every(self.cfg.rlhf.log_every)
         eval_every_n = self.cfg.eval_every_steps if self.eval_env is not None else 0
         should_eval = utils.Every(eval_every_n)
         snapshot_every_n = self.cfg.snapshot_every_n if self.cfg.save_snapshot else 0
@@ -992,7 +995,8 @@ class Workspace:
                     and not reward_until_frame(self.global_env_steps)
                     and not seed_until_size(len(self.query_replay_buffer))
                 ):
-                    self.reward_model.build_reward_model()
+                    # TODO: uncomment this when reward model is ready
+                    # self.reward_model.build_reward_model()
                     self.activate_reward_model = True
                     self.reward_model.logging = True
                     logging.info(
@@ -1001,11 +1005,24 @@ class Workspace:
                     self.collect_feedback()
                     for it in range(self.cfg.rlhf.num_train_frames):
                         reward_update_metrics = self._perform_reward_model_updates()
-                        metrics.update(reward_update_metrics)
-                        metrics.update(self._get_common_metrics())
-                        if should_log(it):
+                        reward_update_metrics.update(
+                            {
+                                "iteration": self.global_env_steps + it,
+                            }
+                        )
+                        _, total_time = self._timer.reset()
+                        reward_update_metrics.update(
+                            {
+                                "total_time": total_time,
+                                "iteration": self.main_loop_iterations,
+                                "buffer_size": len(self.feedback_replay_buffer),
+                            }
+                        )
+                        if should_reward_log(it):
                             self.logger.log_metrics(
-                                metrics, self.global_env_steps, prefix="train_reward"
+                                reward_update_metrics,
+                                self.global_env_steps,
+                                prefix="train_reward",
                             )
                     relabel_with_predictor(self.reward_model, self.replay_buffer)
                     if self.use_demo_replay:
@@ -1013,7 +1030,6 @@ class Workspace:
                             self.reward_model, self.demo_replay_buffer
                         )
                     metrics = {}
-
                 if (
                     self.total_feedback < self.cfg.rlhf.max_feedback
                     and should_save_reward_model_snapshot(self.main_loop_iterations)

@@ -46,7 +46,9 @@ from robobase.rlhf_module.third_party.gemini import upload_video_to_genai
 
 
 # @timeout_callback(max_time=20)
-def save_episode_with_video(episode, episode_fn, video_dir, upload_gemini=False):
+def save_episode_with_video(
+    episode, episode_fn, video_dir, upload_gemini=False, verbose=False
+):
     videos = {key: episode[key] for key in episode if "query_video" in key}
     # save videos in mp4 format
     video_file_paths = {}
@@ -60,8 +62,13 @@ def save_episode_with_video(episode, episode_fn, video_dir, upload_gemini=False)
         gemini_video_file_paths = {}
         for key, video_file_path in video_file_paths.items():
             start_time = time.time()
-            gemini_video_file_path = upload_video_to_genai(video_file_path)
-            print(f"Time taken to upload video: {time.time() - start_time:.2f} seconds")
+            gemini_video_file_path = upload_video_to_genai(
+                video_file_path, verbose=verbose
+            )
+            if verbose:
+                print(
+                    f"Time taken to upload video: {time.time() - start_time:.2f} seconds"
+                )
             gemini_video_file_paths[key] = gemini_video_file_path.name
 
     episode = {key: episode[key] for key in episode if "query_video" not in key}
@@ -175,6 +182,7 @@ class QueryReplayBuffer(ReplayBuffer):
         transition_seq_len: int = 50,
         max_episode_number: int = 0,
         upload_gemini: bool = False,
+        verbose: bool = False,
     ):
         """Initializes OutOfGraphReplayBuffer.
 
@@ -277,8 +285,11 @@ class QueryReplayBuffer(ReplayBuffer):
         self._preprocessing_fn = preprocessing_fn
         self._preprocess_every_sample = preprocess_every_sample
         self._upload_gemini = upload_gemini
+        self._verbose = verbose
         self._save_episode_fn = (
-            partial(save_episode_with_video, upload_gemini=upload_gemini)
+            partial(
+                save_episode_with_video, upload_gemini=upload_gemini, verbose=verbose
+            )
             if save_dir
             else None
         )

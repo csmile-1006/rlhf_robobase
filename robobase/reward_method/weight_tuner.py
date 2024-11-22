@@ -329,14 +329,6 @@ class WeightTunerReward(RewardMethod):
 
         """
 
-        if not activate_reward_model:
-            logging.info("Reward model is not activated. Return original reward.")
-            return seq
-
-        logging.info(
-            f"Reward model is activated. Compute reward with reward model trained with {self._i} steps."
-        )
-
         start_idx = 0
         T = len(seq) - start_idx
 
@@ -554,6 +546,7 @@ class WeightTunerReward(RewardMethod):
                     f"pref_acc_label_{label}"
                 ].item()
 
+        self._i += 1
         return metrics
 
     def reset(self, step: int, agents_to_reset: list[int]):

@@ -73,7 +73,7 @@ rlhf:
   num_train_frames: 1000
   num_reset_update_steps: 100
   snapshot_every_n: 1000
-  log_every: 100
+  log_every: 50
   gemini:
     model_type: gemini-1.5-pro
     temperature: 0.1
@@ -98,6 +98,7 @@ rlhf_replay:
   feedback_batch_size: 256
   max_episode_number: 20
   upload_gemini: false
+  verbose: false
 
 # logging settings
 wandb:  # weight and bias

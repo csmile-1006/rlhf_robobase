@@ -7,9 +7,10 @@ GENERAL_CRITERIA = """
 2. Does the robot move smoothly?
 - The robot's movements should be steady and fluid
 - No jerky or shaky movements
+- The robot's movements must not threaten the person
 
 3. Is the robot gentle enough?
-- The robot must be careful when touching people or their clothes
+- The robot must be careful when touching people's skin/body or their clothes.
 - It shouldn't pull or push too hard or move too fast
 - The person should feel comfortable and safe
 
@@ -36,7 +37,7 @@ SUBTASK_LIST = {
     """,
     "FeedingBaxter-v0": """
     Subtask 1: Move Spoon to Mouth
-    - Description: Moving the spoon in a straight line to feed the food to the person's mouth.
+    - Description: Moving the spoon in a straight line to feed the food to the person's mouth, which is marked by a bright green sphere, without spilling.
 
     Subtask 2: Feed Food to Mouth
     - Description: Feed the food on the spoon to the person's mouth without spilling.
