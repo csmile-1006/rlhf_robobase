@@ -4,7 +4,7 @@ defaults:
   - ../env: null  # Please specify environment to use in command line
   - ../method: edp
 
-num_pretrain_steps: 500000
+num_pretrain_steps: 1000000
 
 # main config
 no_data_collection: false
