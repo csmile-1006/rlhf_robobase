@@ -226,6 +226,9 @@ class HybridReward(RewardMethod):
 
         """
 
+        if not activate_reward_model:
+            return seq
+
         start_idx = 0
         T = len(seq) - start_idx
 
