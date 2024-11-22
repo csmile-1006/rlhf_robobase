@@ -5,6 +5,9 @@ defaults:
   - ../method: cqn
   - ../reward_method: weight_tuner
 
+env:
+  reward_mode: initial
+
 pixels: false
 frame_stack: 1
 action_repeat: 1
