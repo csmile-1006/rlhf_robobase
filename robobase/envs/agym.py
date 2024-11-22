@@ -49,14 +49,17 @@ class AGym(gym.Env):
         frame_skip: int = 2,
         render_mode: str = "rgb_array",
         query_keys: list[str] = ["right"],
+        reward_mode: str = "dense",
     ):
         self._action_repeat = action_repeat
         self._viewer = None
         assert render_mode is None or render_mode in self.metadata["render_modes"]
+        assert reward_mode in ["initial", "dense"]
         self._i = 0
         self._frame_skip = frame_skip
         self._prev_image = None
         self._render_mode = render_mode
+        self._reward_mode = reward_mode
 
         print(f"Creating AGym environment with task name: {task_name}")
         self.__agym_env = gym_old.make(task_name)
@@ -80,7 +83,7 @@ class AGym(gym.Env):
 
         self.action_space = self._agym_env.action_space
         self.reward_space = self._agym_env.env.reward_space
-        self.reward_scale = 0.1
+        self.initial_reward_scale = 1.0
 
     def agym_env(self):
         return self.__agym_env
@@ -106,9 +109,15 @@ class AGym(gym.Env):
                 action
             )
             info["task_reward"] = task_reward
-            _reward = np.sum(
-                [self.reward_scale * info[key] for key in self.reward_space.keys()]
-            )
+            if self._reward_mode == "initial":
+                _reward = np.sum(
+                    [
+                        self.initial_reward_scale * info[key]
+                        for key in self.reward_space.keys()
+                    ]
+                )
+            else:
+                _reward = task_reward
             images = {key: self.render(key) for key in self._query_keys}
             reward += _reward
             if terminated or truncated:

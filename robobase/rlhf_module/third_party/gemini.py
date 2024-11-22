@@ -43,7 +43,7 @@ def upload_video_to_genai(video_path):
     video_file = genai.upload_file(path=video_path)
     while video_file.state.name == "PROCESSING":
         logging.info("Waiting for video to be processed.")
-        time.sleep(3)
+        time.sleep(1.5)
         video_file = genai.get_file(video_file.name)
     if video_file.state.name == "FAILED":
         raise ValueError(video_file.state.name)

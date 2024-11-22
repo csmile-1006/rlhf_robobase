@@ -1,4 +1,5 @@
 import logging
+import time
 from typing import Dict, Sequence
 
 import matplotlib.pyplot as plt
@@ -6,11 +7,11 @@ import numpy as np
 from matplotlib import animation
 
 
-def return_random_label(*_):
+def return_random_label(*_, **kwargs):
     return np.random.choice([0, 1])
 
 
-def retry_on_error(times, callback_fn=lambda *_: None):
+def retry_on_error(times, callback_fn=lambda *_: None, sleep_time=0):
     def decorator(func):
         def wrapper(*args, **kwargs):
             for _ in range(times):
@@ -19,6 +20,7 @@ def retry_on_error(times, callback_fn=lambda *_: None):
                 except Exception as e:
                     print(f"Function execution failed. Retrying... {e}")
                     pass
+                time.sleep(sleep_time)
             logging.warning(f"Function execution failed after {times} attempts, ")
             return callback_fn(*args, **kwargs)
 

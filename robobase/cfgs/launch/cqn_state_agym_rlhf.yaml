@@ -5,6 +5,9 @@ defaults:
   - ../method: cqn
   - ../reward_method: hybrid
 
+env:
+  reward_mode: initial
+
 pixels: false
 frame_stack: 1
 action_repeat: 1
@@ -29,12 +32,12 @@ rlhf:
   comparison_type: sequential_pairwise
   query_type: timestep
   max_feedback: 1000
-  update_every_steps: 20000
-  num_pretrain_steps: 20000
+  update_every_steps: 10000
+  num_pretrain_steps: 10000
   num_train_frames: 500
   snapshot_every_n: ${rlhf.update_every_steps}
   gemini:
-    model_type: gemini-1.5-pro
+    model_type: gemini-1.5-flash
     target_viewpoints: [right]
 
 rlhf_replay:

@@ -9,6 +9,7 @@ off-policy corrections.
 from __future__ import annotations
 
 import io
+import time
 import logging
 import os
 import tempfile
@@ -41,11 +42,10 @@ from robobase.replay_buffer.uniform_replay_buffer import (
     TRUNCATED,
     episode_len,
 )
-from robobase.rlhf_module.utils import timeout_callback
 from robobase.rlhf_module.third_party.gemini import upload_video_to_genai
 
 
-@timeout_callback(max_time=20)
+# @timeout_callback(max_time=20)
 def save_episode_with_video(episode, episode_fn, video_dir, upload_gemini=False):
     videos = {key: episode[key] for key in episode if "query_video" in key}
     # save videos in mp4 format
@@ -59,7 +59,9 @@ def save_episode_with_video(episode, episode_fn, video_dir, upload_gemini=False)
     if upload_gemini:
         gemini_video_file_paths = {}
         for key, video_file_path in video_file_paths.items():
+            start_time = time.time()
             gemini_video_file_path = upload_video_to_genai(video_file_path)
+            print(f"Time taken to upload video: {time.time() - start_time:.2f} seconds")
             gemini_video_file_paths[key] = gemini_video_file_path.name
 
     episode = {key: episode[key] for key in episode if "query_video" not in key}
