@@ -6,7 +6,7 @@ defaults:
   - ../reward_method: hybrid
 
 env:
-  reward_mode: initial
+  reward_mode: dense
 
 pixels: false
 frame_stack: 1
