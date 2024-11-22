@@ -118,7 +118,7 @@ class AGym(gym.Env):
                 )
             else:
                 _reward = task_reward
-            images = {key: self.render(key) for key in self._query_keys}
+            images = {key: self._render(key) for key in self._query_keys}
             reward += _reward
             if terminated or truncated:
                 break
@@ -127,12 +127,15 @@ class AGym(gym.Env):
 
     def reset(self, seed=None, options=None):
         agym_obs, info = self._agym_env.reset(seed=seed, options=options)
-        images = {key: self.render(key) for key in self._query_keys}
+        images = {key: self._render(key) for key in self._query_keys}
         info.update({key: 0.0 for key in self.reward_space.keys()})
         info.update({"task_reward": 0.0})
         return self._get_obs(agym_obs, images), info
 
     def render(self, view: str = "right") -> None:
+        return self._render(self._query_keys[0])
+
+    def _render(self, view: str = "right") -> None:
         """Render the environment.
 
         Args:
