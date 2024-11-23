@@ -118,7 +118,16 @@ class AGym(gym.Env):
                 )
             else:
                 _reward = task_reward
-            images = {key: self._render(key) for key in self._query_keys}
+            if self._render_mode is None:
+                images = {
+                    key: np.zeros_like(
+                        self.observation_space.sample()[f"query_video_{key}"],
+                        dtype=np.uint8,
+                    )
+                    for key in self._query_keys
+                }
+            else:
+                images = {key: self._render(key) for key in self._query_keys}
             reward += _reward
             if terminated or truncated:
                 break
@@ -127,7 +136,16 @@ class AGym(gym.Env):
 
     def reset(self, seed=None, options=None):
         agym_obs, info = self._agym_env.reset(seed=seed, options=options)
-        images = {key: self._render(key) for key in self._query_keys}
+        if self._render_mode is None:
+            images = {
+                key: np.zeros_like(
+                    self.observation_space.sample()[f"query_video_{key}"],
+                    dtype=np.uint8,
+                )
+                for key in self._query_keys
+            }
+        else:
+            images = {key: self._render(key) for key in self._query_keys}
         info.update({key: 0.0 for key in self.reward_space.keys()})
         info.update({"task_reward": 0.0})
         return self._get_obs(agym_obs, images), info
@@ -141,9 +159,6 @@ class AGym(gym.Env):
         Args:
             view (str, optional): Camera view to render from.
         """
-        if self._render_mode is None:
-            return self.observation_space.sample()[f"query_video_{view}"]
-
         if view not in ["front", "right", "top"]:
             raise ValueError(
                 f'view must be one of ["front", "right", "top"], got {view}'
