@@ -141,6 +141,9 @@ class AGym(gym.Env):
         Args:
             view (str, optional): Camera view to render from.
         """
+        if self._render_mode is None:
+            return self.observation_space.sample()[f"query_video_{view}"]
+
         if view not in ["front", "right", "top"]:
             raise ValueError(
                 f'view must be one of ["front", "right", "top"], got {view}'
@@ -163,7 +166,7 @@ class AGym(gym.Env):
         if self._viewer is not None:
             self._viewer.close()
             self._viewer = None
-        self._agym_env.close()
+        return self._agym_env.close()
 
 
 class AGymEnvFactory(EnvFactory):
@@ -185,10 +188,12 @@ class AGymEnvFactory(EnvFactory):
             [
                 lambda: self._wrap_env(
                     AGym(
-                        cfg.env.task_name,
-                        cfg.action_repeat,
-                        cfg.env.frame_skip,
-                        "rgb_array",
+                        task_name=cfg.env.task_name,
+                        action_repeat=cfg.action_repeat,
+                        frame_skip=cfg.env.frame_skip,
+                        query_keys=cfg.env.query_keys,
+                        render_mode="rgb_array" if cfg.rlhf.use_rlhf else None,
+                        reward_mode=cfg.env.reward_mode,
                     ),
                     cfg,
                 )
@@ -200,10 +205,12 @@ class AGymEnvFactory(EnvFactory):
     def make_eval_env(self, cfg: DictConfig) -> gym.Env:
         return self._wrap_env(
             AGym(
-                cfg.env.task_name,
-                cfg.action_repeat,
-                cfg.env.frame_skip,
-                "rgb_array",
+                task_name=cfg.env.task_name,
+                action_repeat=cfg.action_repeat,
+                frame_skip=cfg.env.frame_skip,
+                query_keys=cfg.env.query_keys,
+                render_mode="rgb_array",  # always render for evaluation
+                reward_mode=cfg.env.reward_mode,
             ),
             cfg,
         )
