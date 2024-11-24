@@ -446,16 +446,13 @@ class HybridReward(RewardMethod):
             self.encoder_opt.zero_grad(set_to_none=True)
             if self.use_multicam_fusion and self.view_fusion_opt is not None:
                 self.view_fusion_opt.zero_grad(set_to_none=True)
+
         self.weight_tuner_opt.zero_grad(set_to_none=True)
         self.markovian_opt.zero_grad(set_to_none=True)
         weighted_loss_dict["loss"].backward()
         computed_loss_dict["loss"].backward()
 
         # step optimizer
-        if self.use_pixels and self.encoder_opt is not None:
-            self.encoder_opt.step()
-            if self.use_multicam_fusion and self.view_fusion_opt is not None:
-                self.view_fusion_opt.step()
         self.weight_tuner_opt.step()
         self.markovian_opt.step()
 

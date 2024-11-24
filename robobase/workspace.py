@@ -996,6 +996,8 @@ class Workspace:
                     and not seed_until_size(len(self.query_replay_buffer))
                 ):
                     # TODO: uncomment this when reward model is ready
+                    if getattr(self.reward_model, "initialize_reward_model", None):
+                        self.reward_model.initialize_reward_model()
                     # self.reward_model.build_reward_model()
                     self.activate_reward_model = True
                     self.reward_model.logging = True
