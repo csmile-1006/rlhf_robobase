@@ -198,7 +198,7 @@ class AGymEnvFactory(EnvFactory):
 
     def make_train_env(self, cfg: DictConfig) -> gym.vector.VectorEnv:
         vec_env_class = gym.vector.AsyncVectorEnv
-        kwargs = dict(context="spawn")
+        kwargs = dict(context=None)
         return vec_env_class(
             [
                 lambda: self._wrap_env(
