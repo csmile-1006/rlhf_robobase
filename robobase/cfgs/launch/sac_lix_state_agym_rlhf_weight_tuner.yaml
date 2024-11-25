@@ -34,7 +34,7 @@ rlhf:
     target_viewpoints: ${env.query_keys}
 
 rlhf_replay:
-  num_queries: 20
+  num_queries: 50
   num_labels: 1
   seq_len: 200
   feedback_batch_size: 256
