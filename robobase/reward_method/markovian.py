@@ -2,6 +2,7 @@ import logging
 from copy import deepcopy
 from typing import Optional, Sequence, Tuple
 
+import gymnasium as gym
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -118,6 +119,7 @@ class MarkovianReward(RewardMethod):
         seq_len: int = 50,
         compute_batch_size: int = 32,
         use_augmentation: bool = False,
+        reward_space: gym.spaces.Dict = None,
         *args,
         **kwargs,
     ):
@@ -134,6 +136,7 @@ class MarkovianReward(RewardMethod):
         self.lr = lr
         self.lr_backbone = lr_backbone
         self.weight_decay = weight_decay
+        self.reward_space = gym.spaces.Dict(sorted(reward_space.items()))
 
         self.adaptive_lr = adaptive_lr
         self.num_train_steps = num_train_steps
