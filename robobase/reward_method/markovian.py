@@ -253,7 +253,9 @@ class MarkovianReward(RewardMethod):
         return fused_rgb_feats
 
     @override
-    def compute_reward(self, seq: Sequence) -> torch.Tensor:
+    def compute_reward(
+        self, seq: Sequence, activate_reward_model: bool = True
+    ) -> torch.Tensor:
         """
         Compute the reward from sequences.
 
@@ -266,6 +268,9 @@ class MarkovianReward(RewardMethod):
             torch.Tensor: The reward tensor.
 
         """
+
+        if not activate_reward_model:
+            return seq
 
         start_idx = 0
         T = len(seq) - start_idx
