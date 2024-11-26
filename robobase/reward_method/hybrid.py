@@ -44,6 +44,8 @@ class HybridReward(RewardMethod):
         compute_batch_size: int = 32,
         use_augmentation: bool = False,
         lambda_weight: float = 1.0,
+        reg_weight: float = 0.0,
+        apply_final_layer_tanh: bool = False,
         *args,
         **kwargs,
     ):
@@ -71,6 +73,8 @@ class HybridReward(RewardMethod):
         self.lr_backbone = lr_backbone
         self.weight_decay = weight_decay
         self.lambda_weight = lambda_weight
+        self.reg_weight = reg_weight
+        self.apply_final_layer_tanh = apply_final_layer_tanh
 
         self.adaptive_lr = adaptive_lr
         self.num_train_steps = num_train_steps
@@ -161,6 +165,7 @@ class HybridReward(RewardMethod):
             num_reward_terms=self.num_reward_terms,
             reward_lows=self.reward_lows,
             reward_highs=self.reward_highs,
+            reg_weight=self.reg_weight,
         )
         self.weight_tuner.to(self.device)
         self.weight_tuner_opt = torch.optim.Adam(
@@ -168,7 +173,9 @@ class HybridReward(RewardMethod):
         )
 
         self.markovian = MarkovianRewardModel(
-            reward_model=reward_model, num_reward_models=self.num_reward_models
+            reward_model=reward_model,
+            num_reward_models=self.num_reward_models,
+            apply_final_layer_tanh=self.apply_final_layer_tanh,
         )
         self.markovian.to(self.device)
         self.markovian_opt = torch.optim.Adam(self.markovian.parameters(), lr=self.lr)
@@ -201,7 +208,9 @@ class HybridReward(RewardMethod):
         input_shapes["actions"] = (np.prod(self.action_space.shape),)
         reward_model = self.reward_model(input_shapes=input_shapes)
         self.markovian = MarkovianRewardModel(
-            reward_model=reward_model, num_reward_models=self.num_reward_models
+            reward_model=reward_model,
+            num_reward_models=self.num_reward_models,
+            apply_final_layer_tanh=self.apply_final_layer_tanh,
         )
         self.markovian.to(self.device)
         self.markovian_opt = torch.optim.Adam(self.markovian.parameters(), lr=self.lr)

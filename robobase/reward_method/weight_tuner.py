@@ -107,10 +107,9 @@ class WeightRewardModel(nn.Module):
             loss_dict[f"pref_loss_{idx}"] = reward_loss
             loss_dict["loss"] += reward_loss
 
-        logit_reg_loss = torch.mean(torch.abs(r_hat_weights))  # L1 regularization
+        logit_reg_loss = torch.mean(torch.square(r_hat_weights))  # L2 regularization
         loss_dict[f"logit_reg_loss_{idx}"] = logit_reg_loss.item()
         loss_dict["loss"] += self.reg_weight * logit_reg_loss
-
         return loss_dict
 
 
@@ -131,6 +130,7 @@ class WeightTunerReward(RewardMethod):
         seq_len: int = 50,
         compute_batch_size: int = 32,
         use_augmentation: bool = False,
+        reg_weight: float = 0.0,
         *args,
         **kwargs,
     ):
@@ -169,6 +169,7 @@ class WeightTunerReward(RewardMethod):
         self.encoder_model = encoder_model
         self.view_fusion_model = view_fusion_model
         self.reward_model = reward_model
+        self.reg_weight = reg_weight
         self.rgb_spaces = extract_many_from_spec(
             self.observation_space, r"rgb.*", missing_ok=True
         )
@@ -282,6 +283,7 @@ class WeightTunerReward(RewardMethod):
             num_reward_terms=self.num_reward_terms,
             reward_lows=self.reward_lows,
             reward_highs=self.reward_highs,
+            reg_weight=self.reg_weight,
         )
         self.reward.to(self.device)
         self.reward_opt = torch.optim.Adam(self.reward.parameters(), lr=self.lr)

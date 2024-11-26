@@ -37,12 +37,14 @@ class MarkovianRewardModel(nn.Module):
         self,
         reward_model: FullyConnectedModule,
         num_reward_models: int = 1,
+        apply_final_layer_tanh: bool = False,
     ):
         super().__init__()
         self.rs = nn.ModuleList(
             [deepcopy(reward_model) for _ in range(num_reward_models)]
         )
         self.apply(utils.weight_init)
+        self.apply_final_layer_tanh = apply_final_layer_tanh
 
     def forward(self, low_dim_obs, fused_view_feats, action, time_obs):
         net_ins = {"action": action.view(action.shape[0], -1)}
@@ -53,10 +55,13 @@ class MarkovianRewardModel(nn.Module):
         if time_obs is not None:
             net_ins["time_obs"] = time_obs
 
-        return torch.cat(
+        reward_outs = torch.cat(
             [reward(net_ins) for reward in self.rs],
             -1,
         )
+        if self.apply_final_layer_tanh:
+            reward_outs = torch.tanh(reward_outs)
+        return reward_outs
 
     def reset(self, env_index: int):
         self.reward_model.reset(env_index)
@@ -120,6 +125,7 @@ class MarkovianReward(RewardMethod):
         compute_batch_size: int = 32,
         use_augmentation: bool = False,
         reward_space: gym.spaces.Dict = None,
+        apply_final_layer_tanh: bool = False,
         *args,
         **kwargs,
     ):
@@ -143,7 +149,9 @@ class MarkovianReward(RewardMethod):
         self.num_label = num_label
         self.num_reward_models = num_reward_models
         self.seq_len = seq_len
+        self.apply_final_layer_tanh = apply_final_layer_tanh
         self.compute_batch_size = compute_batch_size
+
         self.encoder_model = encoder_model
         self.view_fusion_model = view_fusion_model
         self.reward_model = reward_model
@@ -222,7 +230,9 @@ class MarkovianReward(RewardMethod):
         input_shapes["actions"] = (np.prod(self.action_space.shape),)
         reward_model = self.reward_model(input_shapes=input_shapes)
         self.reward = MarkovianRewardModel(
-            reward_model=reward_model, num_reward_models=self.num_reward_models
+            reward_model=reward_model,
+            num_reward_models=self.num_reward_models,
+            apply_final_layer_tanh=self.apply_final_layer_tanh,
         )
         self.reward.to(self.device)
         self.reward_opt = torch.optim.AdamW(

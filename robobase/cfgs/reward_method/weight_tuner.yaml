@@ -14,6 +14,7 @@ reward_method:
   compute_batch_size: ${batch_size}
   seq_len: ${rlhf_replay.seq_len}
   use_augmentation: True
+  reg_weight: 1e-1
 
   encoder_model:
     _target_: robobase.models.encoder.DINOv2Encoder
