@@ -276,6 +276,7 @@ class Workspace:
         # Create the RL Agent
         observation_space = self.eval_env.observation_space
         action_space = self.eval_env.action_space
+        self.use_rlhf = cfg.rlhf.use_rlhf
         if self.use_rlhf:
             reward_space = gym.spaces.Dict(
                 {
@@ -333,7 +334,6 @@ class Workspace:
         )
         self._replay_iter = None
 
-        self.use_rlhf = cfg.rlhf.use_rlhf
         if self.use_rlhf:
             self.reward_model = hydra.utils.instantiate(
                 cfg.reward_method,
