@@ -276,13 +276,14 @@ class Workspace:
         # Create the RL Agent
         observation_space = self.eval_env.observation_space
         action_space = self.eval_env.action_space
-        reward_space = gym.spaces.Dict(
-            {
-                k: gym.spaces.Box(low=v.low, high=v.high, shape=v.shape)
-                for k, v in self.eval_env.reward_space.items()
-            }
-        )
-        extra_replay_elements = reward_space
+        if self.use_rlhf:
+            reward_space = gym.spaces.Dict(
+                {
+                    k: gym.spaces.Box(low=v.low, high=v.high, shape=v.shape)
+                    for k, v in self.eval_env.reward_space.items()
+                }
+            )
+            extra_replay_elements = reward_space
 
         intrinsic_reward_module = None
         if cfg.get("intrinsic_reward_module", None):
