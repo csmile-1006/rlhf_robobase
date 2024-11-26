@@ -306,14 +306,27 @@ class MarkovianReward(RewardMethod):
         # obs: (T, elem_shape) for elem in obs
         # actions: (T, action_shape)
 
-        rgbs = (
-            stack_tensor_dictionary(extract_many_from_batch(obs, r"rgb(?!.*?tp1)"), 1)
-            .unsqueeze(1)
-            .to(self.device)
+        if self.use_pixels:
+            rgbs = (
+                stack_tensor_dictionary(
+                    extract_many_from_batch(obs, r"rgb(?!.*?tp1)"), 1
+                )
+                .unsqueeze(1)
+                .to(self.device)
+            )
+            fused_rgb_feats = self.encode_rgb_feats(rgbs, train=False).squeeze(1)
+        else:
+            fused_rgb_feats = None
+        qpos = (
+            extract_from_batch(obs, "low_dim_state").to(self.device)
+            if self.low_dim_size > 0
+            else None
         )
-        fused_rgb_feats = self.encode_rgb_feats(rgbs, train=False).squeeze(1)
-        qpos = extract_from_batch(obs, "low_dim_state").to(self.device)
-        time_obs = extract_from_batch(obs, "time", missing_ok=True)
+        time_obs = (
+            extract_from_batch(obs, "time", missing_ok=True).to(self.device)
+            if self.time_obs_size > 0
+            else None
+        )
 
         rewards = []
         for i in trange(
@@ -327,8 +340,8 @@ class MarkovianReward(RewardMethod):
             _range = list(range(i, min(i + self.compute_batch_size, T)))
             with torch.no_grad():
                 _reward = self.reward(
-                    qpos[_range],
-                    fused_rgb_feats[_range],
+                    qpos[_range] if qpos is not None else None,
+                    fused_rgb_feats[_range] if fused_rgb_feats is not None else None,
                     actions[_range],
                     time_obs[_range] if time_obs is not None else None,
                 )
@@ -378,6 +391,8 @@ class MarkovianReward(RewardMethod):
                     extract_many_from_batch(batch, rf"seg{i}_rgb(?!.*?tp1)"), 2
                 )
                 fused_rgb_feats = self.encode_rgb_feats(rgb, train=True)
+            else:
+                fused_rgb_feats = None
 
             time_obs = extract_from_batch(batch, "time", missing_ok=True)
             r_hat_segment = self.reward(
