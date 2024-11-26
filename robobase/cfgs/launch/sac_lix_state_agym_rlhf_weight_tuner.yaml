@@ -6,7 +6,7 @@ defaults:
   - ../reward_method: weight_tuner
 
 env:
-  reward_mode: dense
+  reward_mode: initial
 
 pixels: false
 frame_stack: 1
@@ -25,8 +25,8 @@ rlhf:
   comparison_type: sequential_pairwise
   query_type: timestep
   max_feedback: 1000
-  update_every_steps: 10000
-  num_pretrain_steps: 100000
+  update_every_steps: 25000
+  num_pretrain_steps: 50000
   num_train_frames: 1000
   snapshot_every_n: ${rlhf.update_every_steps}
   gemini:
@@ -34,7 +34,7 @@ rlhf:
     target_viewpoints: ${env.query_keys}
 
 rlhf_replay:
-  num_queries: 50
+  num_queries: 100
   num_labels: 1
   seq_len: 200
   feedback_batch_size: 256

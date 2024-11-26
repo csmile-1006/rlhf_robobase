@@ -372,7 +372,9 @@ class MarkovianReward(RewardMethod):
             time_obs = extract_from_batch(batch, "time", missing_ok=True)
             r_hat_segment = self.reward(
                 qpos.reshape(-1, *qpos.shape[2:]),
-                fused_rgb_feats.reshape(-1, *fused_rgb_feats.shape[2:]),
+                fused_rgb_feats.reshape(-1, *fused_rgb_feats.shape[2:])
+                if fused_rgb_feats is not None
+                else None,
                 actions.reshape(-1, *actions.shape[2:]),
                 time_obs.reshape(-1, *time_obs.shape[2:])
                 if time_obs is not None

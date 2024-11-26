@@ -6,5 +6,6 @@ env:
   frame_skip: 1
   query_keys: [right]
   reward_mode: dense
+  initial_terms: []
 
 action_repeat: 1

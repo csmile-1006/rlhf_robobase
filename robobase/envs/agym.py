@@ -50,6 +50,7 @@ class AGym(gym.Env):
         render_mode: str = "rgb_array",
         query_keys: list[str] = ["right"],
         reward_mode: str = "dense",
+        initial_terms: list[float] = [],
     ):
         self._action_repeat = action_repeat
         self._viewer = None
@@ -60,6 +61,7 @@ class AGym(gym.Env):
         self._prev_image = None
         self._render_mode = render_mode
         self._reward_mode = reward_mode
+        self._initial_terms = initial_terms
 
         print(f"Creating AGym environment with task name: {task_name}")
         self.__agym_env = gym_old.make(task_name)
@@ -83,6 +85,10 @@ class AGym(gym.Env):
 
         self.action_space = self._agym_env.action_space
         self.reward_space = self._agym_env.env.reward_space
+        if len(self._initial_terms) == 0:
+            self._initial_terms = [key for key in self.reward_space.keys()]
+        else:
+            self._initial_terms = [f"Reward/{key}" for key in self._initial_terms]
         self.initial_reward_scale = 1.0
 
     def agym_env(self):
@@ -113,7 +119,7 @@ class AGym(gym.Env):
                 _reward = np.sum(
                     [
                         self.initial_reward_scale * info[key]
-                        for key in self.reward_space.keys()
+                        for key in self._initial_terms
                     ]
                 )
             else:
@@ -209,6 +215,7 @@ class AGymEnvFactory(EnvFactory):
                         query_keys=cfg.env.query_keys,
                         render_mode="rgb_array" if cfg.rlhf.use_rlhf else None,
                         reward_mode=cfg.env.reward_mode,
+                        initial_terms=cfg.env.initial_terms,
                     ),
                     cfg,
                 )
@@ -226,6 +233,7 @@ class AGymEnvFactory(EnvFactory):
                 query_keys=cfg.env.query_keys,
                 render_mode="rgb_array",  # always render for evaluation
                 reward_mode=cfg.env.reward_mode,
+                initial_terms=cfg.env.initial_terms,
             ),
             cfg,
         )
