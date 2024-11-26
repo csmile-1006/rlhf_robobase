@@ -1,6 +1,6 @@
 import logging
 from copy import deepcopy
-from typing import Optional, Sequence, Tuple
+from typing import Optional, Sequence, Tuple, Dict
 
 import gymnasium as gym
 import numpy as np
@@ -264,7 +264,10 @@ class MarkovianReward(RewardMethod):
 
     @override
     def compute_reward(
-        self, seq: Sequence, activate_reward_model: bool = True
+        self,
+        seq: Sequence,
+        _obs_signature: Dict[str, gym.Space] = None,
+        activate_reward_model: bool = True,
     ) -> torch.Tensor:
         """
         Compute the reward from sequences.
@@ -285,26 +288,58 @@ class MarkovianReward(RewardMethod):
         start_idx = 0
         T = len(seq) - start_idx
 
-        if len(seq) < self.seq_len:
-            raise InvalidSequenceError(
-                f"Input sequence must be at least {self.seq_len_steps} steps long.\
-                Seq len is {len(seq)}"
+        if isinstance(seq, list):
+            # seq: list of (action, obs, reward, term, trunc, info, next_info)
+            actions = torch.from_numpy(np.stack([elem[0] for elem in seq])).to(
+                self.device
             )
+            if seq[0][1]["low_dim_state"].ndim > 1:
+                list_of_obs_dicts = [
+                    {k: v[-1] for k, v in elem[1].items()} for elem in seq
+                ]
+            else:
+                list_of_obs_dicts = [elem[1] for elem in seq]
 
-        # seq: list of (action, obs, reward, term, trunc, info, next_info)
-        actions = torch.from_numpy(np.stack([elem[0] for elem in seq])).to(self.device)
-        if seq[0][1]["low_dim_state"].ndim > 1:
-            list_of_obs_dicts = [{k: v[-1] for k, v in elem[1].items()} for elem in seq]
-        else:
-            list_of_obs_dicts = [elem[1] for elem in seq]
+            obs = {key: [] for key in list_of_obs_dicts[0].keys()}
+            for obs_dict in list_of_obs_dicts:
+                for key, val in obs_dict.items():
+                    obs[key].append(val)
+            obs = {key: torch.from_numpy(np.stack(val)) for key, val in obs.items()}
+            # obs: (T, elem_shape) for elem in obs
+            # actions: (T, action_shape)
 
-        obs = {key: [] for key in list_of_obs_dicts[0].keys()}
-        for obs_dict in list_of_obs_dicts:
-            for key, val in obs_dict.items():
-                obs[key].append(val)
-        obs = {key: torch.from_numpy(np.stack(val)) for key, val in obs.items()}
-        # obs: (T, elem_shape) for elem in obs
-        # actions: (T, action_shape)
+            list_of_info_dicts = [elem[-2] for elem in seq]
+            reward_terms = {key: [] for key in self.reward_space.keys()}
+            for info_dict in list_of_info_dicts:
+                for key in reward_terms:
+                    reward_terms[key].append(info_dict[key])
+            reward_terms = {
+                key: torch.from_numpy(np.stack(val))
+                for key, val in reward_terms.items()
+            }
+            # reward_terms: (T, num_reward_terms)
+        elif isinstance(seq, dict):
+            assert _obs_signature is not None, "Need obs_signature for dict input."
+            # print("action length", len(seq["action"]))
+            T = len(seq["action"]) - start_idx
+            actions = torch.from_numpy(seq["action"]).to(self.device)
+            if actions.ndim > 2:
+                actions = actions[..., -1, :]
+            if seq["low_dim_state"].ndim > 2:
+                obs = {
+                    key: torch.from_numpy(val[start_idx:, -1])
+                    for key, val in seq.items()
+                    if key in _obs_signature
+                }
+            else:
+                obs = {
+                    key: torch.from_numpy(val[start_idx:])
+                    for key, val in seq.items()
+                    if key in _obs_signature
+                }
+            reward_terms = {
+                key: torch.from_numpy(seq[key]) for key in self.reward_space.keys()
+            }
 
         if self.use_pixels:
             rgbs = (
