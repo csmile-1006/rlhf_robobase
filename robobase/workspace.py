@@ -962,18 +962,21 @@ class Workspace:
         train_until_frame = utils.Until(self.cfg.num_train_frames)
         seed_until_size = utils.Until(self.cfg.replay_size_before_train)
         should_log = utils.Every(self.cfg.log_every)
-        should_reward_log = utils.Every(self.cfg.rlhf.log_every)
         eval_every_n = self.cfg.eval_every_steps if self.eval_env is not None else 0
         should_eval = utils.Every(eval_every_n)
         snapshot_every_n = self.cfg.snapshot_every_n if self.cfg.save_snapshot else 0
         should_save_snapshot = utils.Every(snapshot_every_n)
-        snapshot_reward_model_every_n = (
-            self.cfg.rlhf.snapshot_every_n if self.cfg.save_snapshot else 0
-        )
-        should_save_reward_model_snapshot = utils.Every(snapshot_reward_model_every_n)
         if self.use_rlhf:
+            should_reward_log = utils.Every(self.cfg.rlhf.log_every)
             reward_until_frame = utils.Until(self.cfg.rlhf.num_pretrain_steps)
             should_update_reward_model = utils.Every(self.cfg.rlhf.update_every_steps)
+            snapshot_reward_model_every_n = (
+                self.cfg.rlhf.snapshot_every_n if self.cfg.save_snapshot else 0
+            )
+            should_save_reward_model_snapshot = utils.Every(
+                snapshot_reward_model_every_n
+            )
+
         observations, info = self.train_envs.reset()
         #  We use agent 0 to accumulate stats about how the training agents are doing
         agent_0_ep_len = agent_0_reward = 0

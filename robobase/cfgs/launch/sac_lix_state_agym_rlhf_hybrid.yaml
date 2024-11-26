@@ -14,7 +14,7 @@ action_repeat: 1
 num_train_envs: 4
 num_eval_episodes: 10
 log_every: 200
-eval_every_steps: 10000
+eval_every_steps: 12500
 save_snapshot: true
 snapshot_every_n: 50000
 num_train_frames: 1001000
@@ -25,7 +25,7 @@ rlhf:
   comparison_type: sequential_pairwise
   query_type: timestep
   max_feedback: 1000
-  update_every_steps: 25000
+  update_every_steps: 12500
   num_pretrain_steps: 50000
   num_train_frames: 1000
   snapshot_every_n: ${rlhf.update_every_steps}
