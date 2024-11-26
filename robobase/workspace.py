@@ -285,6 +285,8 @@ class Workspace:
                 }
             )
             extra_replay_elements = reward_space
+        else:
+            extra_replay_elements = None
 
         intrinsic_reward_module = None
         if cfg.get("intrinsic_reward_module", None):
