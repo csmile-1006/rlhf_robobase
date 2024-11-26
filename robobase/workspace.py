@@ -101,7 +101,7 @@ def _create_default_replay_buffer(
         extra_replay_elements=extra_replay_elements,
         num_workers=cfg.replay.num_workers,
         sequential=cfg.replay.sequential,
-        purge_replay_on_shutdown=False,
+        purge_replay_on_shutdown=False if cfg.use_rlhf else True,
     )
 
 
