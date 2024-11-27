@@ -64,6 +64,7 @@ class AGym(gym.Env):
         self._initial_terms = initial_terms
         self._query_keys = query_keys
         self._agym_env = None
+        self._launch()
 
     def _launch(self):
         print(f"Creating AGym environment with task name: {self._task_name}")
