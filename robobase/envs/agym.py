@@ -62,12 +62,15 @@ class AGym(gym.Env):
         self._render_mode = render_mode
         self._reward_mode = reward_mode
         self._initial_terms = initial_terms
-
-        print(f"Creating AGym environment with task name: {task_name}")
-        self.__agym_env = gym_old.make(task_name)
-        self._agym_env = gym.wrappers.EnvCompatibility(self.__agym_env, render_mode)
-
         self._query_keys = query_keys
+        self._agym_env = None
+
+    def _launch(self):
+        print(f"Creating AGym environment with task name: {self._task_name}")
+        self.__agym_env = gym_old.make(self._task_name)
+        self._agym_env = gym.wrappers.EnvCompatibility(
+            self.__agym_env, self._render_mode
+        )
         obs_dict = {}
         obs_dict["low_dim_state"] = spaces.Box(
             low=self._agym_env.observation_space.low,
@@ -141,6 +144,9 @@ class AGym(gym.Env):
         return self._get_obs(agym_obs, images), reward, terminated, truncated, info
 
     def reset(self, seed=None, options=None):
+        super().reset(seed=seed)
+        if self._agym_env is None:
+            self._launch()
         agym_obs, info = self._agym_env.reset(seed=seed, options=options)
         if self._render_mode is None:
             images = {
@@ -187,7 +193,8 @@ class AGym(gym.Env):
         if self._viewer is not None:
             self._viewer.close()
             self._viewer = None
-        return self._agym_env.close()
+        if self._agym_env is not None:
+            self._agym_env.close()
 
 
 class AGymEnvFactory(EnvFactory):

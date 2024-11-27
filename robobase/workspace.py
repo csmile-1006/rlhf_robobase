@@ -1110,6 +1110,7 @@ class Workspace:
         return metrics
 
     def shutdown(self):
+        logging.warning(f"Shutting down workspace at {self.global_env_steps} env steps")
         if self.eval_env:
             self.eval_env.close()
 
