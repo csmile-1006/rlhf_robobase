@@ -195,8 +195,6 @@ class AGym(gym.Env):
         if self._viewer is not None:
             self._viewer.close()
             self._viewer = None
-        if self._agym_env is not None:
-            self._agym_env.close()
 
 
 class AGymEnvFactory(EnvFactory):
