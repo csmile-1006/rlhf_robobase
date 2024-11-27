@@ -52,6 +52,7 @@ class AGym(gym.Env):
         reward_mode: str = "dense",
         initial_terms: list[float] = [],
     ):
+        self._task_name = task_name
         self._action_repeat = action_repeat
         self._viewer = None
         assert render_mode is None or render_mode in self.metadata["render_modes"]
