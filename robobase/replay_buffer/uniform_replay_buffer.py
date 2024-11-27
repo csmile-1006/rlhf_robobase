@@ -276,9 +276,6 @@ class UniformReplayBuffer(ReplayBuffer):
         logging.info("\t gamma: %f", self._gamma)
         self._is_first = True
 
-    def set_reward_model(self, reward_model):
-        self._reward_model = reward_model
-
     @property
     def frame_stack(self):
         return self._frame_stacks

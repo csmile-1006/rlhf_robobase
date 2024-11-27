@@ -88,13 +88,31 @@ class AGym(gym.Env):
             )
         self.observation_space = spaces.Dict(obs_dict)
 
-        self.action_space = self._agym_env.action_space
-        self.reward_space = self._agym_env.env.reward_space
+        self.action_space = spaces.Box(
+            low=self._agym_env.action_space.low,
+            high=self._agym_env.action_space.high,
+            dtype=np.float32,
+        )
+
         if len(self._initial_terms) == 0:
             self._initial_terms = [key for key in self.reward_space.keys()]
         else:
             self._initial_terms = [f"Reward/{key}" for key in self._initial_terms]
-        self.initial_reward_scale = 1.0
+
+        self.reward_space = spaces.Dict(
+            {
+                k: gym.spaces.Box(
+                    low=self.__agym_env.reward_space[k].low,
+                    high=self.__agym_env.reward_space[k].high,
+                    shape=self.__agym_env.reward_space[k].shape,
+                )
+                for k in self._initial_terms
+            }
+        )
+
+        self.initial_reward_scale = {
+            k: self.reward_space[k].high for k in self._initial_terms
+        }
 
     def agym_env(self):
         return self.__agym_env
@@ -123,7 +141,7 @@ class AGym(gym.Env):
             if self._reward_mode == "initial":
                 _reward = np.sum(
                     [
-                        self.initial_reward_scale * info[key]
+                        self.initial_reward_scale[key] * info[key]
                         for key in self._initial_terms
                     ]
                 )

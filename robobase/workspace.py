@@ -276,17 +276,6 @@ class Workspace:
         # Create the RL Agent
         observation_space = self.eval_env.observation_space
         action_space = self.eval_env.action_space
-        self.use_rlhf = cfg.rlhf.use_rlhf
-        if self.use_rlhf:
-            reward_space = gym.spaces.Dict(
-                {
-                    k: gym.spaces.Box(low=v.low, high=v.high, shape=v.shape)
-                    for k, v in self.eval_env.reward_space.items()
-                }
-            )
-            extra_replay_elements = reward_space
-        else:
-            extra_replay_elements = None
 
         intrinsic_reward_module = None
         if cfg.get("intrinsic_reward_module", None):
@@ -317,26 +306,11 @@ class Workspace:
             self.train_envs = None
             logging.warning("Train env is not created. Training will not be supported ")
 
-        self.replay_buffer = create_replay_fn(
-            cfg,
-            observation_space,
-            action_space,
-            save_dir=self.work_dir,
-            extra_replay_elements=extra_replay_elements,
-        )
-        self.prioritized_replay = cfg.replay.prioritization
-        self.extra_replay_elements = self.replay_buffer.extra_replay_elements
-
-        self.replay_loader = DataLoader(
-            self.replay_buffer,
-            batch_size=self.replay_buffer.batch_size,
-            num_workers=cfg.replay.num_workers,
-            pin_memory=cfg.replay.pin_memory,
-            worker_init_fn=_worker_init_fn,
-        )
-        self._replay_iter = None
-
+        self.use_rlhf = cfg.rlhf.use_rlhf
         if self.use_rlhf:
+            reward_space = self.eval_env.reward_space
+            extra_replay_elements = reward_space
+
             self.reward_model = hydra.utils.instantiate(
                 cfg.reward_method,
                 device=self.device,
@@ -345,11 +319,8 @@ class Workspace:
                 reward_space=reward_space,
             )
             self.reward_model.train(False)
-
             # Unactivate reward model at the beginning, until the first reward model update
             self.activate_reward_model = False
-
-            self.replay_buffer.set_reward_model(self.reward_model)
 
             self.query_replay_buffer = _create_default_query_replay_buffer(
                 cfg,
@@ -388,6 +359,28 @@ class Workspace:
 
             if cfg.rlhf.feedback_type == "gemini":
                 configure_gemini()
+
+        else:
+            extra_replay_elements = None
+
+        self.replay_buffer = create_replay_fn(
+            cfg,
+            observation_space,
+            action_space,
+            save_dir=self.work_dir,
+            extra_replay_elements=extra_replay_elements,
+        )
+        self.prioritized_replay = cfg.replay.prioritization
+        self.extra_replay_elements = self.replay_buffer.extra_replay_elements
+
+        self.replay_loader = DataLoader(
+            self.replay_buffer,
+            batch_size=self.replay_buffer.batch_size,
+            num_workers=cfg.replay.num_workers,
+            pin_memory=cfg.replay.pin_memory,
+            worker_init_fn=_worker_init_fn,
+        )
+        self._replay_iter = None
 
         # Create a separate demo replay that contains successful episodes.
         # This is designed for RL. IL algorithms don't have to use this!
@@ -1001,9 +994,9 @@ class Workspace:
                     and not reward_until_frame(self.global_env_steps)
                     and not seed_until_size(len(self.query_replay_buffer))
                 ):
-                    # TODO: uncomment this when reward model is ready
-                    if getattr(self.reward_model, "initialize_reward_model", None):
-                        self.reward_model.initialize_reward_model()
+                    # new exp: how about keeping this?
+                    # if getattr(self.reward_model, "initialize_reward_model", None):
+                    #     self.reward_model.initialize_reward_model()
                     # self.reward_model.build_reward_model()
                     self.activate_reward_model = True
                     self.reward_model.logging = True
