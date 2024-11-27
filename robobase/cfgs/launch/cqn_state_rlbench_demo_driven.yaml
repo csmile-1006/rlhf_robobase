@@ -13,7 +13,7 @@ env:
   arm_max_velocity: 2.0
   arm_max_acceleration: 8.0
 
-demos: 20
+demos: 100
 use_min_max_normalization: true
 min_max_margin: 0.2
 batch_size: 256
@@ -25,7 +25,7 @@ log_every: 200
 
 num_eval_episodes: 25
 eval_every_steps: 500
-num_train_frames: 10100
+num_train_frames: 30100
 
 update_every_steps: 1
 replay:
