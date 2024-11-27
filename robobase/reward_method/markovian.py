@@ -386,8 +386,12 @@ class MarkovianReward(RewardMethod):
         assert len(rewards) == T, f"Expected {T} rewards, got {len(rewards)}"
 
         total_rewards = rewards.mean(dim=1).cpu().numpy()
-        for idx in range(len(seq)):
-            seq[idx][2] = total_rewards[idx]
+        if isinstance(seq, list):
+            for idx in range(len(seq)):
+                seq[idx][2] = total_rewards[idx]
+
+        elif isinstance(seq, dict):
+            seq["reward"] = total_rewards
 
         return seq
 
