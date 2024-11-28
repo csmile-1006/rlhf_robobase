@@ -530,6 +530,9 @@ class Workspace:
         try:
             self._train()
         except Exception as e:
+            import logger
+
+            logger.critical(e)
             self.shutdown()
             raise e
 
