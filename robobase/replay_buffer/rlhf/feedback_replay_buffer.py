@@ -17,6 +17,7 @@ from collections import defaultdict
 import logging
 from typing_extensions import override
 
+import pickle
 import torch
 from gymnasium import spaces
 from natsort import natsort
@@ -36,6 +37,11 @@ from robobase.replay_buffer.uniform_replay_buffer import (
 )
 
 LABEL = "label"
+
+
+def save_metadata(metadata, metadata_fn):
+    with metadata_fn.open("wb") as f:
+        pickle.dump(metadata, f)
 
 
 def episode_len(episode):
@@ -317,7 +323,7 @@ class FeedbackReplayBuffer(ReplayBuffer):
 
         return storage_elements, obs_elements
 
-    def add_feedback(self, segment_0, segment_1, label, **kwargs):
+    def add_feedback(self, segment_0, segment_1, label, metadata=None, **kwargs):
         """Adds a pair of segments to the replay memory."""
         transition = {}
         for idx, seg in enumerate([segment_0, segment_1]):
@@ -352,7 +358,7 @@ class FeedbackReplayBuffer(ReplayBuffer):
         for k, v in self._current_episode.items():
             episode[k] = np.array(v, self._storage_signature[k].type)
         self._current_episode = defaultdict(list)
-        self._store_episode(episode)
+        self._store_episode(episode, metadata)
 
     @override
     def add(
@@ -370,7 +376,7 @@ class FeedbackReplayBuffer(ReplayBuffer):
     def add_final(self, final_observation: dict):
         raise NotImplementedError
 
-    def _store_episode(self, episode):
+    def _store_episode(self, episode, metadata=None):
         # if self._sequential:
         #     # If sequential, convert the episode layout
         #     episode = self.convert_episode_layout(episode)
@@ -394,6 +400,12 @@ class FeedbackReplayBuffer(ReplayBuffer):
                     f"{ts}.{worker_id}_{eps_idx+worker_id}_{eps_len}_{global_idx}.npz"
                 )
                 save_episode(episode, self._replay_dir / eps_fn)
+
+        if metadata is not None:
+            metadata_fn = (
+                self._replay_dir / f"{ts}_{eps_idx}_{eps_len}_{global_idx}.metadata"
+            )
+            save_metadata(metadata, metadata_fn)
 
     def _add(self, transition: dict):
         """Internal add method to add to the storage arrays.

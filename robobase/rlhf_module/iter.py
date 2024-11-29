@@ -49,7 +49,7 @@ def collect_basic_preferences(
         feedbacks.append(pref_dict)
     logging.info("FINISH!")
 
-    return feedbacks
+    return feedbacks, None
 
 
 def collect_gemini_preferences(
@@ -91,9 +91,10 @@ def collect_gemini_preferences(
         identified_subtasks[idx] = identify_subtasks(idx)
 
     feedbacks = []
+    total_metadata = []
     for i in tqdm(tot_queries, desc="Collecting preferences", position=0, leave=False):
         pair = comparison_fn(i)
-        label = feedback_fn(
+        label, metadata = feedback_fn(
             segments,
             pair,
             gemini_model_config=gemini_model_config,
@@ -115,9 +116,10 @@ def collect_gemini_preferences(
             "label": np.asarray(label)[np.newaxis],
         }
         feedbacks.append(pref_dict)
+        total_metadata.append(metadata)
     logging.info("FINISH!")
 
-    return feedbacks
+    return feedbacks, total_metadata
 
 
 def get_rlhf_iter_fn(cfg: DictConfig, env_factory: EnvFactory):

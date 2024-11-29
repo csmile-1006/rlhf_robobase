@@ -530,9 +530,7 @@ class Workspace:
         try:
             self._train()
         except Exception as e:
-            import logger
-
-            logger.critical(e)
+            logging.critical(e)
             self.shutdown()
             raise e
 
@@ -802,11 +800,22 @@ class Workspace:
 
     def collect_feedback(self):
         query_batch = self._query_fn(next(self.query_replay_iter))
-        feedbacks = self._comparison_fn(segments=query_batch)
-        for feedback in feedbacks:
-            self.feedback_replay_buffer.add_feedback(
-                feedback["segment_0"], feedback["segment_1"], feedback["label"]
-            )
+        feedbacks, metadata = self._comparison_fn(segments=query_batch)
+        if metadata:
+            for feedback, metadatum in zip(feedbacks, metadata):
+                self.feedback_replay_buffer.add_feedback(
+                    feedback["segment_0"],
+                    feedback["segment_1"],
+                    feedback["label"],
+                    metadatum,
+                )
+        else:
+            for feedback in feedbacks:
+                self.feedback_replay_buffer.add_feedback(
+                    feedback["segment_0"],
+                    feedback["segment_1"],
+                    feedback["label"],
+                )
         self._total_feedback += len(feedbacks)
 
     def _perform_reward_model_updates(self) -> dict[str, Any]:

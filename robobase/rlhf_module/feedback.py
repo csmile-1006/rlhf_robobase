@@ -86,20 +86,32 @@ def gemini_feedback_fn(
     identified_subtasks,
 ):
     # Collect feedbacks for pair of videos.
+    video1 = get_gemini_video_ids(segments, indices[0], target_viewpoints)
+    video_evaluation1 = identified_subtasks[indices[0]]
+    video2 = get_gemini_video_ids(segments, indices[1], target_viewpoints)
+    video_evaluation2 = identified_subtasks[indices[1]]
     quest = get_zeroshot_pairwise_comparison_prompt(
         general_criteria=general_criteria,
         task_description=task_description,
         subtasks=subtasks,
         viewpoints=target_viewpoints,
-        video1=get_gemini_video_ids(segments, indices[0], target_viewpoints),
-        video2=get_gemini_video_ids(segments, indices[1], target_viewpoints),
-        video1_evaluations=identified_subtasks[indices[0]],
-        video2_evaluations=identified_subtasks[indices[1]],
+        video1=video1,
+        video2=video2,
+        video1_evaluations=video_evaluation1,
+        video2_evaluations=video_evaluation2,
     )
     gemini_model = load_gemini_model(gemini_model_config)
     response = gemini_model.generate_content(quest)
     label = postprocess_gemini_response(response)
-    return label
+    metadata = {
+        "video1": video1,
+        "video2": video2,
+        "video_evaluation1": video_evaluation1,
+        "video_evaluation2": video_evaluation2,
+        "quest": quest,
+        "response": response,
+    }
+    return label, metadata
 
 
 def get_feedback_fn(feedback_type):
