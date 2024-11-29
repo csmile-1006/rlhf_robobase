@@ -94,6 +94,11 @@ class AGym(gym.Env):
             dtype=np.float32,
         )
 
+        if len(self._initial_terms) == 0:
+            self._initial_terms = [key for key in self.__agym_env.reward_space.keys()]
+        else:
+            self._initial_terms = [f"Reward/{key}" for key in self._initial_terms]
+
         self.reward_space = spaces.Dict(
             {
                 k: gym.spaces.Box(
@@ -104,11 +109,6 @@ class AGym(gym.Env):
                 for k in self._initial_terms
             }
         )
-
-        if len(self._initial_terms) == 0:
-            self._initial_terms = [key for key in self.reward_space.keys()]
-        else:
-            self._initial_terms = [f"Reward/{key}" for key in self._initial_terms]
 
         self.initial_reward_scale = {
             k: self.reward_space[k].high for k in self._initial_terms
