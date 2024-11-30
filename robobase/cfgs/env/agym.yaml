@@ -7,5 +7,6 @@ env:
   query_keys: [right]
   reward_mode: dense
   initial_terms: []
+  reward_term_type: initial
 
 action_repeat: 1

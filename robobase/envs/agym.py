@@ -50,6 +50,7 @@ class AGym(gym.Env):
         render_mode: str = "rgb_array",
         query_keys: list[str] = ["right"],
         reward_mode: str = "dense",
+        reward_term_type: str = "all",
         initial_terms: list[float] = [],
     ):
         self._task_name = task_name
@@ -62,6 +63,7 @@ class AGym(gym.Env):
         self._prev_image = None
         self._render_mode = render_mode
         self._reward_mode = reward_mode
+        self._reward_term_type = reward_term_type
         self._initial_terms = initial_terms
         self._query_keys = query_keys
         self._agym_env = None
@@ -98,6 +100,15 @@ class AGym(gym.Env):
             self._initial_terms = [key for key in self.__agym_env.reward_space.keys()]
         else:
             self._initial_terms = [f"Reward/{key}" for key in self._initial_terms]
+
+        if self._reward_term_type == "all":
+            self._reward_terms = [key for key in self.__agym_env.reward_space.keys()]
+        elif self._reward_term_type == "initial":
+            self._reward_terms = self._initial_terms
+        else:
+            raise ValueError(
+                f"reward_term_type must be one of ['all', 'initial'], got {self._reward_term_type}"
+            )
 
         self.reward_space = spaces.Dict(
             {
@@ -240,6 +251,7 @@ class AGymEnvFactory(EnvFactory):
                         query_keys=cfg.env.query_keys,
                         render_mode="rgb_array" if cfg.rlhf.use_rlhf else None,
                         reward_mode=cfg.env.reward_mode,
+                        reward_term_type=cfg.env.reward_term_type,
                         initial_terms=cfg.env.initial_terms,
                     ),
                     cfg,
@@ -258,6 +270,7 @@ class AGymEnvFactory(EnvFactory):
                 query_keys=cfg.env.query_keys,
                 render_mode="rgb_array",  # always render for evaluation
                 reward_mode=cfg.env.reward_mode,
+                reward_term_type=cfg.env.reward_term_type,
                 initial_terms=cfg.env.initial_terms,
             ),
             cfg,
