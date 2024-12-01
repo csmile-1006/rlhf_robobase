@@ -308,16 +308,6 @@ class MarkovianReward(RewardMethod):
             # obs: (T, elem_shape) for elem in obs
             # actions: (T, action_shape)
 
-            list_of_info_dicts = [elem[-2] for elem in seq]
-            reward_terms = {key: [] for key in self.reward_space.keys()}
-            for info_dict in list_of_info_dicts:
-                for key in reward_terms:
-                    reward_terms[key].append(info_dict[key])
-            reward_terms = {
-                key: torch.from_numpy(np.stack(val))
-                for key, val in reward_terms.items()
-            }
-            # reward_terms: (T, num_reward_terms)
         elif isinstance(seq, dict):
             assert _obs_signature is not None, "Need obs_signature for dict input."
             # print("action length", len(seq["action"]))
@@ -337,9 +327,6 @@ class MarkovianReward(RewardMethod):
                     for key, val in seq.items()
                     if key in _obs_signature
                 }
-            reward_terms = {
-                key: torch.from_numpy(seq[key]) for key in self.reward_space.keys()
-            }
 
         if self.use_pixels:
             rgbs = (

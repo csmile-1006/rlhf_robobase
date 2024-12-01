@@ -117,7 +117,7 @@ class AGym(gym.Env):
                     high=self.__agym_env.reward_space[k].high,
                     shape=self.__agym_env.reward_space[k].shape,
                 )
-                for k in self._initial_terms
+                for k in self._reward_terms
             }
         )
 
