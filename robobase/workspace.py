@@ -308,7 +308,7 @@ class Workspace:
 
         self.use_rlhf = cfg.rlhf.use_rlhf
         if self.use_rlhf:
-            reward_space = self.eval_env.reward_space
+            reward_space = self.eval_env.unwrapped.reward_space
             extra_replay_elements = reward_space
 
             self.reward_model = hydra.utils.instantiate(

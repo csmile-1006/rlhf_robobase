@@ -3,5 +3,8 @@
 env:
   env_name: dmc
   episode_length: 1000  # This is the default for DMC.
+  reward_mode: dense
+  reward_term_type: all
+  initial_terms: []
 
 action_repeat: 2

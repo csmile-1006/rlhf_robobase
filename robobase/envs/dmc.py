@@ -67,6 +67,9 @@ class DMC(gym.Env):
         action_repeat: int = 1,
         visual_observation_shape: tuple[int, int] = (84, 84),
         render_mode: str = None,
+        reward_mode: str = "dense",
+        reward_term_type: str = "all",
+        initial_terms: list[float] = [],
     ):
         domain, task = task_name.split("_", 1)
         self._from_pixels = from_pixels
@@ -105,6 +108,26 @@ class DMC(gym.Env):
             self._dmc_env.action_spec(), dtype=np.float32
         )
 
+        self._reward_mode = reward_mode
+        self._reward_term_type = reward_term_type
+        self._initial_terms = initial_terms
+        reward_spec = self._dmc_env.get_reward_spec()
+
+        if len(self._initial_terms) == 0:
+            self._initial_terms = [key for key in reward_spec.keys()]
+
+        if self._reward_term_type == "all":
+            self._reward_terms = [key for key in reward_spec.keys()]
+        elif self._reward_term_type == "initial":
+            self._reward_terms = self._initial_terms
+        self.reward_space = _convert_dm_control_to_gym_space(
+            {f"Reward/{k}": reward_spec[k] for k in self._reward_terms},
+            dtype=np.float32,
+        )
+        self.initial_reward_scale = {
+            k: self.reward_space[f"Reward/{k}"].high for k in self._initial_terms
+        }
+
     def _get_obs(self, timestep):
         obs = timestep.observation
         ret_obs = {}
@@ -126,9 +149,14 @@ class DMC(gym.Env):
 
     def step(self, action):
         reward = 0
+        info = {"task_reward": 0, **{f"Reward/{k}": 0 for k in self._reward_terms}}
         for _ in range(self._action_repeat):
             ts = self._dmc_env.step(action)
             reward += ts.reward
+            info["task_reward"] += ts.reward
+            detailed_reward = self._dmc_env.get_detailed_reward()
+            for key in self._reward_terms:
+                info[f"Reward/{key}"] = detailed_reward[key]
             if ts.last():
                 break
         # See https://github.com/google-deepmind/dm_control/blob/f2f0e2333d8bd82c0b6ba83628fe44c2bcc94ef5/dm_control/rl/control.py#L115C18-L115C29
@@ -138,13 +166,17 @@ class DMC(gym.Env):
         assert not np.any(
             terminal and truncated
         ), "Can't be both terminal and truncated."
-        return self._get_obs(ts), reward, terminal, truncated, {}
+        return self._get_obs(ts), reward, terminal, truncated, info
 
     def reset(self, seed=None, options=None):
         self.action_space.seed(seed)
         self._dmc_env.task.random.seed(seed)
         timestep = self._dmc_env.reset()
-        return self._get_obs(timestep), {}
+        info = {
+            **{key: 0.0 for key in self.reward_space.keys()},
+            "task_reward": 0.0,
+        }
+        return self._get_obs(timestep), info
 
     def render(self):
         img = self._dmc_env.physics.render(
@@ -199,6 +231,9 @@ class DMCEnvFactory(EnvFactory):
                         cfg.action_repeat,
                         cfg.visual_observation_shape,
                         "rgb_array",
+                        cfg.env.reward_mode,
+                        cfg.env.reward_term_type,
+                        cfg.env.initial_terms,
                     ),
                     cfg,
                 )
@@ -215,6 +250,9 @@ class DMCEnvFactory(EnvFactory):
                 cfg.action_repeat,
                 cfg.visual_observation_shape,
                 "rgb_array",
+                cfg.env.reward_mode,
+                cfg.env.reward_term_type,
+                cfg.env.initial_terms,
             ),
             cfg,
         )
