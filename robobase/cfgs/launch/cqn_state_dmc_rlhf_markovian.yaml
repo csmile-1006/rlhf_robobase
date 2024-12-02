@@ -44,7 +44,7 @@ rlhf:
 rlhf_replay:
   num_queries: 100
   num_labels: 1
-  seq_len: 100
+  seq_len: 50
   feedback_batch_size: 256
   max_episode_number: 0
 
