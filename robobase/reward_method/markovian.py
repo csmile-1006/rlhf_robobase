@@ -95,11 +95,8 @@ class MarkovianRewardModel(nn.Module):
         loss_dict = dict(loss=0.0)
         reward_loss = 0.0
         for idx, (logit, label) in enumerate(zip(logits.unbind(1), labels.unbind(1))):
-            label_stack = torch.stack([1 - label, label], dim=-1)
-            reward_loss += F.cross_entropy(logit, label_stack)
-            loss_dict[f"pref_acc_label_{idx}"] = utils.pref_accuracy(
-                logit, torch.argmax(label_stack, dim=-1)
-            )
+            reward_loss = F.cross_entropy(logit, label.long())
+            loss_dict[f"pref_acc_label_{idx}"] = utils.pref_accuracy(logit, label)
             loss_dict[f"pref_loss_{idx}"] = reward_loss
             loss_dict["loss"] += reward_loss
 
