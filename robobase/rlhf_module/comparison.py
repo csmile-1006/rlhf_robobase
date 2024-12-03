@@ -10,7 +10,6 @@ How to compare pairwise preferences (sequential, sequential_pairwise, root_pairw
 
 
 class ComparisonFn(ABC):
-    @abstractmethod
     def initialize(self, segments):
         pass
 
