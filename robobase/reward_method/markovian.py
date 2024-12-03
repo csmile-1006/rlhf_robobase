@@ -93,7 +93,7 @@ class MarkovianRewardModel(nn.Module):
         reward_loss = 0.0
         for idx, (logit, label) in enumerate(zip(logits.unbind(1), labels.unbind(1))):
             # reward_loss = F.cross_entropy(logit, label)
-            uniform_index = labels == -1
+            uniform_index = (labels == -1).squeeze(-1)
             labels[uniform_index] = 0
             target_onehot = torch.zeros_like(logit).scatter(
                 1, labels, self.label_target
