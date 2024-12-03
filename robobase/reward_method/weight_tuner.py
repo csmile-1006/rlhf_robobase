@@ -487,7 +487,9 @@ class WeightTunerReward(RewardMethod):
                     )
                     rewards.append(_reward)
         total_rewards = torch.cat(rewards, dim=0)
-        assert len(rewards) == T, f"Expected {T} rewards, got {len(rewards)}"
+        assert (
+            len(total_rewards) == T
+        ), f"Expected {T} rewards, got {len(total_rewards)}"
 
         if return_reward:
             return total_rewards
