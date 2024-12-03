@@ -74,7 +74,7 @@ class WeightRewardModel(nn.Module):
         orig_min, orig_max = self.reward_lows, self.reward_highs
         scale = (orig_max - orig_min) / (self.MAX - self.MIN)
         new_weights = orig_min + scale * (weights - self.MIN)
-        return new_weights.astype(weights.dtype, copy=False)
+        return new_weights.to(weights.dtype)
 
     def reset(self, env_index: int):
         for w in self.ws:
