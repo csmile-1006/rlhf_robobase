@@ -23,7 +23,7 @@ rlhf:
   use_rlhf: true
   feedback_type: gemini
   comparison_type: sequential_pairwise
-  query_type: timestep
+  query_type: random
   max_feedback: 1000
   update_every_steps: 12500
   num_pretrain_steps: 50000
@@ -37,7 +37,7 @@ rlhf_replay:
   num_queries: 100
   num_labels: 1
   seq_len: 200
-  feedback_batch_size: 256
+  feedback_batch_size: 128
   max_episode_number: 0
 
 hydra:

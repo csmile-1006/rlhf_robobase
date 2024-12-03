@@ -65,15 +65,15 @@ rlhf:
   use_rlhf: false
   feedback_type: random
   comparison_type: root_pairwise
-  query_type: timestep
+  query_type: random
   max_feedback: 1000
   update_every_steps: 1
   num_pretrain_steps: 0
   num_unsup_train_frames: 1000
-  num_train_frames: 1000
+  num_train_frames: 100
   num_reset_update_steps: 100
   snapshot_every_n: 1000
-  log_every: 50
+  log_every: 10
   gemini:
     model_type: gemini-1.5-pro
     temperature: 0.1
@@ -95,8 +95,8 @@ rlhf_replay:
   num_queries: 1
   num_labels: 1
   seq_len: 50
-  feedback_batch_size: 256
-  max_episode_number: 20
+  feedback_batch_size: 128
+  max_episode_number: 0
   upload_gemini: false
   verbose: false
 

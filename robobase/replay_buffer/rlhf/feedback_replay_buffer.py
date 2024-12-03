@@ -108,7 +108,7 @@ class FeedbackReplayBuffer(ReplayBuffer):
         preprocessing_fn: list[Callable[[list[spaces.Dict]], list[spaces.Dict]]] = None,
         preprocess_every_sample: bool = False,
         num_workers: int = 0,
-        fetch_every: int = 50,
+        fetch_every: int = 1,
         sequential: bool = False,
         transition_seq_len: int = 50,
         num_labels: int = 1,
@@ -246,7 +246,7 @@ class FeedbackReplayBuffer(ReplayBuffer):
         self._max_size_per_worker = replay_capacity // max(1, num_workers)
         self._num_workers = num_workers
         self._fetch_every = fetch_every
-        self._samples_since_last_fetch = self._fetch_every
+        # self._samples_since_last_fetch = self._fetch_every
         save_snapshot = True
         self._save_snapshot = save_snapshot
 
@@ -299,7 +299,7 @@ class FeedbackReplayBuffer(ReplayBuffer):
         """
         storage_elements, obs_elements = {}, {}
         storage_elements.update(
-            {LABEL: ReplayElement(LABEL, (self._num_labels,), np.float32)}
+            {LABEL: ReplayElement(LABEL, (self._num_labels,), np.int64)}
         )
         for i in range(2):
             storage_elements.update(
@@ -533,9 +533,9 @@ class FeedbackReplayBuffer(ReplayBuffer):
         return True
 
     def _try_fetch(self):
-        if self._samples_since_last_fetch < self._fetch_every:
-            return
-        self._samples_since_last_fetch = 0
+        # if self._samples_since_last_fetch < self._fetch_every:
+        #     return
+        # self._samples_since_last_fetch = 0
 
         try:
             worker_id = torch.utils.data.get_worker_info().id
@@ -636,7 +636,7 @@ class FeedbackReplayBuffer(ReplayBuffer):
         # index here is the "global" index of a flattened sample
         self._try_fetch()
 
-        self._samples_since_last_fetch += 1
+        # self._samples_since_last_fetch += 1
 
         return self._sample_non_sequential(global_index)
 

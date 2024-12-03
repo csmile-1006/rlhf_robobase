@@ -26,7 +26,7 @@ rlhf:
   use_rlhf: true
   feedback_type: script
   comparison_type: sequential_pairwise
-  query_type: timestep
+  query_type: random
   max_feedback: 100
   update_every_steps: 200
   num_pretrain_steps: 400
@@ -40,7 +40,7 @@ rlhf_replay:
   num_queries: 10
   num_labels: 1
   seq_len: 200
-  feedback_batch_size: 256
+  feedback_batch_size: 128
   max_episode_number: 0
 
 hydra:

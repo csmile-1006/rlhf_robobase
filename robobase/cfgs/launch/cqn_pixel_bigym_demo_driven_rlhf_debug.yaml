@@ -40,7 +40,7 @@ rlhf:
   use_rlhf: true
   feedback_type: random
   comparison_type: sequential_pairwise
-  query_type: timestep
+  query_type: random
   max_feedback: 2000
   update_every_steps: 5000
   num_pretrain_steps: 10

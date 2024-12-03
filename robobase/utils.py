@@ -694,6 +694,11 @@ def pref_accuracy(logits: torch.Tensor, target_class: torch.Tensor):
     # return torch.mean(torch.LongTensor(predicted_class == target_class))
 
 
+def softXEnt_loss(input, target):
+    logprobs = torch.nn.functional.log_softmax(input, dim=1)
+    return -(target * logprobs).sum() / input.shape[0]
+
+
 def convert_torch_to_numpy(tensor):
     if isinstance(tensor, torch.Tensor):
         if tensor.is_cuda:
@@ -707,6 +712,21 @@ def convert_torch_to_numpy(tensor):
         return {key: convert_torch_to_numpy(value) for key, value in tensor.items()}
     else:
         return tensor
+
+
+def convert_numpy_to_torch(array, device="cuda"):
+    if isinstance(array, np.ndarray):
+        return torch.from_numpy(array).to(device)
+    elif isinstance(array, torch.Tensor):
+        return array.to(device)
+    elif isinstance(array, list):
+        return [convert_numpy_to_torch(value, device) for value in array]
+    elif isinstance(array, dict):
+        return {
+            key: convert_numpy_to_torch(value, device) for key, value in array.items()
+        }
+    else:
+        return array
 
 
 def compute_state_entropy(obs, full_obs, k):

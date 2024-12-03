@@ -61,13 +61,15 @@ def random_feedback_fn(*_, **kwargs):
 
 
 def scripted_feedback_fn(segments, indices, **kwargs):
+    # as query replay buffer stores human-engineered rewards,
+    # we can use them as a proxy for preference, instead of "info/task_reward"
     segment_return_1 = segments["reward"][indices[0]].sum(dim=-1)
     segment_return_2 = segments["reward"][indices[1]].sum(dim=-1)
 
     if segment_return_1 > segment_return_2:
         script_label = 0
     elif segment_return_1 == segment_return_2:
-        script_label = np.random.choice([0, 1])
+        script_label = -1
     else:
         script_label = 1
 

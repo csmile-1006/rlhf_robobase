@@ -1,11 +1,11 @@
 import logging
 from copy import deepcopy
-from typing import Optional, Sequence, Tuple, Dict
+from collections import defaultdict
+from typing import Optional, Sequence, Tuple
 
 import gymnasium as gym
 import numpy as np
 import torch
-import torch.nn.functional as F
 from diffusers.optimization import get_scheduler
 from torch import nn
 from tqdm import trange
@@ -29,9 +29,13 @@ from robobase.reward_method.core import RewardMethod
 
 
 class WeightRewardModel(nn.Module):
+    MIN = -1.0
+    MAX = 1.0
+
     def __init__(
         self,
         reward_model: FullyConnectedModule,
+        num_reward_models: int = 1,
         num_reward_terms: int = 1,
         reward_lows: Optional[np.ndarray] = None,
         reward_highs: Optional[np.ndarray] = None,
@@ -39,7 +43,7 @@ class WeightRewardModel(nn.Module):
     ):
         super().__init__()
         self.ws = nn.ModuleList(
-            [deepcopy(reward_model) for _ in range(num_reward_terms)]
+            [deepcopy(reward_model) for _ in range(num_reward_models)]
         )
         self.apply(utils.weight_init)
         if reward_lows is None:
@@ -50,8 +54,10 @@ class WeightRewardModel(nn.Module):
         self.reward_lows = reward_lows
         self.reward_highs = reward_highs
         self.reg_weight = reg_weight
+        self.label_margin = 0.0
+        self.label_target = 1.0 - 2 * self.label_margin
 
-    def forward(self, low_dim_obs, fused_view_feats, action, time_obs):
+    def forward(self, low_dim_obs, fused_view_feats, action, time_obs, member: int = 0):
         net_ins = {"action": action.view(action.shape[0], -1)}
         if low_dim_obs is not None:
             net_ins["low_dim_obs"] = low_dim_obs
@@ -60,21 +66,27 @@ class WeightRewardModel(nn.Module):
         if time_obs is not None:
             net_ins["time_obs"] = time_obs
 
-        weights = torch.cat(
-            [weight_model(net_ins) for weight_model in self.ws],
-            -1,
-        )
-        return torch.clamp(weights, self.reward_lows, self.reward_highs)
+        weights = self.ws[member](net_ins)
+        weights = torch.tanh(weights)
+        return weights
+
+    def transform_to_tanh(self, weights):
+        orig_min, orig_max = self.reward_lows, self.reward_highs
+        scale = (orig_max - orig_min) / (self.MAX - self.MIN)
+        new_weights = orig_min + scale * (weights - self.MIN)
+        return new_weights.astype(weights.dtype, copy=False)
 
     def reset(self, env_index: int):
-        self.reward_model.reset(env_index)
+        for w in self.ws:
+            w.reset(env_index)
 
     def set_eval_env_running(self, value: bool):
-        self.reward_model.eval_env_running = value
+        for w in self.ws:
+            w.eval_env_running = value
 
     def calculate_loss(
         self,
-        input_feats: Tuple[torch.Tensor, torch.Tensor],
+        logits: Tuple[torch.Tensor, torch.Tensor],
         labels: torch.Tensor,
         r_hat_weights: torch.Tensor,
     ) -> Optional[dict]:
@@ -82,33 +94,36 @@ class WeightRewardModel(nn.Module):
         Calculate the loss for the WeightRewardModel model.
 
         Args:
-            input_feats (Tuple[torch.Tensor, torch.Tensor, List[torch.Tensor]]):
-                    Tuple containing action predictions, padding predictions,
-                    and a list of latent variables [mu, logvar].
+            logits (Tuple[torch.Tensor, torch.Tensor]): Tuple of two tensors, each of shape (bs, seq).
             labels (torch.Tensor): Tensor containing ground truth preference labels.
-            is_pad (torch.Tensor): Tensor indicating padding positions.
+            r_hat_weights (torch.Tensor): Tensor containing the weights of the reward terms.
 
         Returns:
-            Optional[Tuple[torch.Tensor, dict]]:
-                    Tuple containing the loss tensor and a dictionary of loss
-                    components.
+            Optional[dict]: Dictionary containing training metrics.
         """
-        logits = torch.stack(input_feats, dim=-1)
+        logits = torch.stack(logits, dim=-1)
         r_hat_weights = torch.stack(r_hat_weights, dim=-1)
 
         loss_dict = {"loss": 0.0}
         reward_loss = 0.0
         for idx, (logit, label) in enumerate(zip(logits.unbind(1), labels.unbind(1))):
-            label_stack = torch.stack([1 - label, label], dim=-1)
-            reward_loss += F.cross_entropy(logit, label_stack)
-            loss_dict[f"pref_acc_label_{idx}"] = utils.pref_accuracy(
-                logit, torch.argmax(label_stack, dim=-1)
+            # reward_loss = F.cross_entropy(logit, label)
+            uniform_index = labels == -1
+            labels[uniform_index] = 0
+            target_onehot = torch.zeros_like(logit).scatter(
+                1, labels, self.label_target
             )
+            target_onehot += self.label_margin
+            if sum(uniform_index) > 0:
+                target_onehot[uniform_index] = 0.5
+            reward_loss += utils.softXEnt_loss(logit, target_onehot)
+
+            loss_dict[f"pref_acc_label_{idx}"] = utils.pref_accuracy(logit, label)
             loss_dict[f"pref_loss_{idx}"] = reward_loss
             loss_dict["loss"] += reward_loss
 
         logit_reg_loss = torch.mean(torch.square(r_hat_weights))  # L2 regularization
-        loss_dict[f"logit_reg_loss_{idx}"] = logit_reg_loss.item()
+        loss_dict["logit_reg_loss"] = logit_reg_loss.item()
         loss_dict["loss"] += self.reg_weight * logit_reg_loss
         return loss_dict
 
@@ -127,6 +142,7 @@ class WeightTunerReward(RewardMethod):
         weight_decay: float = 1e-4,
         use_lang_cond: bool = False,
         num_label: int = 1,
+        num_reward_models: int = 1,
         seq_len: int = 50,
         compute_batch_size: int = 32,
         use_augmentation: bool = False,
@@ -135,10 +151,10 @@ class WeightTunerReward(RewardMethod):
         **kwargs,
     ):
         """
-        Preference Transformer Reward Model Agent.
+        Weight Tuner Reward Model Agent.
 
         Args:
-            lr (float): Learning rate for the policy.
+            lr (float): Learning rate for the reward model.
             lr_backbone (float): Learning rate for the backbone.
             weight_decay (float): Weight decay for optimization.
         """
@@ -148,6 +164,7 @@ class WeightTunerReward(RewardMethod):
             self.reward_space = reward_space
         else:
             self.reward_space = gym.spaces.Dict(sorted(reward_space.items()))
+        self.num_reward_models = num_reward_models
         self.num_reward_terms = len(self.reward_space.spaces)
         self.reward_lows = torch.from_numpy(
             np.stack([space.low for space in self.reward_space.spaces.values()])
@@ -156,7 +173,6 @@ class WeightTunerReward(RewardMethod):
             np.stack([space.high for space in self.reward_space.spaces.values()])
         ).to(self.device)
 
-        self._i = 0
         self.lr = lr
         self.lr_backbone = lr_backbone
         self.weight_decay = weight_decay
@@ -277,9 +293,12 @@ class WeightTunerReward(RewardMethod):
     def build_reward_model(self):
         input_shapes = self.get_fully_connected_inputs()
         input_shapes["actions"] = (np.prod(self.action_space.shape),)
-        reward_model = self.reward_model(input_shapes=input_shapes)
+        reward_model = self.reward_model(
+            input_shapes=input_shapes, output_shape=self.num_reward_terms
+        )
         self.reward = WeightRewardModel(
             reward_model=reward_model,
+            num_reward_models=self.num_reward_models,
             num_reward_terms=self.num_reward_terms,
             reward_lows=self.reward_lows,
             reward_highs=self.reward_highs,
@@ -315,8 +334,8 @@ class WeightTunerReward(RewardMethod):
     def compute_reward(
         self,
         seq: Sequence,
-        _obs_signature: Dict[str, gym.Space] = None,
-        activate_reward_model: bool = False,
+        member: int = -1,
+        return_reward: bool = False,
     ) -> torch.Tensor:
         """
         Compute the reward from sequences.
@@ -331,7 +350,7 @@ class WeightTunerReward(RewardMethod):
 
         """
 
-        if not activate_reward_model:
+        if not self.activated:
             return seq
 
         start_idx = 0
@@ -339,8 +358,8 @@ class WeightTunerReward(RewardMethod):
 
         if isinstance(seq, list):
             # seq: list of (action, obs, reward, term, trunc, info, next_info)
-            actions = torch.from_numpy(np.stack([elem[0] for elem in seq])).to(
-                self.device
+            actions = utils.convert_numpy_to_torch(
+                np.stack([elem[0] for elem in seq]), self.device
             )
             if seq[0][1]["low_dim_state"].ndim > 1:
                 list_of_obs_dicts = [
@@ -353,7 +372,9 @@ class WeightTunerReward(RewardMethod):
             for obs_dict in list_of_obs_dicts:
                 for key, val in obs_dict.items():
                     obs[key].append(val)
-            obs = {key: torch.from_numpy(np.stack(val)) for key, val in obs.items()}
+            obs = utils.convert_numpy_to_torch(
+                {key: np.stack(val) for key, val in obs.items()}, self.device
+            )
             # obs: (T, elem_shape) for elem in obs
             # actions: (T, action_shape)
 
@@ -367,31 +388,30 @@ class WeightTunerReward(RewardMethod):
                     for key in reward_terms:
                         reward_terms[key].append(info_dict[key])
             reward_terms = {
-                key: torch.from_numpy(np.stack(val))
+                key: utils.convert_numpy_to_torch(np.stack(val), self.device)
                 for key, val in reward_terms.items()
             }
             # reward_terms: (T, num_reward_terms)
         elif isinstance(seq, dict):
-            assert _obs_signature is not None, "Need obs_signature for dict input."
-            # print("action length", len(seq["action"]))
             T = len(seq["action"]) - start_idx
-            actions = torch.from_numpy(seq["action"]).to(self.device)
+            actions = utils.convert_numpy_to_torch(seq["action"], self.device)
             if actions.ndim > 2:
                 actions = actions[..., -1, :]
             if seq["low_dim_state"].ndim > 2:
                 obs = {
-                    key: torch.from_numpy(val[start_idx:, -1])
+                    key: utils.convert_numpy_to_torch(val[start_idx:, -1], self.device)
                     for key, val in seq.items()
-                    if key in _obs_signature
+                    if key in self.observation_space.spaces
                 }
             else:
                 obs = {
-                    key: torch.from_numpy(val[start_idx:])
+                    key: utils.convert_numpy_to_torch(val[start_idx:], self.device)
                     for key, val in seq.items()
-                    if key in _obs_signature
+                    if key in self.observation_space.spaces
                 }
             reward_terms = {
-                key: torch.from_numpy(seq[key]) for key in self.reward_space.keys()
+                key: utils.convert_numpy_to_torch(seq[key], self.device)
+                for key in self.reward_space.keys()
             }
 
         if self.use_pixels:
@@ -428,21 +448,51 @@ class WeightTunerReward(RewardMethod):
         ):
             _range = list(range(i, min(i + self.compute_batch_size, T)))
             with torch.no_grad():
-                _reward_weights = self.reward(
-                    qpos[_range] if qpos is not None else None,
-                    fused_rgb_feats[_range] if fused_rgb_feats is not None else None,
-                    actions[_range],
-                    time_obs[_range] if time_obs is not None else None,
-                )
-                _reward = (_reward_weights * reward_terms[_range]).sum(
-                    dim=-1, keepdim=True
-                )
-            rewards.append(_reward)
-        rewards = torch.cat(rewards, dim=0)
-
+                if member == -1:
+                    _weighted_rewards = []
+                    for mem in range(self.num_reward_models):
+                        _reward_weights = self.reward(
+                            qpos[_range] if qpos is not None else None,
+                            fused_rgb_feats[_range]
+                            if fused_rgb_feats is not None
+                            else None,
+                            actions[_range],
+                            time_obs[_range] if time_obs is not None else None,
+                            member=mem,
+                        )
+                        scaled_reward_weights = self.reward.transform_to_tanh(
+                            _reward_weights
+                        )
+                        weighted_reward = (
+                            scaled_reward_weights * reward_terms[_range]
+                        ).sum(dim=-1, keepdim=True)
+                        _weighted_rewards.append(weighted_reward)
+                    weighted_reward = torch.cat(_weighted_rewards, dim=1).mean(dim=1)
+                    rewards.append(weighted_reward)
+                else:
+                    _reward_weights = self.reward(
+                        qpos[_range] if qpos is not None else None,
+                        fused_rgb_feats[_range]
+                        if fused_rgb_feats is not None
+                        else None,
+                        actions[_range],
+                        time_obs[_range] if time_obs is not None else None,
+                        member=member,
+                    )
+                    _scaled_reward_weights = self.reward.transform_to_tanh(
+                        _reward_weights
+                    )
+                    _reward = (_scaled_reward_weights * reward_terms[_range]).sum(
+                        dim=-1
+                    )
+                    rewards.append(_reward)
+        total_rewards = torch.cat(rewards, dim=0)
         assert len(rewards) == T, f"Expected {T} rewards, got {len(rewards)}"
 
-        total_rewards = rewards.mean(dim=1).cpu().numpy()
+        if return_reward:
+            return total_rewards
+
+        total_rewards = total_rewards.cpu().numpy()
         if isinstance(seq, list):
             for idx in range(len(seq)):
                 seq[idx][2] = total_rewards[idx]
@@ -470,54 +520,64 @@ class WeightTunerReward(RewardMethod):
         """
 
         metrics = dict()
-        batch = next(replay_iter)
-        # elem = {key: val.shape for key, val in batch.items()}
-        # print(elem)
-        batch = {k: v.to(self.device) for k, v in batch.items()}
+        loss_dict = defaultdict(float)
+        for member in range(self.num_reward_models):
+            batch = next(replay_iter)
+            batch = {k: v.to(self.device) for k, v in batch.items()}
 
-        # actions = batch["action"]
-        # reward = batch["reward"]
+            r_hats = []
+            r_hat_weights = []
+            for i in range(2):
+                actions = batch[f"seg{i}_action"]
+                if self.low_dim_size > 0:
+                    # (bs, seq, low_dim)
+                    qpos = extract_from_batch(batch, f"seg{i}_low_dim_state").detach()
 
-        r_hats = []
-        r_hat_weights = []
-        fused_rgb_feats = None
-        for i in range(2):
-            actions = batch[f"seg{i}_action"]
-            if self.low_dim_size > 0:
-                # (bs, seq, low_dim)
-                qpos = extract_from_batch(batch, f"seg{i}_low_dim_state").detach()
+                if self.use_pixels:
+                    # (bs, seq, v, ch, h, w)
+                    rgb = stack_tensor_dictionary(
+                        extract_many_from_batch(batch, rf"seg{i}_rgb(?!.*?tp1)"), 2
+                    )
+                    fused_rgb_feats = self.encode_rgb_feats(rgb, train=True)
+                else:
+                    fused_rgb_feats = None
 
-            if self.use_pixels:
-                # (bs, seq, v, ch, h, w)
-                rgb = stack_tensor_dictionary(
-                    extract_many_from_batch(batch, rf"seg{i}_rgb(?!.*?tp1)"), 2
+                time_obs = extract_from_batch(batch, "time", missing_ok=True)
+
+                # extract reward terms: (bs, seq, num_reward_terms)
+                reward_terms = stack_tensor_dictionary(
+                    {key: batch[f"seg{i}_{key}"] for key in self.reward_space.keys()},
+                    dim=-1,
                 )
-                fused_rgb_feats = self.encode_rgb_feats(rgb, train=True)
+                # r_hat_weight: (bs * seq, num_reward_terms) -> (bs, seq, num_reward_terms)
+                r_hat_weight = self.reward(
+                    qpos.reshape(-1, *qpos.shape[2:]),
+                    fused_rgb_feats.reshape(-1, *fused_rgb_feats.shape[2:])
+                    if fused_rgb_feats is not None
+                    else None,
+                    actions.reshape(-1, *actions.shape[2:]),
+                    time_obs.reshape(-1, *time_obs.shape[2:])
+                    if time_obs is not None
+                    else None,
+                ).view(*actions.shape[:-2], -1, reward_terms.shape[-1])
+                # r_hat: (bs, seq, num_reward_terms) -> (bs, seq, 1) -> (bs, 1)
+                scaled_r_hat_weight = self.reward.transform_to_tanh(r_hat_weight)
+                r_hat = (
+                    (scaled_r_hat_weight * reward_terms)
+                    .sum(dim=-1, keepdim=True)
+                    .sum(dim=-2)
+                )
+                r_hats.append(r_hat)
+                r_hat_weights.append(r_hat_weight)
 
-            time_obs = extract_from_batch(batch, "time", missing_ok=True)
-
-            # extract reward terms: (bs, seq, num_reward_terms)
-            reward_terms = stack_tensor_dictionary(
-                {key: batch[f"seg{i}_{key}"] for key in self.reward_space.keys()},
-                dim=-1,
+            _loss_dict = self.reward.calculate_loss(
+                r_hats, batch["label"], r_hat_weights
             )
-            # r_hat_weight: (bs * seq, num_reward_terms) -> (bs, seq, num_reward_terms)
-            r_hat_weight = self.reward(
-                qpos.reshape(-1, *qpos.shape[2:]),
-                fused_rgb_feats.reshape(-1, *fused_rgb_feats.shape[2:])
-                if fused_rgb_feats is not None
-                else None,
-                actions.reshape(-1, *actions.shape[2:]),
-                time_obs.reshape(-1, *time_obs.shape[2:])
-                if time_obs is not None
-                else None,
-            ).view(*actions.shape[:-2], -1, reward_terms.shape[-1])
-            # r_hat: (bs, seq, num_reward_terms) -> (bs, seq, 1) -> (bs, 1)
-            r_hat = (r_hat_weight * reward_terms).sum(dim=-1, keepdim=True).mean(dim=-2)
-            r_hats.append(r_hat)
-            r_hat_weights.append(r_hat_weight)
+            for k, v in _loss_dict.items():
+                loss_dict[k] += v
 
-        loss_dict = self.reward.calculate_loss(r_hats, batch["label"], r_hat_weights)
+        for i in range(self.num_label):
+            loss_dict[f"pref_acc_label_{i}"] /= self.num_reward_models
 
         # calculate gradient
         if self.use_pixels and self.encoder_opt is not None:
@@ -551,7 +611,6 @@ class WeightTunerReward(RewardMethod):
                     f"pref_acc_label_{label}"
                 ].item()
 
-        self._i += 1
         return metrics
 
     def reset(self, step: int, agents_to_reset: list[int]):

@@ -1,5 +1,6 @@
 import logging
-from typing import Optional, Sequence, Dict
+from collections import defaultdict
+from typing import Optional, Sequence
 
 import gymnasium as gym
 import numpy as np
@@ -8,6 +9,7 @@ from diffusers.optimization import get_scheduler
 from tqdm import trange
 from typing_extensions import override
 
+from robobase import utils
 from robobase.method.utils import (
     TimeConsistentRandomShiftsAug,
     extract_from_batch,
@@ -20,8 +22,8 @@ from robobase.models.encoder import EncoderModule
 from robobase.models.fusion import FusionModule
 from robobase.replay_buffer.replay_buffer import ReplayBuffer
 from robobase.reward_method.core import RewardMethod
-from robobase.reward_method.weight_tuner import WeightRewardModel
 from robobase.reward_method.markovian import MarkovianRewardModel
+from robobase.reward_method.weight_tuner import WeightRewardModel
 
 
 class HybridReward(RewardMethod):
@@ -50,10 +52,10 @@ class HybridReward(RewardMethod):
         **kwargs,
     ):
         """
-        Preference Transformer Reward Model Agent.
+        Hybrid Reward Model Agent.
 
         Args:
-            lr (float): Learning rate for the policy.
+            lr (float): Learning rate for the reward model.
             lr_backbone (float): Learning rate for the backbone.
             weight_decay (float): Weight decay for optimization.
         """
@@ -61,14 +63,15 @@ class HybridReward(RewardMethod):
 
         self.reward_space = gym.spaces.Dict(sorted(reward_space.items()))
         self.num_reward_terms = len(self.reward_space.spaces)
-        self.reward_lows = torch.from_numpy(
-            np.stack([space.low for space in self.reward_space.spaces.values()])
-        ).to(self.device)
-        self.reward_highs = torch.from_numpy(
-            np.stack([space.high for space in self.reward_space.spaces.values()])
-        ).to(self.device)
+        self.reward_lows = utils.convert_numpy_to_torch(
+            np.stack([space.low for space in self.reward_space.spaces.values()]),
+            self.device,
+        )
+        self.reward_highs = utils.convert_numpy_to_torch(
+            np.stack([space.high for space in self.reward_space.spaces.values()]),
+            self.device,
+        )
 
-        self._i = 0
         self.lr = lr
         self.lr_backbone = lr_backbone
         self.weight_decay = weight_decay
@@ -162,6 +165,7 @@ class HybridReward(RewardMethod):
         reward_model = self.reward_model(input_shapes=input_shapes)
         self.weight_tuner = WeightRewardModel(
             reward_model=reward_model,
+            num_reward_models=self.num_reward_models,
             num_reward_terms=self.num_reward_terms,
             reward_lows=self.reward_lows,
             reward_highs=self.reward_highs,
@@ -219,8 +223,8 @@ class HybridReward(RewardMethod):
     def compute_reward(
         self,
         seq: Sequence,
-        _obs_signature: Dict[str, gym.Space] = None,
-        activate_reward_model: bool = True,
+        member: int = -1,
+        return_reward: bool = False,
     ) -> torch.Tensor:
         """
         Compute the reward from sequences.
@@ -235,7 +239,7 @@ class HybridReward(RewardMethod):
 
         """
 
-        if not activate_reward_model:
+        if not self.activated:
             return seq
 
         start_idx = 0
@@ -243,8 +247,8 @@ class HybridReward(RewardMethod):
 
         if isinstance(seq, list):
             # seq: list of (action, obs, reward, term, trunc, info, next_info)
-            actions = torch.from_numpy(np.stack([elem[0] for elem in seq])).to(
-                self.device
+            actions = utils.convert_numpy_to_torch(
+                np.stack([elem[0] for elem in seq]), self.device
             )
             if seq[0][1]["low_dim_state"].ndim > 1:
                 list_of_obs_dicts = [
@@ -257,7 +261,9 @@ class HybridReward(RewardMethod):
             for obs_dict in list_of_obs_dicts:
                 for key, val in obs_dict.items():
                     obs[key].append(val)
-            obs = {key: torch.from_numpy(np.stack(val)) for key, val in obs.items()}
+            obs = utils.convert_numpy_to_torch(
+                {key: np.stack(val) for key, val in obs.items()}, self.device
+            )
             # obs: (T, elem_shape) for elem in obs
             # actions: (T, action_shape)
 
@@ -267,31 +273,30 @@ class HybridReward(RewardMethod):
                 for key in reward_terms:
                     reward_terms[key].append(info_dict[key])
             reward_terms = {
-                key: torch.from_numpy(np.stack(val))
+                key: utils.convert_numpy_to_torch(np.stack(val), self.device)
                 for key, val in reward_terms.items()
             }
             # reward_terms: (T, num_reward_terms)
         elif isinstance(seq, dict):
-            assert _obs_signature is not None, "Need obs_signature for dict input."
-            # print("action length", len(seq["action"]))
             T = len(seq["action"]) - start_idx
-            actions = torch.from_numpy(seq["action"]).to(self.device)
+            actions = utils.convert_numpy_to_torch(seq["action"], self.device)
             if actions.ndim > 2:
                 actions = actions[..., -1, :]
             if seq["low_dim_state"].ndim > 2:
                 obs = {
-                    key: torch.from_numpy(val[start_idx:, -1])
+                    key: utils.convert_numpy_to_torch(val[start_idx:, -1], self.device)
                     for key, val in seq.items()
-                    if key in _obs_signature
+                    if key in self.observation_space.spaces
                 }
             else:
                 obs = {
-                    key: torch.from_numpy(val[start_idx:])
+                    key: utils.convert_numpy_to_torch(val[start_idx:], self.device)
                     for key, val in seq.items()
-                    if key in _obs_signature
+                    if key in self.observation_space.spaces
                 }
             reward_terms = {
-                key: torch.from_numpy(seq[key]) for key in self.reward_space.keys()
+                key: utils.convert_numpy_to_torch(seq[key], self.device)
+                for key in self.reward_space.keys()
             }
 
         if self.use_pixels:
@@ -329,25 +334,74 @@ class HybridReward(RewardMethod):
         ):
             _range = list(range(i, min(i + self.compute_batch_size, T)))
             with torch.no_grad():
-                _reward_weights = self.weight_tuner(
-                    qpos[_range] if qpos is not None else None,
-                    fused_rgb_feats[_range] if fused_rgb_feats is not None else None,
-                    actions[_range],
-                    time_obs[_range] if time_obs is not None else None,
-                )
-                weighted_reward = (_reward_weights * reward_terms[_range]).sum(
-                    dim=-1, keepdim=True
-                )
+                if member == -1:
+                    _weighted_rewards = []
+                    _computed_rewards = []
+                    for mem in range(self.num_reward_models):
+                        _reward_weights = self.weight_tuner(
+                            self.weight_tuner(
+                                qpos[_range] if qpos is not None else None,
+                                fused_rgb_feats[_range]
+                                if fused_rgb_feats is not None
+                                else None,
+                                actions[_range],
+                                time_obs[_range] if time_obs is not None else None,
+                                member=mem,
+                            )
+                        )
+                        _scaled_reward_weights = self.weight_tuner.transform_to_tanh(
+                            _reward_weights
+                        )
+                        _weighted_reward = (
+                            _scaled_reward_weights * reward_terms[_range]
+                        ).sum(dim=-1, keepdim=True)
+                        _computed_reward = self.markovian(
+                            self.markovian(
+                                qpos[_range] if qpos is not None else None,
+                                fused_rgb_feats[_range]
+                                if fused_rgb_feats is not None
+                                else None,
+                                actions[_range],
+                                time_obs[_range] if time_obs is not None else None,
+                                member=mem,
+                            )
+                        )
+                        _weighted_rewards.append(_weighted_reward)
+                        _computed_rewards.append(_computed_reward)
 
-                _reward = self.markovian(
-                    qpos[_range] if qpos is not None else None,
-                    fused_rgb_feats[_range] if fused_rgb_feats is not None else None,
-                    actions[_range],
-                    time_obs[_range] if time_obs is not None else None,
-                )
+                    weighted_reward = torch.cat(_weighted_rewards, dim=1).mean(dim=1)
+                    computed_reward = torch.cat(_computed_rewards, dim=1).mean(dim=1)
+                else:
+                    _reward_weights = self.weight_tuner(
+                        qpos[_range] if qpos is not None else None,
+                        fused_rgb_feats[_range]
+                        if fused_rgb_feats is not None
+                        else None,
+                        actions[_range],
+                        time_obs[_range] if time_obs is not None else None,
+                        member=member,
+                    )
+                    _computed_reward = self.markovian(
+                        qpos[_range] if qpos is not None else None,
+                        fused_rgb_feats[_range]
+                        if fused_rgb_feats is not None
+                        else None,
+                        actions[_range],
+                        time_obs[_range] if time_obs is not None else None,
+                        member=member,
+                    )
 
-            weighted_rewards.append(weighted_reward)
-            computed_rewards.append(_reward)
+                    scaled_reward_weights = self.weight_tuner.transform_to_tanh(
+                        _reward_weights
+                    )
+                    weighted_reward = (
+                        scaled_reward_weights * reward_terms[_range]
+                    ).sum(dim=-1, keepdim=True)
+                    computed_reward = _computed_reward
+
+                computed_rewards.append(computed_reward)
+                weighted_rewards.append(weighted_reward)
+
         weighted_rewards = torch.cat(weighted_rewards, dim=0)
         computed_rewards = torch.cat(computed_rewards, dim=0)
 
@@ -388,67 +442,81 @@ class HybridReward(RewardMethod):
         """
 
         metrics = dict()
-        batch = next(replay_iter)
-        batch = {k: v.to(self.device) for k, v in batch.items()}
+        weighted_loss_dict = defaultdict(float)
+        computed_loss_dict = defaultdict(float)
+        for mem in range(self.num_reward_models):
+            batch = next(replay_iter)
+            batch = {k: v.to(self.device) for k, v in batch.items()}
+            r_hats_weighted = []
+            r_hat_weights = []
+            r_hats_computed = []
+            for i in range(2):
+                actions = batch[f"seg{i}_action"]
+                if self.low_dim_size > 0:
+                    # (bs, seq, low_dim)
+                    qpos = extract_from_batch(batch, f"seg{i}_low_dim_state").detach()
 
-        r_hats_weighted = []
-        r_hat_weights = []
-        r_hats_computed = []
-        fused_rgb_feats = None
-        for i in range(2):
-            actions = batch[f"seg{i}_action"]
-            if self.low_dim_size > 0:
-                # (bs, seq, low_dim)
-                qpos = extract_from_batch(batch, f"seg{i}_low_dim_state").detach()
+                if self.use_pixels:
+                    # (bs, seq, v, ch, h, w)
+                    rgb = stack_tensor_dictionary(
+                        extract_many_from_batch(batch, rf"seg{i}_rgb(?!.*?tp1)"), 2
+                    )
+                    fused_rgb_feats = self.encode_rgb_feats(rgb, train=True)
+                else:
+                    fused_rgb_feats = None
 
-            if self.use_pixels:
-                # (bs, seq, v, ch, h, w)
-                rgb = stack_tensor_dictionary(
-                    extract_many_from_batch(batch, rf"seg{i}_rgb(?!.*?tp1)"), 2
+                time_obs = extract_from_batch(batch, "time", missing_ok=True)
+
+                # Compute weighted reward
+                # extract reward terms: (bs, seq, num_reward_terms)
+                reward_terms = stack_tensor_dictionary(
+                    {key: batch[f"seg{i}_{key}"] for key in self.reward_space.keys()},
+                    dim=-1,
                 )
-                fused_rgb_feats = self.encode_rgb_feats(rgb, train=True)
+                # r_hat_weight: (bs * seq, num_reward_terms) -> (bs, seq, num_reward_terms)
+                args = (
+                    qpos.reshape(-1, *qpos.shape[2:]),
+                    fused_rgb_feats.reshape(-1, *fused_rgb_feats.shape[2:])
+                    if fused_rgb_feats is not None
+                    else None,
+                    actions.reshape(-1, *actions.shape[2:]),
+                    time_obs.reshape(-1, *time_obs.shape[2:])
+                    if time_obs is not None
+                    else None,
+                )
+                r_hat_weight = self.weight_tuner(*args, member=mem).view(
+                    *actions.shape[:-2], -1, reward_terms.shape[-1]
+                )
+                # r_hat: (bs, seq, num_reward_terms) -> (bs, seq, 1) -> (bs, 1)
+                r_hat = (
+                    (r_hat_weight * reward_terms).sum(dim=-1, keepdim=True).sum(dim=-2)
+                )
+                r_hats_weighted.append(r_hat)
+                r_hat_weights.append(r_hat_weight)
 
-            time_obs = extract_from_batch(batch, "time", missing_ok=True)
+                # Compute computed reward
+                r_hat_computed = self.markovian(*args, member=mem)
+                # r_hat_computed: (bs, seq, 1) -> (bs, 1)
+                r_hat_computed = r_hat_computed.view(
+                    *actions.shape[:-2], -1, r_hat_computed.shape[-1]
+                ).sum(dim=-2)
+                r_hats_computed.append(r_hat_computed)
 
-            # Compute weighted reward
-            # extract reward terms: (bs, seq, num_reward_terms)
-            reward_terms = stack_tensor_dictionary(
-                {key: batch[f"seg{i}_{key}"] for key in self.reward_space.keys()},
-                dim=-1,
+            _weighted_loss_dict = self.weight_tuner.calculate_loss(
+                r_hats_weighted, batch["label"], r_hat_weights
             )
-            # r_hat_weight: (bs * seq, num_reward_terms) -> (bs, seq, num_reward_terms)
-            args = (
-                qpos.reshape(-1, *qpos.shape[2:]),
-                fused_rgb_feats.reshape(-1, *fused_rgb_feats.shape[2:])
-                if fused_rgb_feats is not None
-                else None,
-                actions.reshape(-1, *actions.shape[2:]),
-                time_obs.reshape(-1, *time_obs.shape[2:])
-                if time_obs is not None
-                else None,
-            )
-            r_hat_weight = self.weight_tuner(*args).view(
-                *actions.shape[:-2], -1, reward_terms.shape[-1]
-            )
-            # r_hat: (bs, seq, num_reward_terms) -> (bs, seq, 1) -> (bs, 1)
-            r_hat = (r_hat_weight * reward_terms).sum(dim=-1, keepdim=True).mean(dim=-2)
-            r_hats_weighted.append(r_hat)
-            r_hat_weights.append(r_hat_weight)
+            for k, v in _weighted_loss_dict.items():
+                weighted_loss_dict[k] += v
 
-            # Compute computed reward
-            r_hat_computed = self.markovian(*args)
-            # r_hat_computed: (bs, seq, 1) -> (bs, 1)
-            r_hat_computed = r_hat_computed.view(
-                *actions.shape[:-2], -1, r_hat_computed.shape[-1]
-            ).mean(dim=-2)
-            r_hats_computed.append(r_hat_computed)
+            _computed_loss_dict = self.markovian.calculate_loss(
+                r_hats_computed, batch["label"]
+            )
+            for k, v in _computed_loss_dict.items():
+                computed_loss_dict[k] += v
 
-        weighted_loss_dict = self.weight_tuner.calculate_loss(
-            r_hats_weighted, batch["label"], r_hat_weights
-        )
-        computed_loss_dict = self.markovian.calculate_loss(
-            r_hats_computed, batch["label"]
-        )
+        for i in range(self.num_label):
+            weighted_loss_dict[f"pref_acc_label_{i}"] /= self.num_reward_models
+            computed_loss_dict[f"pref_acc_label_{i}"] /= self.num_reward_models
 
         # calculate gradient
         if self.use_pixels and self.encoder_opt is not None:
@@ -493,7 +561,6 @@ class HybridReward(RewardMethod):
                     + metrics[f"computed_pref_acc_label_{label}"]
                 ) / 2
 
-        self._i += 1
         return metrics
 
     def reset(self, step: int, agents_to_reset: list[int]):

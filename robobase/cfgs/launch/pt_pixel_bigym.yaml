@@ -29,7 +29,7 @@ rlhf:
   use_rlhf: true
   comparison_type: sequential_pairwise
   feedback_type: human
-  query_type: timestep
+  query_type: random
   num_pretrain_steps: 1000
   snapshot_every_n: 100
 

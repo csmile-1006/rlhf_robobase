@@ -51,17 +51,16 @@ def relabel_with_predictor(reward_model, replay_buffer, is_initial: bool = False
         replay_buffer (ReplayBuffer): The replay buffer to relabel.
     """
     replay_dir = replay_buffer._replay_dir
-    _obs_signature = replay_buffer._obs_signature
     episodes = list(replay_dir.glob("*.npz"))
     logging.info(f"Relabelling {len(episodes)} episodes with reward model")
     for ep_fn in tqdm(
         episodes, desc="Relabelling episodes", leave=False, position=0, unit="episode"
     ):
         episode = load_episode(ep_fn)
-        new_episode = reward_model.compute_reward(
-            episode, _obs_signature=_obs_signature, activate_reward_model=True
-        )
+        new_episode = reward_model.compute_reward(episode)
         save_episode(new_episode, ep_fn)
+
+    replay_buffer._try_fetch()
 
 
 def _create_default_replay_buffer(
@@ -126,13 +125,13 @@ def _create_default_query_replay_buffer(
                 else cfg.rlhf_replay.num_queries // 2
             )
             if "pairwise" in cfg.rlhf.comparison_type
-            else cfg.rlhf_replay.num_queries
+            else cfg.rlhf_replay.num_queries * 5
         )
     else:
         batch_size = (
             cfg.rlhf_replay.num_queries + 1
             if "pairwise" in cfg.rlhf.comparison_type
-            else cfg.rlhf_replay.num_queries * 2
+            else cfg.rlhf_replay.num_queries * 10
         )
 
     return QueryReplayBuffer(
@@ -143,7 +142,7 @@ def _create_default_query_replay_buffer(
         action_dtype=action_space.dtype,
         observation_elements=observation_space,
         extra_replay_elements=extra_replay_elements,
-        num_workers=cfg.replay.num_workers,
+        num_workers=0,
         sequential=True,
         transition_seq_len=cfg.rlhf_replay.seq_len,
         max_episode_number=cfg.rlhf_replay.max_episode_number if not use_demo else 0,
@@ -166,7 +165,7 @@ def _create_default_feedback_replay_buffer(
         action_dtype=action_space.dtype,
         observation_elements=observation_space,
         extra_replay_elements=extra_replay_elements,
-        num_workers=cfg.replay.num_workers,
+        num_workers=cfg.rlhf_replay.num_workers,
         sequential=False,
         transition_seq_len=cfg.rlhf_replay.seq_len,
         num_labels=cfg.rlhf_replay.num_labels,
@@ -342,11 +341,14 @@ class Workspace:
                 self.query_replay_buffer,
                 batch_size=self.query_replay_buffer.batch_size,
                 num_workers=0,
+                worker_init_fn=_worker_init_fn,
             )
             self.feedback_replay_loader = DataLoader(
                 self.feedback_replay_buffer,
                 batch_size=self.feedback_replay_buffer.batch_size,
-                num_workers=0,
+                num_workers=cfg.rlhf_replay.num_workers,
+                pin_memory=cfg.rlhf_replay.pin_memory,
+                worker_init_fn=_worker_init_fn,
             )
             self._query_replay_iter, self._feedback_replay_iter = None, None
 
@@ -354,7 +356,7 @@ class Workspace:
             self._reward_pretrain_step = 0
             self._total_feedback = 0
 
-            self._comparison_fn = get_rlhf_iter_fn(cfg, env_factory)
+            self._rlhf_iter_fn = get_rlhf_iter_fn(cfg, env_factory, self.reward_model)
             self._query_fn = get_query_fn(cfg.rlhf.query_type)
 
             if cfg.rlhf.feedback_type == "gemini":
@@ -671,9 +673,7 @@ class Workspace:
 
                 # Re-labeling demonstrations with reward model
                 if self.use_rlhf:
-                    ep = self.reward_model.compute_reward(
-                        ep, activate_reward_model=self.activate_reward_model
-                    )
+                    ep = self.reward_model.compute_reward(ep)
 
                 # Re-labeling successful demonstrations as success, following CQN
                 relabeling_as_demo = (
@@ -800,7 +800,7 @@ class Workspace:
 
     def collect_feedback(self):
         query_batch = self._query_fn(next(self.query_replay_iter))
-        feedbacks, metadata = self._comparison_fn(segments=query_batch)
+        feedbacks, metadata = self._rlhf_iter_fn(segments=query_batch)
         if metadata:
             for feedback, metadatum in zip(feedbacks, metadata):
                 self.feedback_replay_buffer.add_feedback(
@@ -823,13 +823,19 @@ class Workspace:
             start_time = time.time()
         metrics = {}
         self.reward_model.train(True)
-        metrics.update(
-            self.reward_model.update(
-                self.feedback_replay_iter,
-                self.main_loop_iterations,
-                self.feedback_replay_buffer,
-            )
+        feedback_one_epoch = utils.Until(
+            max(self.total_feedback / self.cfg.rlhf_replay.feedback_batch_size, 1)
         )
+        it = 0
+        while feedback_one_epoch(it):
+            metrics.update(
+                self.reward_model.update(
+                    self.feedback_replay_iter,
+                    self.main_loop_iterations,
+                    self.feedback_replay_buffer,
+                )
+            )
+            it += 1
         self.reward_model.train(False)
         if self.reward_model.logging:
             execution_time_for_update = time.time() - start_time
@@ -1010,7 +1016,6 @@ class Workspace:
                     # if getattr(self.reward_model, "initialize_reward_model", None):
                     #     self.reward_model.initialize_reward_model()
                     # self.reward_model.build_reward_model()
-                    self.activate_reward_model = True
                     self.reward_model.logging = True
                     logging.info(
                         f"[Feedback {self.total_feedback} / {self.cfg.rlhf.max_feedback}] Collecting feedback for {self.cfg.rlhf_replay.num_queries} queries"  # noqa
@@ -1027,7 +1032,7 @@ class Workspace:
                         reward_update_metrics.update(
                             {
                                 "total_time": total_time,
-                                "iteration": self.main_loop_iterations,
+                                "iteration": self.main_loop_iterations + it,
                                 "buffer_size": len(self.feedback_replay_buffer),
                             }
                         )
@@ -1043,8 +1048,10 @@ class Workspace:
                             self.reward_model, self.demo_replay_buffer
                         )
                     metrics = {}
+                    self.reward_model.set_activated(True)
+
                 if (
-                    self.total_feedback < self.cfg.rlhf.max_feedback
+                    self.total_feedback <= self.cfg.rlhf.max_feedback
                     and should_save_reward_model_snapshot(self.main_loop_iterations)
                 ):
                     self.save_reward_model_snapshot()

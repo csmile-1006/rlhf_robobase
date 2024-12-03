@@ -65,7 +65,7 @@ def postprocess_gemini_response(response):
         return postprocessed_text
     except Exception as e:
         print(f"Error in postprocessing: {e}")
-        return 0.5
+        return -1
 
 
 def get_gemini_video_ids(segments, idx, target_viewpoints):

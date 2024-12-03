@@ -7,7 +7,8 @@ from omegaconf import DictConfig
 from tqdm import tqdm, trange
 
 from robobase.envs.env import EnvFactory
-from robobase.rlhf_module.comparison import get_comparison_fn, SequentialComparisonFn
+from robobase.reward_method.core import RewardMethod
+from robobase.rlhf_module.comparison import get_comparison_fn
 from robobase.rlhf_module.feedback import get_feedback_fn
 from robobase.rlhf_module.prompt import get_zeroshot_video_evaluation_prompt
 from robobase.rlhf_module.third_party.gemini import (
@@ -22,14 +23,11 @@ General function to collect preferences (LLM vs non-LLM)
 
 
 def collect_basic_preferences(
-    segments: Sequence, comparison_fn: object, feedback_fn: Callable
+    segments: Sequence, num_queries: int, comparison_fn: object, feedback_fn: Callable
 ):
-    n_queries = len(segments["action"])
-    if isinstance(comparison_fn, SequentialComparisonFn):
-        assert n_queries % 2 == 0, "The number of queries must be even."
-        tot_queries = range(n_queries // 2)
-    tot_queries = range(1, n_queries)
+    tot_queries = range(num_queries)
     logging.info("START!")
+    comparison_fn.initialize(segments)
 
     feedbacks = []
     for i in tot_queries:
@@ -54,6 +52,7 @@ def collect_basic_preferences(
 
 def collect_gemini_preferences(
     segments: Sequence,
+    num_queries: int,
     comparison_fn: object,
     feedback_fn: Callable,
     gemini_model_config: DictConfig,
@@ -62,12 +61,9 @@ def collect_gemini_preferences(
     subtasks: str,
 ):
     target_viewpoints = gemini_model_config.target_viewpoints
-    n_queries = len(segments["action"])
-    if isinstance(comparison_fn, SequentialComparisonFn):
-        assert n_queries % 2 == 0, "The number of queries must be even."
-        tot_queries = range(n_queries // 2)
-    tot_queries = range(1, n_queries)
+    tot_queries = range(num_queries)
     logging.info("START!")
+    comparison_fn.initialize(segments)
     # 1. Identify subtasks for each video.
 
     @retry_on_error(
@@ -86,7 +82,9 @@ def collect_gemini_preferences(
         return gemini_model.generate_content(quest).text
 
     identified_subtasks = {}
-    for idx in trange(n_queries, desc="Identifying subtasks", position=0, leave=False):
+    for idx in trange(
+        num_queries, desc="Identifying subtasks", position=0, leave=False
+    ):
         # Ensure we don't exceed 2 requests per second to Gemini
         identified_subtasks[idx] = identify_subtasks(idx)
 
@@ -122,8 +120,10 @@ def collect_gemini_preferences(
     return feedbacks, total_metadata
 
 
-def get_rlhf_iter_fn(cfg: DictConfig, env_factory: EnvFactory):
-    comparison_fn = get_comparison_fn(cfg.rlhf.comparison_type)
+def get_rlhf_iter_fn(
+    cfg: DictConfig, env_factory: EnvFactory, reward_model: RewardMethod
+):
+    comparison_fn = get_comparison_fn(cfg.rlhf.comparison_type, reward_model)
     feedback_fn = get_feedback_fn(cfg.rlhf.feedback_type)
 
     match cfg.rlhf.feedback_type:
@@ -135,6 +135,7 @@ def get_rlhf_iter_fn(cfg: DictConfig, env_factory: EnvFactory):
             subtasks = env_factory.get_subtask_list(cfg)
             return partial(
                 collect_gemini_preferences,
+                num_queries=cfg.rlhf_replay.num_queries,
                 comparison_fn=comparison_fn,
                 feedback_fn=feedback_fn,
                 gemini_model_config=gemini_model_config,
@@ -145,6 +146,7 @@ def get_rlhf_iter_fn(cfg: DictConfig, env_factory: EnvFactory):
         case "human" | "random" | "script":
             return partial(
                 collect_basic_preferences,
+                num_queries=cfg.rlhf_replay.num_queries,
                 comparison_fn=comparison_fn,
                 feedback_fn=feedback_fn,
             )

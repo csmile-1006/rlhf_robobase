@@ -4,26 +4,14 @@ from robobase.replay_buffer.uniform_replay_buffer import INDICES
 
 
 def get_query_fn(query_type):
-    if query_type == "entropy":
-        return collect_entropy_query
-    elif query_type == "disagreement":
-        return collect_disagreement_query
-    elif query_type == "random":
+    if query_type == "random":
         return collect_random_query
     elif query_type == "timestep":
         return collect_timestep_query
     else:
         raise ValueError(
-            "Invalid query type. Please choose between 'entropy' or 'disagreement' or 'random'."
+            "Invalid query type. Please choose between 'random' or 'timestep'."
         )
-
-
-def collect_entropy_query(batches):
-    raise NotImplementedError("Entropy query is not implemented yet.")
-
-
-def collect_disagreement_query(batches):
-    raise NotImplementedError("Entropy query is not implemented yet.")
 
 
 def collect_random_query(batches):
