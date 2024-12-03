@@ -568,7 +568,7 @@ class WeightTunerReward(RewardMethod):
                     .sum(dim=-2)
                 )
                 r_hats.append(r_hat)
-                r_hat_weights.append(r_hat_weight)
+                r_hat_weights.append(scaled_r_hat_weight)
 
             _loss_dict = self.reward.calculate_loss(
                 r_hats, batch["label"], r_hat_weights
