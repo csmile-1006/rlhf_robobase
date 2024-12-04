@@ -10,11 +10,12 @@ reward_method:
   # TODO: add an environment wrapper for an extra observation with language embeddings
   # But this would be environment-specific
   use_lang_cond: False
-  num_label: 1
+  num_labels: 1
   num_reward_models: 3
-  compute_batch_size: ${batch_size}
+  compute_batch_size: 1024
   seq_len: ${rlhf_replay.seq_len}
-  use_augmentation: True
+  use_augmentation: true
+  initialize_before_training: false
   reg_weight: 0.0
 
   encoder_model:
@@ -36,8 +37,8 @@ reward_method:
     num_envs: 1
     num_rnn_layers: 1
     rnn_hidden_size: 128
-    keys_to_bottleneck: [fused_view_feats, low_dim_obs, time_obs]
+    keys_to_bottleneck: []
     bottleneck_size: 50
-    norm_after_bottleneck: true
-    tanh_after_bottleneck: true
+    norm_after_bottleneck: false
+    tanh_after_bottleneck: false
     mlp_nodes: [1024, 1024]

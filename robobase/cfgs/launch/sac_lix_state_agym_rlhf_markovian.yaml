@@ -27,7 +27,7 @@ rlhf:
   max_feedback: 1000
   update_every_steps: 12500
   num_pretrain_steps: 50000
-  num_train_frames: 1000
+  num_train_frames: 100
   snapshot_every_n: ${rlhf.update_every_steps}
   gemini:
     model_type: gemini-1.5-pro

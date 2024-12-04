@@ -82,16 +82,15 @@ def collect_gemini_preferences(
         return gemini_model.generate_content(quest).text
 
     identified_subtasks = {}
-    for idx in trange(
-        num_queries, desc="Identifying subtasks", position=0, leave=False
-    ):
-        # Ensure we don't exceed 2 requests per second to Gemini
-        identified_subtasks[idx] = identify_subtasks(idx)
-
     feedbacks = []
     total_metadata = []
+
     for i in tqdm(tot_queries, desc="Collecting preferences", position=0, leave=False):
         pair = comparison_fn(i)
+        for j in trange(
+            len(pair), desc="Identifying subtasks", position=1, leave=False
+        ):
+            identified_subtasks[pair[j]] = identify_subtasks(pair[j])
         label, metadata = feedback_fn(
             segments,
             pair,

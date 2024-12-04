@@ -121,7 +121,7 @@ class MarkovianReward(RewardMethod):
         lr_backbone: float = 1e-5,
         weight_decay: float = 1e-4,
         use_lang_cond: bool = False,
-        num_label: int = 1,
+        num_labels: int = 1,
         num_reward_models: int = 1,
         seq_len: int = 50,
         compute_batch_size: int = 32,
@@ -148,7 +148,7 @@ class MarkovianReward(RewardMethod):
 
         self.adaptive_lr = adaptive_lr
         self.num_train_steps = num_train_steps
-        self.num_label = num_label
+        self.num_labels = num_labels
         self.num_reward_models = num_reward_models
         self.seq_len = seq_len
         self.apply_final_layer_tanh = apply_final_layer_tanh
@@ -288,7 +288,6 @@ class MarkovianReward(RewardMethod):
             return seq
 
         start_idx = 0
-        T = len(seq) - start_idx
 
         if isinstance(seq, list):
             # seq: list of (action, obs, reward, term, trunc, info, next_info)
@@ -312,24 +311,26 @@ class MarkovianReward(RewardMethod):
             )
             # obs: (T, elem_shape) for elem in obs
             # actions: (T, action_shape)
+            if actions.ndim > 2 and actions.shape[-2] == 1:
+                actions = actions[..., -1, :]
 
         elif isinstance(seq, dict):
-            T = len(seq["action"]) - start_idx
             actions = utils.convert_numpy_to_torch(seq["action"], self.device)
-            if actions.ndim > 2:
+            obs = utils.convert_numpy_to_torch(
+                {
+                    key: val[start_idx:]
+                    for key, val in seq.items()
+                    if key in self.observation_space.spaces
+                },
+                self.device,
+            )
+            if actions.ndim > 2 and actions.shape[-2] == 1:
                 actions = actions[..., -1, :]
-            if seq["low_dim_state"].ndim > 2:
-                obs = {
-                    key: utils.convert_numpy_to_torch(val[start_idx:, -1], self.device)
-                    for key, val in seq.items()
-                    if key in self.observation_space.spaces
-                }
-            else:
-                obs = {
-                    key: utils.convert_numpy_to_torch(val[start_idx:], self.device)
-                    for key, val in seq.items()
-                    if key in self.observation_space.spaces
-                }
+            #     obs = {
+            #         key: utils.convert_numpy_to_torch(val[start_idx:, -1], self.device)
+            #         for key, val in seq.items()
+            #         if key in self.observation_space.spaces
+            #     }
 
         if self.use_pixels:
             rgbs = (
@@ -353,6 +354,19 @@ class MarkovianReward(RewardMethod):
             else None
         )
 
+        # change components to be (bs * seq, -1)
+        seq_len = None
+        if qpos is not None and qpos.ndim > 2:
+            qpos = qpos.reshape(-1, *qpos.shape[-1:])
+        if fused_rgb_feats is not None:
+            fused_rgb_feats = fused_rgb_feats.reshape(-1, *fused_rgb_feats.shape[-1:])
+        if time_obs is not None:
+            time_obs = time_obs.reshape(-1, *time_obs.shape[-1:])
+        if actions.ndim > 2:
+            seq_len = actions.shape[1]
+            actions = actions.reshape(-1, *actions.shape[-1:])
+
+        T = actions.shape[0] - start_idx
         rewards = []
         for i in trange(
             0,
@@ -387,12 +401,14 @@ class MarkovianReward(RewardMethod):
                         actions[_range],
                         time_obs[_range] if time_obs is not None else None,
                         member=member,
-                    )
+                    ).squeeze(-1)
                 rewards.append(_reward)
         total_rewards = torch.cat(rewards, dim=0)
         assert (
             len(total_rewards) == T
         ), f"Expected {T} rewards, got {len(total_rewards)}"
+        if seq_len is not None:
+            total_rewards = total_rewards.view(-1, seq_len)
 
         if return_reward:
             return total_rewards
@@ -469,7 +485,7 @@ class MarkovianReward(RewardMethod):
             for k, v in _loss_dict.items():
                 loss_dict[k] += v
 
-        for i in range(self.num_label):
+        for i in range(self.num_labels):
             loss_dict[f"pref_acc_label_{i}"] /= self.num_reward_models
 
         # calculate gradient
@@ -494,7 +510,7 @@ class MarkovianReward(RewardMethod):
 
         if self.logging:
             metrics["reward_loss"] = loss_dict["loss"].item()
-            for label in range(self.num_label):
+            for label in range(self.num_labels):
                 metrics[f"pref_acc_label_{label}"] = loss_dict[
                     f"pref_acc_label_{label}"
                 ].item()

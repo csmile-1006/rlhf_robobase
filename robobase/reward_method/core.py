@@ -19,6 +19,7 @@ class RewardMethod(nn.Module, ABC):
         observation_space: spaces.Dict,
         action_space: spaces.Box,
         device: torch.device,
+        initialize_before_training: bool = False,
     ):
         super().__init__()
         self.observation_space = observation_space
@@ -28,6 +29,7 @@ class RewardMethod(nn.Module, ABC):
         self._eval_env_running = False
         self.logging = False
         self._activated = False
+        self.initialize_before_training = initialize_before_training
 
     @abstractmethod
     def compute_reward(

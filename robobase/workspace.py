@@ -57,7 +57,7 @@ def relabel_with_predictor(reward_model, replay_buffer, is_initial: bool = False
         episodes, desc="Relabelling episodes", leave=False, position=0, unit="episode"
     ):
         episode = load_episode(ep_fn)
-        new_episode = reward_model.compute_reward(episode)
+        new_episode = reward_model.compute_reward(episode.copy())
         save_episode(new_episode, ep_fn)
 
     replay_buffer._try_fetch()
@@ -125,13 +125,13 @@ def _create_default_query_replay_buffer(
                 else cfg.rlhf_replay.num_queries // 2
             )
             if "pairwise" in cfg.rlhf.comparison_type
-            else cfg.rlhf_replay.num_queries * 5
+            else cfg.rlhf_replay.num_queries * 10
         )
     else:
         batch_size = (
             cfg.rlhf_replay.num_queries + 1
             if "pairwise" in cfg.rlhf.comparison_type
-            else cfg.rlhf_replay.num_queries * 10
+            else cfg.rlhf_replay.num_queries * 20
         )
 
     return QueryReplayBuffer(
@@ -142,7 +142,7 @@ def _create_default_query_replay_buffer(
         action_dtype=action_space.dtype,
         observation_elements=observation_space,
         extra_replay_elements=extra_replay_elements,
-        num_workers=0,
+        num_workers=1,
         sequential=True,
         transition_seq_len=cfg.rlhf_replay.seq_len,
         max_episode_number=cfg.rlhf_replay.max_episode_number if not use_demo else 0,
@@ -318,9 +318,6 @@ class Workspace:
                 reward_space=reward_space,
             )
             self.reward_model.train(False)
-            # Unactivate reward model at the beginning, until the first reward model update
-            self.activate_reward_model = False
-
             self.query_replay_buffer = _create_default_query_replay_buffer(
                 cfg,
                 observation_space,
@@ -340,7 +337,7 @@ class Workspace:
             self.query_replay_loader = DataLoader(
                 self.query_replay_buffer,
                 batch_size=self.query_replay_buffer.batch_size,
-                num_workers=0,
+                num_workers=1,
                 worker_init_fn=_worker_init_fn,
             )
             self.feedback_replay_loader = DataLoader(
@@ -1012,15 +1009,17 @@ class Workspace:
                     and not reward_until_frame(self.global_env_steps)
                     and not seed_until_size(len(self.query_replay_buffer))
                 ):
-                    # new exp: how about keeping this?
-                    # if getattr(self.reward_model, "initialize_reward_model", None):
-                    #     self.reward_model.initialize_reward_model()
-                    # self.reward_model.build_reward_model()
                     self.reward_model.logging = True
                     logging.info(
                         f"[Feedback {self.total_feedback} / {self.cfg.rlhf.max_feedback}] Collecting feedback for {self.cfg.rlhf_replay.num_queries} queries"  # noqa
                     )
                     self.collect_feedback()
+
+                    # reward model reset must be after feedback collection,
+                    # as reward model is used for disagreement-based query selection
+                    if self.reward_model.initialize_before_training:
+                        self.reward_model.build_reward_model()
+
                     for it in range(self.cfg.rlhf.num_train_frames):
                         reward_update_metrics = self._perform_reward_model_updates()
                         reward_update_metrics.update(
@@ -1042,13 +1041,16 @@ class Workspace:
                                 self.global_env_steps,
                                 prefix="train_reward",
                             )
+
+                    if not self.reward_model.activated:
+                        self.reward_model.set_activated(True)
+
                     relabel_with_predictor(self.reward_model, self.replay_buffer)
                     if self.use_demo_replay:
                         relabel_with_predictor(
                             self.reward_model, self.demo_replay_buffer
                         )
                     metrics = {}
-                    self.reward_model.set_activated(True)
 
                 if (
                     self.total_feedback <= self.cfg.rlhf.max_feedback
