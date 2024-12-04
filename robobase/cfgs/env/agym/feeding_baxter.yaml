@@ -8,5 +8,5 @@ defaults:
 env:
   task_name: FeedingBaxter-v0
   query_keys: [front]
-  initial_terms: [distance_mouth_target, food, food_velocities]
-  # initial_terms: [distance_mouth_target, action, velocity]
+  # initial_terms: [distance_mouth_target, food, food_velocities]
+  initial_terms: [distance_mouth_target, action, velocity]
