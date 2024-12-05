@@ -108,14 +108,16 @@ class WeightRewardModel(nn.Module):
         reward_loss = 0.0
         for idx, (logit, label) in enumerate(zip(logits.unbind(1), labels.unbind(1))):
             # reward_loss = F.cross_entropy(logit, label)
-            uniform_index = (labels == -1).squeeze(-1)
-            labels[uniform_index] = 0
+            uniform_index = label == -1
+            if uniform_index.ndim > 1:
+                uniform_index = uniform_index.squeeze(-1)
+            label[uniform_index] = 0
             target_onehot = torch.zeros_like(logit).scatter(
-                1, labels, self.label_target
+                1, label.unsqueeze(-1), self.label_target
             )
             target_onehot += self.label_margin
             if sum(uniform_index) > 0:
-                target_onehot[uniform_index] = 0.5
+                target_onehot[uniform_index, :] = 0.5
             reward_loss += utils.softXEnt_loss(logit, target_onehot)
 
             loss_dict[f"pref_acc_label_{idx}"] = utils.pref_accuracy(logit, label)

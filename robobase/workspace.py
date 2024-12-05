@@ -57,7 +57,7 @@ def relabel_with_predictor(reward_model, replay_buffer, is_initial: bool = False
         episodes, desc="Relabelling episodes", leave=False, position=0, unit="episode"
     ):
         episode = load_episode(ep_fn)
-        new_episode = reward_model.compute_reward(episode.copy())
+        new_episode = reward_model.compute_reward(episode)
         save_episode(new_episode, ep_fn)
 
     replay_buffer._try_fetch()
