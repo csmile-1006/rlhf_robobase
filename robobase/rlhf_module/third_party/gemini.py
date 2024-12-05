@@ -61,8 +61,8 @@ def postprocess_gemini_response(response):
     text = response.text
     try:
         stripped_text = text[:17]
-        postprocessed_text = float(stripped_text.split(":")[1].strip().split(" ")[-1])
-        return postprocessed_text
+        postprocessed_index = int(stripped_text.split(":")[1].strip().split(" ")[-1])
+        return postprocessed_index - 1
     except Exception as e:
         print(f"Error in postprocessing: {e}")
         return -1
