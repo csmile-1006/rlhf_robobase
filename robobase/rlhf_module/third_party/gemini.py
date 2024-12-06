@@ -69,7 +69,7 @@ def postprocess_gemini_response(response):
 
 
 def get_gemini_video_ids(
-    segments, idx, target_viewpoints, video_path, feedback_iter, i
+    segments, idx, target_viewpoints, video_path, feedback_iter, i, j
 ):
     output = {}
     for viewpoint in target_viewpoints:
@@ -79,7 +79,7 @@ def get_gemini_video_ids(
         index = segments["indices"][idx]
         video_file_path = (
             video_path
-            / f"query_video-{viewpoint}-feedback_iter{feedback_iter}-pair{i}-timestep_{index}_{index + segments['action'].shape[1]}.mp4"  # noqa
+            / f"query_video-{viewpoint}-feedback_iter{feedback_iter}-pair{i}_{j}-timestep_{index}_{index + segments['action'].shape[1]}.mp4"  # noqa
         )
         imageio.mimsave(
             video_file_path, segments[f"query_video_{viewpoint}"][idx], fps=20

@@ -99,10 +99,10 @@ def collect_gemini_manipulation_preferences(
         pair = comparison_fn(i)
 
         video1 = get_gemini_video_ids(
-            segments, pair[0], target_viewpoints, video_path, feedback_iter, i
+            segments, pair[0], target_viewpoints, video_path, feedback_iter, i, 0
         )
         video2 = get_gemini_video_ids(
-            segments, pair[1], target_viewpoints, video_path, feedback_iter, i
+            segments, pair[1], target_viewpoints, video_path, feedback_iter, i, 1
         )
 
         video_evaluation1 = identify_subtasks(video1)
@@ -174,10 +174,10 @@ def collect_gemini_locomotion_preferences(
         pair = comparison_fn(i)
 
         video1 = get_gemini_video_ids(
-            segments, pair[0], target_viewpoints, video_path, feedback_iter, i
+            segments, pair[0], target_viewpoints, video_path, feedback_iter, i, 0
         )
         video2 = get_gemini_video_ids(
-            segments, pair[1], target_viewpoints, video_path, feedback_iter, i
+            segments, pair[1], target_viewpoints, video_path, feedback_iter, i, 1
         )
 
         video_evaluation1 = evaluate_videos(video1)
