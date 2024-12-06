@@ -89,7 +89,6 @@ def gemini_manipulation_feedback_fn(
     task_description,
     target_viewpoints,
     subtasks,
-    video_evaluations,
 ):
     # Collect feedbacks for pair of videos.
     quest = get_zeroshot_manipulation_pairwise_comparison_prompt(

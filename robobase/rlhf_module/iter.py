@@ -91,7 +91,6 @@ def collect_gemini_manipulation_preferences(
         )
         return gemini_model.generate_content(quest).text
 
-    identified_subtasks = {}
     feedbacks = []
     total_metadata = []
 
@@ -118,7 +117,6 @@ def collect_gemini_manipulation_preferences(
             task_description=task_description,
             target_viewpoints=target_viewpoints,
             subtasks=subtasks,
-            identified_subtasks=identified_subtasks,
         )
         comparison_fn.update(pair, label)
 

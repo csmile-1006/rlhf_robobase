@@ -53,6 +53,7 @@ def get_zeroshot_manipulation_pairwise_comparison_prompt(
         zeroshot_manipulation_pairwise_comparison_prompt_header.format(
             task_description=task_description,
             viewpoint="/".join(viewpoints),
+            subtasks=subtasks,
             general_criteria=general_criteria,
         )
     ]
