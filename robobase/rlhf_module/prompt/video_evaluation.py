@@ -1,48 +1,35 @@
 # ruff: noqa
 # ZERO-SHOT VERSION
-zeroshot_subtask_infer_prompt = """
-You are an AI model who is responsible for determining the behavior of the robot using videos from {viewpoint} viewpoint(s).
+zeroshot_video_evaluation_prompt = """
+You are an AI model who is responsible for determining the behavior of the robot using videos.
 
 The goal of the agent is as follows:
 {task_description}
 
-To achieve this goal, the agent should solve the subtasks below:
-{subtasks}
-
-Based on the video, identify which subtask from the list above the robot is currently executing.
-Then, evaluate whether the task is successfully achieved.
+Based on the video, evaluate whether the task is successfully achieved.
 
 As an output, use the format below:
 
-Subtask 1: <Success/Success but not perfect/Failure/WIP>
-
-- Reason: <Reason>
-
-Subtask 2: <Not started/Success/Success but not perfect/Failure/WIP>
-
-- Reason: <Reason>
-
-...
+<Task achievement>: <Description of the video from start to end frame, be detailed and specific, whether the task is successfully achieved>
+<Naturalness>: <Assessment of the robot's behavior, whether the robot is moving smoothly and naturally, be detailed and specific>
 
 Please consider the following instructions:
 
 - Provide clear, specific reasons for each evaluation.
+- Make each evaluation to be independent of others.
 - Be consistent to assess movements and task completion.
 - Pay attention to all segments of the video, especially the later part.
 - Strictly follow the format and do not include any unnecessary information in your response.
+- Don't be too harsh or too lenient, assume that the robot has innate differences with human.
 - Consider all camera angles when evaluating, and ensure your evaluation takes into account the complete perspective of the scene.
 """
 
 
-def get_zeroshot_subtask_identification_prompt(
-    task_description, subtasks, videos, viewpoints
-):
+def get_zeroshot_video_evaluation_prompt(task_description, videos):
     # Generate separate prompts for each viewpoint
     prompt = [
-        zeroshot_subtask_infer_prompt.format(
+        zeroshot_video_evaluation_prompt.format(
             task_description=task_description.strip(),
-            subtasks=subtasks.strip(),
-            viewpoint="/".join(viewpoints),
         ).strip()
     ]
     # videos: {viewpoint: video for viewpoint in viewpoints}

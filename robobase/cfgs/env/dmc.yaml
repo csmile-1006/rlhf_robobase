@@ -6,5 +6,6 @@ env:
   reward_mode: dense
   reward_term_type: all
   initial_terms: []
+  query_keys: ["pixels"]
 
 action_repeat: 2

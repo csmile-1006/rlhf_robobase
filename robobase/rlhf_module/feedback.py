@@ -3,11 +3,13 @@ import logging
 import numpy as np
 from IPython.display import HTML, clear_output, display
 
-from robobase.rlhf_module.prompt import get_zeroshot_pairwise_comparison_prompt
+from robobase.rlhf_module.prompt import (
+    get_zeroshot_locomotion_pairwise_comparison_prompt,
+    get_zeroshot_manipulation_pairwise_comparison_prompt,
+)
 from robobase.rlhf_module.third_party.gemini import (
     load_gemini_model,
     postprocess_gemini_response,
-    get_gemini_video_ids,
 )
 from robobase.rlhf_module.utils import (
     get_label,
@@ -77,29 +79,27 @@ def scripted_feedback_fn(segments, indices, **kwargs):
 
 
 @retry_on_error(10, callback_fn=return_random_label)
-def gemini_feedback_fn(
-    segments,
-    indices,
+def gemini_manipulation_feedback_fn(
+    video1,
+    video2,
+    video_evaluation1,
+    video_evaluation2,
     gemini_model_config,
     general_criteria,
     task_description,
     target_viewpoints,
     subtasks,
-    identified_subtasks,
+    video_evaluations,
 ):
     # Collect feedbacks for pair of videos.
-    video1 = get_gemini_video_ids(segments, indices[0], target_viewpoints)
-    video_evaluation1 = identified_subtasks[indices[0]]
-    video2 = get_gemini_video_ids(segments, indices[1], target_viewpoints)
-    video_evaluation2 = identified_subtasks[indices[1]]
-    quest = get_zeroshot_pairwise_comparison_prompt(
+    quest = get_zeroshot_manipulation_pairwise_comparison_prompt(
         general_criteria=general_criteria,
         task_description=task_description,
         subtasks=subtasks,
         viewpoints=target_viewpoints,
         video1=video1,
-        video2=video2,
         video1_evaluations=video_evaluation1,
+        video2=video2,
         video2_evaluations=video_evaluation2,
     )
     gemini_model = load_gemini_model(gemini_model_config)
@@ -116,7 +116,38 @@ def gemini_feedback_fn(
     return label, metadata
 
 
-def get_feedback_fn(feedback_type):
+@retry_on_error(10, callback_fn=return_random_label)
+def gemini_locomotion_feedback_fn(
+    video1,
+    video2,
+    video_evaluation1,
+    video_evaluation2,
+    gemini_model_config,
+    task_description,
+):
+    # Collect feedbacks for pair of videos.
+    quest = get_zeroshot_locomotion_pairwise_comparison_prompt(
+        task_description=task_description,
+        video1=video1,
+        video1_evaluations=video_evaluation1,
+        video2=video2,
+        video2_evaluations=video_evaluation2,
+    )
+    gemini_model = load_gemini_model(gemini_model_config)
+    response = gemini_model.generate_content(quest)
+    label = postprocess_gemini_response(response)
+    metadata = {
+        "video1": video1,
+        "video2": video2,
+        "video_evaluation1": video_evaluation1,
+        "video_evaluation2": video_evaluation2,
+        "quest": quest,
+        "response": response,
+    }
+    return label, metadata
+
+
+def get_feedback_fn(env_name, feedback_type):
     if feedback_type == "random":
         return random_feedback_fn
     elif feedback_type == "script":
@@ -124,7 +155,12 @@ def get_feedback_fn(feedback_type):
     elif feedback_type == "human":
         return human_feedback_fn
     elif feedback_type == "gemini":
-        return gemini_feedback_fn
+        if env_name == "dmc":
+            return gemini_locomotion_feedback_fn
+        elif env_name == "agym":
+            return gemini_manipulation_feedback_fn
+        else:
+            raise ValueError("Gemini feedback is not supported for this environment.")
     else:
         raise ValueError(
             "Invalid feedback type. Please choose between 'random' or 'script' or 'human'."

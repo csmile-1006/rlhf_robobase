@@ -3,9 +3,9 @@ import os
 import time
 
 import google.generativeai as genai
+import imageio
 
 from robobase.rlhf_module.utils import retry_on_error
-from robobase.utils import read_video_from_bytes
 
 
 def configure_gemini():
@@ -44,7 +44,7 @@ def upload_video_to_genai(video_path, verbose=False):
     while video_file.state.name == "PROCESSING":
         if verbose:
             logging.info("Waiting for video to be processed.")
-        time.sleep(1.5)
+        time.sleep(1)
         video_file = genai.get_file(video_file.name)
     if video_file.state.name == "FAILED":
         raise ValueError(video_file.state.name)
@@ -68,12 +68,22 @@ def postprocess_gemini_response(response):
         return -1
 
 
-def get_gemini_video_ids(segments, idx, target_viewpoints):
-    return {
-        target_viewpoint: genai.get_file(
-            read_video_from_bytes(
-                segments[f"gemini_video_path_{target_viewpoint}"][idx]
-            )
+def get_gemini_video_ids(
+    segments, idx, target_viewpoints, video_path, feedback_iter, i
+):
+    output = {}
+    for viewpoint in target_viewpoints:
+        assert (
+            f"query_video_{viewpoint}" in segments
+        ), "query_video_{viewpoint} not found in segments"
+        index = segments["indices"][idx]
+        video_file_path = (
+            video_path
+            / f"query_video-{viewpoint}-feedback_iter{feedback_iter}-pair{i}-timestep_{index}_{index + segments['action'].shape[1]}.mp4"  # noqa
         )
-        for target_viewpoint in target_viewpoints
-    }
+        imageio.mimsave(
+            video_file_path, segments[f"query_video_{viewpoint}"][idx], fps=20
+        )
+        gemini_video_file_path = upload_video_to_genai(video_file_path, verbose=False)
+        output[viewpoint] = gemini_video_file_path
+    return output

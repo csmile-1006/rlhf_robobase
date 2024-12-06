@@ -18,6 +18,7 @@ from robobase.envs.wrappers import (
     RescaleFromTanh,
     ActionSequence,
 )
+from robobase.envs.utils.dmc_utils import TASK_DESCRIPTION
 
 import os
 
@@ -67,6 +68,8 @@ class DMC(gym.Env):
         action_repeat: int = 1,
         visual_observation_shape: tuple[int, int] = (84, 84),
         render_mode: str = None,
+        use_rlhf: bool = False,
+        query_keys: list[str] = ["front"],
         reward_mode: str = "dense",
         reward_term_type: str = "all",
         initial_terms: list[float] = [],
@@ -90,28 +93,15 @@ class DMC(gym.Env):
             self._dmc_env = manipulation.load(name)
             self._pixels_key = "front_close"
 
-        height, width = visual_observation_shape
-        self._render_kwargs = dict(height=height, width=width, camera_id=camera_id)
-        if from_pixels:
-            image_shape = [3, height, width]
-            self._dmc_env = pixels.Wrapper(
-                self._dmc_env, pixels_only=True, render_kwargs=self._render_kwargs
-            )
-            obs_space = spaces.Box(low=0, high=255, shape=image_shape, dtype=np.uint8)
-            self.observation_space = spaces.Dict({"rgb": obs_space})
-        else:
-            obs_spec = self._dmc_env.observation_spec()
-            obs_space = _convert_dm_control_to_gym_space(obs_spec, dtype=np.float32)
-            obs_space = spaces.flatten_space(obs_space)
-            self.observation_space = spaces.Dict({"low_dim_state": obs_space})
-        self.action_space = _convert_dm_control_to_gym_space(
-            self._dmc_env.action_spec(), dtype=np.float32
-        )
-
         self._reward_mode = reward_mode
         self._reward_term_type = reward_term_type
         self._initial_terms = initial_terms
         reward_spec = self._dmc_env.get_reward_spec()
+
+        self._query_keys = query_keys
+        assert all(
+            key == self._pixels_key for key in query_keys
+        ), f"Only {self._pixels_key} view is supported"
 
         if len(self._initial_terms) == 0:
             self._initial_terms = [key for key in reward_spec.keys()]
@@ -120,6 +110,7 @@ class DMC(gym.Env):
             self._reward_terms = [key for key in reward_spec.keys()]
         elif self._reward_term_type == "initial":
             self._reward_terms = self._initial_terms
+
         self.reward_space = _convert_dm_control_to_gym_space(
             {f"Reward/{k}": reward_spec[k] for k in self._reward_terms},
             dtype=np.float32,
@@ -127,6 +118,41 @@ class DMC(gym.Env):
         self.initial_reward_scale = {
             k: self.reward_space[f"Reward/{k}"].high for k in self._initial_terms
         }
+
+        # Set up rendering parameters
+        height, width = visual_observation_shape
+        self._render_kwargs = dict(height=height, width=width, camera_id=camera_id)
+
+        # Set up observation space based on observation type
+        _obs_space = {}
+        if from_pixels:
+            image_shape = [3, height, width]  # (channels, height, width)
+            self._dmc_env = pixels.Wrapper(
+                self._dmc_env, pixels_only=True, render_kwargs=self._render_kwargs
+            )
+            # For pixel observations, use RGB image space
+            rgb_space = spaces.Box(low=0, high=255, shape=image_shape, dtype=np.uint8)
+            _obs_space["rgb"] = rgb_space
+        else:
+            # For state observations, use flattened state space
+            obs_spec = self._dmc_env.observation_spec()
+            state_space = _convert_dm_control_to_gym_space(obs_spec, dtype=np.float32)
+            state_space = spaces.flatten_space(state_space)
+            _obs_space["low_dim_state"] = state_space
+
+        # Add video observation spaces for RLHF if enabled
+        self._use_rlhf = use_rlhf
+        if use_rlhf:
+            for key in self._query_keys:
+                _obs_space[f"query_video_{key}"] = spaces.Box(
+                    low=0, high=255, shape=(height, width, 3), dtype=np.uint8
+                )
+
+        # Set final observation and action spaces
+        self.observation_space = spaces.Dict(_obs_space)
+        self.action_space = _convert_dm_control_to_gym_space(
+            self._dmc_env.action_spec(), dtype=np.float32
+        )
 
     def _get_obs(self, timestep):
         obs = timestep.observation
@@ -137,6 +163,9 @@ class DMC(gym.Env):
             )
         else:
             ret_obs["low_dim_state"] = self._flatten_obs(obs)
+
+        if self._use_rlhf:
+            ret_obs[f"query_video_{self._query_keys[0]}"] = self.render().copy()
         return ret_obs
 
     def _flatten_obs(self, observation):
@@ -152,9 +181,18 @@ class DMC(gym.Env):
         info = {"task_reward": 0, **{f"Reward/{k}": 0 for k in self._reward_terms}}
         for _ in range(self._action_repeat):
             ts = self._dmc_env.step(action)
-            reward += ts.reward
             info["task_reward"] += ts.reward
             detailed_reward = self._dmc_env.get_detailed_reward()
+            if self._reward_mode == "initial":
+                _reward = np.sum(
+                    [
+                        self.initial_reward_scale[key] * detailed_reward[key]
+                        for key in self._reward_terms
+                    ]
+                )
+            else:
+                _reward = ts.reward
+            reward += _reward
             for key in self._reward_terms:
                 info[f"Reward/{key}"] = detailed_reward[key]
             if ts.last():
@@ -231,6 +269,8 @@ class DMCEnvFactory(EnvFactory):
                         cfg.action_repeat,
                         cfg.visual_observation_shape,
                         "rgb_array",
+                        cfg.rlhf.feedback_type == "gemini",
+                        cfg.env.query_keys,
                         cfg.env.reward_mode,
                         cfg.env.reward_term_type,
                         cfg.env.initial_terms,
@@ -250,9 +290,14 @@ class DMCEnvFactory(EnvFactory):
                 cfg.action_repeat,
                 cfg.visual_observation_shape,
                 "rgb_array",
+                cfg.rlhf.feedback_type == "gemini",
+                cfg.env.query_keys,
                 cfg.env.reward_mode,
                 cfg.env.reward_term_type,
                 cfg.env.initial_terms,
             ),
             cfg,
         )
+
+    def get_task_description(self, cfg: DictConfig) -> str:
+        return TASK_DESCRIPTION[cfg.env.task_name]

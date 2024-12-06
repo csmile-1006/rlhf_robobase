@@ -352,8 +352,11 @@ class Workspace:
             # RLHF settings
             self._reward_pretrain_step = 0
             self._total_feedback = 0
+            self._feedback_iter = 0
 
-            self._rlhf_iter_fn = get_rlhf_iter_fn(cfg, env_factory, self.reward_model)
+            self._rlhf_iter_fn = get_rlhf_iter_fn(
+                self.work_dir, cfg, env_factory, self.reward_model
+            )
             self._query_fn = get_query_fn(cfg.rlhf.query_type)
 
             if cfg.rlhf.feedback_type == "gemini":
@@ -460,6 +463,10 @@ class Workspace:
     @property
     def total_feedback(self):
         return self._total_feedback
+
+    @property
+    def feedback_iter(self):
+        return self._feedback_iter
 
     @property
     def main_loop_iterations(self):
@@ -797,7 +804,9 @@ class Workspace:
 
     def collect_feedback(self):
         query_batch = self._query_fn(next(self.query_replay_iter))
-        feedbacks, metadata = self._rlhf_iter_fn(segments=query_batch)
+        feedbacks, metadata = self._rlhf_iter_fn(
+            segments=query_batch, feedback_iter=self.feedback_iter
+        )
         if metadata:
             for feedback, metadatum in zip(feedbacks, metadata):
                 self.feedback_replay_buffer.add_feedback(
@@ -814,6 +823,7 @@ class Workspace:
                     feedback["label"],
                 )
         self._total_feedback += len(feedbacks)
+        self._feedback_iter += 1
 
     def _perform_reward_model_updates(self) -> dict[str, Any]:
         if self.reward_model.logging:
