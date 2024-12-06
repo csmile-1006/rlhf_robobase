@@ -713,7 +713,10 @@ class Workspace:
                         self.demo_replay_buffer.add(
                             obs, act, rew, term, trunc, **extra_replay_elements
                         )
-                    if self.use_rlhf:
+                    if (
+                        self.use_rlhf
+                        and self.total_feedback < self.cfg.rlhf.max_feedback
+                    ):
                         task_rew = info["task_reward"]
                         self.query_replay_buffer.add(
                             obs,
@@ -733,7 +736,7 @@ class Workspace:
                 self.replay_buffer.add_final(final_obs)
                 if relabeling_as_demo:
                     self.demo_replay_buffer.add_final(final_obs)
-                if self.use_rlhf:
+                if self.use_rlhf and self.total_feedback < self.cfg.rlhf.max_feedback:
                     self.query_replay_buffer.add_final(final_obs)
 
                 # clean up
