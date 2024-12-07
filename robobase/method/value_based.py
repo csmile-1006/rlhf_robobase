@@ -281,6 +281,15 @@ class ValueBased(OffPolicyMethod, ABC):
                 self.intr_critic_opt,
             ) = self.build_critic()
 
+    def reset_critic(self):
+        self.critic, self.critic_target, self.critic_opt = self.build_critic()
+        if self.intrinsic_reward_module:
+            (
+                self.intr_critic,
+                self.intr_critic_target,
+                self.intr_critic_opt,
+            ) = self.build_critic()
+
     def build_critic(self):
         """Build critic for ValueBased agent
 

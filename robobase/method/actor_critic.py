@@ -211,6 +211,18 @@ class ActorCritic(OffPolicyMethod, ABC):
 
         self.state_ent_stats = utils.TorchRunningMeanStd(shape=(1,), device=self.device)
 
+    def reset_critic(self):
+        self.critic, self.critic_target, self.critic_opt = self.build_critic()
+        if self.intrinsic_reward_module:
+            (
+                self.intr_critic,
+                self.intr_critic_target,
+                self.intr_critic_opt,
+            ) = self.build_critic()
+
+    def reset_actor(self):
+        self.build_actor()
+
     def build_actor(self):
         input_shapes = self.get_fully_connected_inputs()
         if "time_obs" in input_shapes:

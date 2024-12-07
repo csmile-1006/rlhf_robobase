@@ -1083,6 +1083,12 @@ class Workspace:
                         )
                     metrics = {}
 
+                    if self.cfg.rlhf.initialize_agent_per_session:
+                        if hasattr(self.agent, "reset_critic"):
+                            self.agent.reset_critic()
+                        if hasattr(self.agent, "reset_actor"):
+                            self.agent.reset_actor()
+
                 if (
                     self.total_feedback <= self.cfg.rlhf.max_feedback
                     and should_save_reward_model_snapshot(self.main_loop_iterations)

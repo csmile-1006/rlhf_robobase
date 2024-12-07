@@ -74,6 +74,7 @@ rlhf:
   num_reset_update_steps: 100
   snapshot_every_n: 1000
   log_every: 10
+  initialize_agent_per_session: false
   gemini:
     model_type: gemini-1.5-pro
     temperature: 0.1

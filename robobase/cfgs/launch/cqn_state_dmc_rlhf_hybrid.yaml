@@ -33,9 +33,9 @@ rlhf:
   comparison_type: disagreement
   query_type: random
   max_feedback: 1000
-  update_every_steps: 20000
+  update_every_steps: 50000
   num_pretrain_steps: 10000
-  num_train_frames: 200
+  num_train_frames: 500
   snapshot_every_n: ${rlhf.update_every_steps}
   gemini:
     model_type: gemini-1.5-pro
