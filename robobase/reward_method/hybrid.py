@@ -467,6 +467,7 @@ class HybridReward(RewardMethod):
             batch = {k: v.to(self.device) for k, v in batch.items()}
             r_hats_weighted = []
             r_hat_weights = []
+            scaled_r_hat_weights = []
             r_hats_computed = []
             for i in range(2):
                 actions = batch[f"seg{i}_action"]
@@ -505,12 +506,14 @@ class HybridReward(RewardMethod):
                 r_hat_weight = self.weight_tuner(*args, member=mem).view(
                     *actions.shape[:-2], -1, reward_terms.shape[-1]
                 )
+                scaled_r_hat_weight = self.weight_tuner.transform_to_tanh(r_hat_weight)
                 # r_hat: (bs, seq, num_reward_terms) -> (bs, seq, 1) -> (bs, 1)
                 r_hat = (
                     (r_hat_weight * reward_terms).sum(dim=-1, keepdim=True).sum(dim=-2)
                 )
                 r_hats_weighted.append(r_hat)
                 r_hat_weights.append(r_hat_weight)
+                scaled_r_hat_weights.append(scaled_r_hat_weight)
 
                 # Compute computed reward
                 r_hat_computed = self.markovian(*args, member=mem)
@@ -565,7 +568,7 @@ class HybridReward(RewardMethod):
             r_hat_weights = torch.cat(r_hat_weights, dim=0)
             for idx, term in enumerate(self.reward_space):
                 metrics[f"r_hat_weights_{term.split('/')[-1]}"] = (
-                    r_hat_weights[..., idx].mean().item()
+                    scaled_r_hat_weights[..., idx].mean().item()
                 )
             for label in range(self.num_labels):
                 metrics[f"weighted_pref_acc_label_{label}"] = weighted_loss_dict[

@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import random
 import shutil
@@ -23,13 +24,13 @@ from robobase.envs.env import EnvFactory
 from robobase.logger import Logger
 from robobase.replay_buffer.prioritized_replay_buffer import PrioritizedReplayBuffer
 from robobase.replay_buffer.replay_buffer import ReplayBuffer
+from robobase.replay_buffer.rlhf.feedback_replay_buffer import FeedbackReplayBuffer
+from robobase.replay_buffer.rlhf.query_replay_buffer import QueryReplayBuffer
 from robobase.replay_buffer.uniform_replay_buffer import (
     UniformReplayBuffer,
     load_episode,
     save_episode,
 )
-from robobase.replay_buffer.rlhf.query_replay_buffer import QueryReplayBuffer
-from robobase.replay_buffer.rlhf.feedback_replay_buffer import FeedbackReplayBuffer
 from robobase.rlhf_module.iter import get_rlhf_iter_fn
 from robobase.rlhf_module.query import get_query_fn
 from robobase.rlhf_module.third_party.gemini import configure_gemini
@@ -361,6 +362,10 @@ class Workspace:
 
             if cfg.rlhf.feedback_type == "gemini":
                 configure_gemini()
+                import asyncio
+
+                self._loop = asyncio.get_event_loop()
+                asyncio.set_event_loop(self._loop)
 
         else:
             extra_replay_elements = None
@@ -557,6 +562,9 @@ class Workspace:
             self.save_snapshot()
             if self.use_rlhf:
                 self.save_reward_model_snapshot()
+
+        if hasattr(self, "_loop"):
+            self._loop.close()
 
         self.shutdown()
 
@@ -807,9 +815,19 @@ class Workspace:
 
     def collect_feedback(self):
         query_batch = self._query_fn(next(self.query_replay_iter))
-        feedbacks, metadata = self._rlhf_iter_fn(
-            segments=query_batch, feedback_iter=self.feedback_iter
-        )
+        if self.cfg.rlhf.feedback_type == "gemini":
+            if not hasattr(self, "_loop"):
+                self._loop = asyncio.get_event_loop()
+                asyncio.set_event_loop(self._loop)
+            feedbacks, metadata = self._loop.run_until_complete(
+                self._rlhf_iter_fn(
+                    segments=query_batch, feedback_iter=self.feedback_iter
+                )
+            )
+        else:
+            feedbacks, metadata = self._rlhf_iter_fn(
+                segments=query_batch, feedback_iter=self.feedback_iter
+            )
         if metadata:
             for feedback, metadatum in zip(feedbacks, metadata):
                 self.feedback_replay_buffer.add_feedback(
@@ -1138,6 +1156,10 @@ class Workspace:
 
     def shutdown(self):
         logging.warning(f"Shutting down workspace at {self.global_env_steps} env steps")
+
+        if hasattr(self, "_loop"):
+            self._loop.close()
+
         if self.eval_env:
             self.eval_env.close()
 

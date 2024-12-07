@@ -549,6 +549,7 @@ class WeightTunerReward(RewardMethod):
 
             r_hats = []
             r_hat_weights = []
+            scaled_r_hat_weights = []
             for i in range(2):
                 actions = batch[f"seg{i}_action"]
                 if self.low_dim_size > 0:
@@ -590,7 +591,8 @@ class WeightTunerReward(RewardMethod):
                     .sum(dim=-2)
                 )
                 r_hats.append(r_hat)
-                r_hat_weights.append(scaled_r_hat_weight)
+                r_hat_weights.append(r_hat_weight)
+                scaled_r_hat_weights.append(scaled_r_hat_weight)
 
             _loss_dict = self.reward.calculate_loss(
                 r_hats, batch["label"], r_hat_weights
@@ -626,7 +628,7 @@ class WeightTunerReward(RewardMethod):
             r_hat_weights = torch.cat(r_hat_weights, dim=0)
             for idx, term in enumerate(self.reward_space):
                 metrics[f"r_hat_weights_{term.split('/')[-1]}"] = (
-                    r_hat_weights[..., idx].mean().item()
+                    scaled_r_hat_weights[..., idx].mean().item()
                 )
             for label in range(self.num_labels):
                 metrics[f"pref_acc_label_{label}"] = loss_dict[
