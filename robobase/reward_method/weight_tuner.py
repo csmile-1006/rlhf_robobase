@@ -626,6 +626,7 @@ class WeightTunerReward(RewardMethod):
         if self.logging:
             metrics["reward_loss"] = loss_dict["loss"].item()
             r_hat_weights = torch.cat(r_hat_weights, dim=0)
+            scaled_r_hat_weights = torch.cat(scaled_r_hat_weights, dim=0)
             for idx, term in enumerate(self.reward_space):
                 metrics[f"r_hat_weights_{term.split('/')[-1]}"] = (
                     scaled_r_hat_weights[..., idx].mean().item()
