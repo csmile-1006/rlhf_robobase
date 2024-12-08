@@ -1033,6 +1033,53 @@ class Workspace:
                 update_metrics = self._perform_updates()
                 metrics.update(update_metrics)
 
+            (
+                action,
+                (next_observations, rewards, terminations, truncations, next_info),
+                env_metrics,
+            ) = self._perform_env_steps(observations, self.train_envs, False)
+
+            agent_0_reward += next_info.get("task_reward", rewards)[0]
+            agent_0_ep_len += 1
+            if terminations[0] or truncations[0]:
+                agent_0_prev_ep_len = agent_0_ep_len
+                agent_0_prev_reward = agent_0_reward
+                agent_0_ep_len = agent_0_reward = 0
+
+            metrics.update(env_metrics)
+            self._add_to_replay(
+                action,
+                observations,
+                rewards,
+                terminations,
+                truncations,
+                info,
+                next_info,
+            )
+            observations = next_observations
+            info = next_info
+            if should_log(self.main_loop_iterations):
+                metrics.update(self._get_common_metrics())
+                if agent_0_prev_reward is not None and agent_0_prev_ep_len is not None:
+                    metrics.update(
+                        {
+                            "episode_reward": agent_0_prev_reward,
+                            "episode_length": agent_0_prev_ep_len
+                            * self.cfg.action_repeat,
+                        }
+                    )
+                self.logger.log_metrics(metrics, self.global_env_steps, prefix="train")
+
+            if should_eval(self.main_loop_iterations):
+                eval_metrics = self._eval(eval_record_all_episode=True)
+                eval_metrics.update(self._get_common_metrics())
+                self.logger.log_metrics(
+                    eval_metrics, self.global_env_steps, prefix="eval"
+                )
+
+            if should_save_snapshot(self.main_loop_iterations):
+                self.save_snapshot()
+
             if self.use_rlhf:
                 if (
                     self.total_feedback < self.cfg.rlhf.max_feedback
@@ -1094,53 +1141,6 @@ class Workspace:
                     and should_save_reward_model_snapshot(self.main_loop_iterations)
                 ):
                     self.save_reward_model_snapshot()
-
-            (
-                action,
-                (next_observations, rewards, terminations, truncations, next_info),
-                env_metrics,
-            ) = self._perform_env_steps(observations, self.train_envs, False)
-
-            agent_0_reward += next_info.get("task_reward", rewards)[0]
-            agent_0_ep_len += 1
-            if terminations[0] or truncations[0]:
-                agent_0_prev_ep_len = agent_0_ep_len
-                agent_0_prev_reward = agent_0_reward
-                agent_0_ep_len = agent_0_reward = 0
-
-            metrics.update(env_metrics)
-            self._add_to_replay(
-                action,
-                observations,
-                rewards,
-                terminations,
-                truncations,
-                info,
-                next_info,
-            )
-            observations = next_observations
-            info = next_info
-            if should_log(self.main_loop_iterations):
-                metrics.update(self._get_common_metrics())
-                if agent_0_prev_reward is not None and agent_0_prev_ep_len is not None:
-                    metrics.update(
-                        {
-                            "episode_reward": agent_0_prev_reward,
-                            "episode_length": agent_0_prev_ep_len
-                            * self.cfg.action_repeat,
-                        }
-                    )
-                self.logger.log_metrics(metrics, self.global_env_steps, prefix="train")
-
-            if should_eval(self.main_loop_iterations):
-                eval_metrics = self._eval(eval_record_all_episode=True)
-                eval_metrics.update(self._get_common_metrics())
-                self.logger.log_metrics(
-                    eval_metrics, self.global_env_steps, prefix="eval"
-                )
-
-            if should_save_snapshot(self.main_loop_iterations):
-                self.save_snapshot()
 
             if self._shutting_down:
                 break
