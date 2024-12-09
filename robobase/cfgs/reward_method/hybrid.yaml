@@ -4,7 +4,7 @@ reward_method:
   device: ${device}
   lr: 1e-4
   weight_decay: 1e-4
-  lambda_weight: 0.1
+  lambda_weight: 1.0
   num_train_steps: ${num_pretrain_steps}
   adaptive_lr: false
   # This would expect language embeddings using openai-clip
