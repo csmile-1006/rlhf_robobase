@@ -1,9 +1,10 @@
 # @package _global_
 
 defaults:
-  - dmc/easy
+  - dmc/medium
   - dmc
   - _self_
 
 env:
   task_name: walker_walk
+  stddev_schedule: linear(1.0, 0.1, 1000000)

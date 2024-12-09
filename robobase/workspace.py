@@ -1093,7 +1093,9 @@ class Workspace:
             if self.use_rlhf:
                 if (
                     self.total_feedback < self.cfg.rlhf.max_feedback
-                    and should_update_reward_model(self.main_loop_iterations)
+                    and should_update_reward_model(
+                        self.global_env_steps - len(self.query_replay_buffer)
+                    )  # first start when pretrain step is finished, and then start when query replay buffer is filled
                     and not reward_until_frame(self.global_env_steps)
                     and not seed_until_size(len(self.query_replay_buffer))
                 ):
