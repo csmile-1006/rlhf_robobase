@@ -171,6 +171,7 @@ async def collect_gemini_manipulation_preferences(
     total_metadata = []
 
     # upload videos in linear way
+    pair_indices = []
     videos = []
     for i in tqdm(tot_queries, desc="Uploading videos", position=0, leave=False):
         pair = comparison_fn(i)
@@ -180,6 +181,7 @@ async def collect_gemini_manipulation_preferences(
         video2 = get_gemini_video_ids(
             segments, pair[1], target_viewpoints, video_path, feedback_iter, i, 1
         )
+        pair_indices.append(pair)
         videos.append(video1)
         videos.append(video2)
         comparison_fn.update(pair, i)
@@ -194,7 +196,9 @@ async def collect_gemini_manipulation_preferences(
         general_criteria,
     )
     results = []
-    for response, quest, video_evaluation1, video_evaluation2 in responses:
+    for pair, (response, quest, video_evaluation1, video_evaluation2) in zip(
+        pair_indices, responses
+    ):
         label = postprocess_gemini_response(response)
         pref_dict = {
             "segment_0": {
@@ -296,6 +300,7 @@ async def collect_gemini_locomotion_preferences(
     total_metadata = []
 
     # upload videos in linear way
+    pair_indices = []
     videos = []
     for i in tqdm(tot_queries, desc="Uploading videos", position=0, leave=False):
         pair = comparison_fn(i)
@@ -305,6 +310,7 @@ async def collect_gemini_locomotion_preferences(
         video2 = get_gemini_video_ids(
             segments, pair[1], target_viewpoints, video_path, feedback_iter, i, 1
         )
+        pair_indices.append(pair)
         videos.append(video1)
         videos.append(video2)
         comparison_fn.update(pair, i)
@@ -314,7 +320,9 @@ async def collect_gemini_locomotion_preferences(
         videos, gemini_model_config, task_description
     )
     results = []
-    for response, quest, video_evaluation1, video_evaluation2 in responses:
+    for pair, (response, quest, video_evaluation1, video_evaluation2) in zip(
+        pair_indices, responses
+    ):
         label = postprocess_gemini_response(response)
         pref_dict = {
             "segment_0": {

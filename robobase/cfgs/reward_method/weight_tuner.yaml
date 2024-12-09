@@ -15,7 +15,6 @@ reward_method:
   compute_batch_size: 1024
   seq_len: ${rlhf_replay.seq_len}
   use_augmentation: true
-  initialize_before_training: false
   reg_weight: 0.0
 
   encoder_model:

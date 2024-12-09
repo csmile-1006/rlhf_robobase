@@ -18,7 +18,6 @@ reward_method:
   use_augmentation: true
   reg_weight: 0.0
   apply_final_layer_tanh: false
-  initialize_before_training: true
 
   encoder_model:
     _target_: robobase.models.encoder.DINOv2Encoder

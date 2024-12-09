@@ -1107,7 +1107,7 @@ class Workspace:
 
                     # reward model reset must be after feedback collection,
                     # as reward model is used for disagreement-based query selection
-                    if self.reward_model.initialize_before_training:
+                    if self.cfg.rlhf.initialize_reward_model_per_session:
                         self.reward_model.build_reward_model()
 
                     for it in range(self.cfg.rlhf.num_train_frames):

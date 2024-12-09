@@ -228,12 +228,12 @@ class ActorCritic(OffPolicyMethod, ABC):
         if "time_obs" in input_shapes:
             # We don't use time_obs for actor
             input_shapes.pop("time_obs")
-        self.actor_model = self.actor_model(
+        actor_model_obj = self.actor_model(
             input_shapes=input_shapes,
             output_shape=self.action_space.shape[-1],
             num_envs=self.num_train_envs + 1,  # +1 for eval
         )
-        self.actor = Actor(self.actor_model).to(self.device)
+        self.actor = Actor(actor_model_obj).to(self.device)
         self.actor_opt = torch.optim.AdamW(
             self.actor.parameters(), lr=self.actor_lr, weight_decay=self.weight_decay
         )
