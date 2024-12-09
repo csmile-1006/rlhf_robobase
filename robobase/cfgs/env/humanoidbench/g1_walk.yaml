@@ -1,0 +1,9 @@
+# @package _global_
+
+defaults:
+  - humanoidbench
+  - _self_
+
+env:
+  task_name: g1-walk-v0
+  blocked_hands: "False"

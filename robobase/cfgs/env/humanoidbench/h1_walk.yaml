@@ -1,0 +1,8 @@
+# @package _global_
+
+defaults:
+  - humanoidbench
+  - _self_
+
+env:
+  task_name: h1-walk-v0

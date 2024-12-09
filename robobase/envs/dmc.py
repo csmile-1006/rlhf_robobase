@@ -194,7 +194,7 @@ class DMC(gym.Env):
                 _reward = ts.reward
             reward += _reward
             for key in self._reward_terms:
-                info[f"Reward/{key}"] = detailed_reward[key]
+                info[f"Reward/{key}"] += detailed_reward[key]
             if ts.last():
                 break
         # See https://github.com/google-deepmind/dm_control/blob/f2f0e2333d8bd82c0b6ba83628fe44c2bcc94ef5/dm_control/rl/control.py#L115C18-L115C29

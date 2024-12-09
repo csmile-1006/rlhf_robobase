@@ -1,0 +1,12 @@
+# @package _global_
+
+env:
+  env_name: humanoidbench
+  episode_length: 1000  # This is the default for HumanoidBench.
+  reward_mode: dense
+  reward_term_type: all
+  initial_terms: []
+  query_keys: ["pixels"]
+  blocked_hands: "False"
+
+action_repeat: 2

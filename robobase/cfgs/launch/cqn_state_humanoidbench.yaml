@@ -1,0 +1,33 @@
+# @package _global_
+
+defaults:
+  - ../env: null  # Please specify environment to use in command line
+  - ../method: cqn
+
+pixels: false
+frame_stack: 1
+action_repeat: 1
+
+batch_size: 128
+update_every_steps: 1
+replay:
+  nstep: 3  # Use 1 for walker_walk
+num_train_frames: 10001000
+save_snapshot: true
+eval_every_steps: 100000
+snapshot_every_n: 1000000
+
+method:
+  critic_lr: 5e-5
+  view_fusion_lr: 5e-5
+  encoder_lr: 5e-5
+  weight_decay: 0.1
+  use_dueling: false
+  stddev_schedule: 0.01
+  v_min: 0.0
+  v_max: 200.0
+  atoms: 51
+
+hydra:
+  run:
+    dir: ./exp_local_debug/state_cqn/humanoidbench_${env.task_name}_${now:%Y%m%d%H%M%S}

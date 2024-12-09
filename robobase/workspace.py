@@ -129,11 +129,13 @@ def _create_default_query_replay_buffer(
             else cfg.rlhf_replay.num_queries * 10
         )
     else:
-        batch_size = (
-            cfg.rlhf_replay.num_queries + 1
-            if "pairwise" in cfg.rlhf.comparison_type
-            else cfg.rlhf_replay.num_queries * 20
-        )
+        if "pairwise" in cfg.rlhf.comparison_type:
+            batch_size = cfg.rlhf_replay.num_queries + 1
+        else:
+            if cfg.env.env_name == "agym":
+                batch_size = cfg.rlhf_replay.num_queries * 4
+            else:
+                batch_size = cfg.rlhf_replay.num_queries * 20
 
     return QueryReplayBuffer(
         save_dir=save_dir / "queries" if not use_demo else save_dir / "demo_queries",
@@ -196,6 +198,10 @@ def _create_default_envs(cfg: DictConfig) -> EnvFactory:
         from robobase.envs.agym import AGymEnvFactory
 
         factory = AGymEnvFactory()
+    elif cfg.env.env_name == "humanoidbench":
+        from robobase.envs.humanoidbench import HumanoidBenchEnvFactory
+
+        factory = HumanoidBenchEnvFactory()
     else:
         ValueError()
     return factory
@@ -615,7 +621,11 @@ class Workspace:
                 episode_pbar.update(1)
             if episode == 0:
                 first_rollout = np.array(self.eval_video_recorder.frames)
-            self.eval_video_recorder.save(f"{self.global_env_steps}_{episode}.mp4")
+            if self.cfg.env.task_name != "humanoidbench":
+                self.eval_video_recorder.save(f"{self.global_env_steps}_{episode}.mp4")
+            else:
+                if episode == 0:
+                    self.eval_video_recorder.save(f"{self.global_env_steps}.mp4")
             success = info.get("task_success")
             if success is not None:
                 successes += np.array(success).astype(int).item()
