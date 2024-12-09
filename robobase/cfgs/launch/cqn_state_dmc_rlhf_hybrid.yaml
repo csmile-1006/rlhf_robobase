@@ -52,4 +52,4 @@ rlhf_replay:
 
 hydra:
   run:
-    dir: ./exp_local/state_cqn_rlhf/dmc_${env.task_name}/rlhf_hybrid_${rlhf.feedback_type}_numf${rlhf.max_feedback}_numq${rlhf_replay.num_queries}_update${rlhf.update_every_steps}_pretrain${rlhf.num_pretrain_steps}_comp-${rlhf.comparison_type}_reward-reset-${reward_method.initialize_before_training}_agent-reset-${rlhf.initialize_agent_per_session}_lambda${reward_method.lambda_weight}_${now:%Y%m%d%H%M%S}
+    dir: ./exp_local/state_cqn_rlhf/dmc_${env.task_name}/rlhf_hybrid_${rlhf.feedback_type}_numf${rlhf.max_feedback}_numq${rlhf_replay.num_queries}_update${rlhf.update_every_steps}_pretrain${rlhf.num_pretrain_steps}_comp-${rlhf.comparison_type}_reward-reset-${rlhf.initialize_reward_model_per_session}_agent-reset-${rlhf.initialize_agent_per_session}_lambda${reward_method.lambda_weight}_seed${seed}_${now:%Y%m%d%H%M%S}
