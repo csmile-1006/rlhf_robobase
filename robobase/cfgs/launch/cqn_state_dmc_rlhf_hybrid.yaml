@@ -34,7 +34,7 @@ rlhf:
   query_type: random
   max_feedback: 1000
   update_every_steps: 50000
-  num_pretrain_steps: 10000
+  num_pretrain_steps: 50000
   num_train_frames: 500
   initialize_agent_per_session: true
   initialize_reward_model_per_session: true
