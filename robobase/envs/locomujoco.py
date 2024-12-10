@@ -194,6 +194,8 @@ class LocoMujoco(gym.Env):
 
     def render(self) -> None:
         image = self._locomujoco_env.render()
+        # Rotate image 90 degrees clockwise
+        image = np.rot90(image, k=-1)
         return image
 
 
