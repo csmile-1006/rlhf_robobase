@@ -40,6 +40,8 @@ rlhf:
   gemini:
     model_type: gemini-1.5-pro
     target_viewpoints: ${env.query_keys}
+  initialize_reward_model_per_session: true
+  initialize_agent_per_session: true
 
 rlhf_replay:
   num_queries: 100
