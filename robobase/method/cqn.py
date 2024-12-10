@@ -304,6 +304,7 @@ class CQN(ValueBased):
         v_max: float,
         critic_lambda: float,
         centralized_critic: bool,
+        critic_target_interval: int,
         *args,
         **kwargs,
     ):
@@ -313,6 +314,7 @@ class CQN(ValueBased):
         self.v_max = v_max
         self.critic_lambda = critic_lambda
         self.centralized_critic = centralized_critic
+        self.critic_target_interval = critic_target_interval
         super().__init__(*args, **kwargs)
 
     def build_critic(self):
@@ -617,14 +619,18 @@ class CQN(ValueBased):
                         logging=self.logging,
                     )
                 )
-                utils.soft_update_params(
-                    self.intr_critic, self.intr_critic_target, self.critic_target_tau
-                )
+                if step % self.critic_target_interval == 0:
+                    utils.soft_update_params(
+                        self.intr_critic,
+                        self.intr_critic_target,
+                        self.critic_target_tau,
+                    )
 
             # update critic target
-            utils.soft_update_params(
-                self.critic, self.critic_target, self.critic_target_tau
-            )
+            if step % self.critic_target_interval == 0:
+                utils.soft_update_params(
+                    self.critic, self.critic_target, self.critic_target_tau
+                )
 
         return metrics
 

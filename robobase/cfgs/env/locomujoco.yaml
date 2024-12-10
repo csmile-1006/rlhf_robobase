@@ -1,0 +1,11 @@
+# @package _global_
+
+env:
+  env_name: locomujoco
+  episode_length: 1000  # This is the default for LocoMujoco.
+  reward_mode: dense
+  reward_term_type: all
+  initial_terms: []
+  query_keys: ["pixels"]
+
+action_repeat: 2

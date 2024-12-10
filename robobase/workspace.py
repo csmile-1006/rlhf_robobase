@@ -202,6 +202,11 @@ def _create_default_envs(cfg: DictConfig) -> EnvFactory:
         from robobase.envs.humanoidbench import HumanoidBenchEnvFactory
 
         factory = HumanoidBenchEnvFactory()
+
+    elif cfg.env.env_name == "locomujoco":
+        from robobase.envs.locomujoco import LocoMujocoEnvFactory
+
+        factory = LocoMujocoEnvFactory()
     else:
         ValueError()
     return factory

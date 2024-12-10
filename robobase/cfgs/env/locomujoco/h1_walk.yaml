@@ -1,0 +1,8 @@
+# @package _global_
+
+defaults:
+  - locomujoco
+  - _self_
+
+env:
+  task_name: UnitreeH1.walk

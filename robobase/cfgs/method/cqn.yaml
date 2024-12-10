@@ -26,6 +26,7 @@ method:
   v_max: 200.0 # Set to r_max / (1 - gamma), e.g., DMC -> 200 (with action repeat 2) or to r_max, e.g., RLBench -> 1
   atoms: 51    # Worth trying 101
   critic_lambda: 1.0
+  critic_target_interval: 1
   centralized_critic: false
 
   advantage_model:

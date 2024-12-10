@@ -6,7 +6,7 @@ from gymnasium import spaces
 from gymnasium.wrappers import TimeLimit
 from omegaconf import DictConfig
 
-import humanoid_bench  # noqa
+import loco_mujoco  # noqa
 
 from robobase.envs.env import EnvFactory
 from robobase.envs.wrappers import (
@@ -15,20 +15,18 @@ from robobase.envs.wrappers import (
     RescaleFromTanh,
     ActionSequence,
 )
-from robobase.envs.utils.humanoidbench_utils import (
+from robobase.envs.utils.locomujoco_utils import (
     TASK_DESCRIPTION,
 )
 
 import logging
-
-logging.getLogger("pybullet").setLevel(logging.ERROR)
 
 
 def _task_name_to_description(task_name: str) -> str:
     return TASK_DESCRIPTION.get(task_name, None)
 
 
-class HumanoidBench(gym.Env):
+class LocoMujoco(gym.Env):
     metadata = {"render_modes": ["rgb_array", "human"], "render_fps": 4}
 
     def __init__(
@@ -43,7 +41,6 @@ class HumanoidBench(gym.Env):
         reward_mode: str = "dense",
         reward_term_type: str = "all",
         initial_terms: list[float] = [],
-        blocked_hands: bool = False,
     ):
         self._task_name = task_name
         self._from_pixels = from_pixels
@@ -62,20 +59,20 @@ class HumanoidBench(gym.Env):
             key == self._pixels_key for key in query_keys
         ), f"Only {self._pixels_key} view is supported"
 
-        self._hb_env = None
+        self._locomujoco_env = None
 
         # Set up rendering parameters
         height, width = visual_observation_shape
         logging.info(
-            f"Creating HumanoidBench environment with task name: {self._task_name}"
+            f"Creating LocoMujoco environment with task name: {self._task_name}"
         )
 
-        self._hb_env = gym.make(
-            self._task_name,
+        self._locomujoco_env = gym.make(
+            "LocoMujoco",
+            env_name=self._task_name,
             width=width,
             height=height,
-            blocked_hands=blocked_hands,
-            small_obs=None,
+            render_mode=render_mode,
         )
 
         # Set up observation space
@@ -87,8 +84,8 @@ class HumanoidBench(gym.Env):
             _obs_space["rgb"] = rgb_space
         else:
             _obs_space["low_dim_state"] = spaces.Box(
-                low=self._hb_env.observation_space.low,
-                high=self._hb_env.observation_space.high,
+                low=self._locomujoco_env.observation_space.low,
+                high=self._locomujoco_env.observation_space.high,
                 dtype=np.float32,
             )
 
@@ -102,8 +99,14 @@ class HumanoidBench(gym.Env):
                     dtype=np.uint8,
                 )
         self.observation_space = spaces.Dict(_obs_space)
-        self.action_space = self._hb_env.action_space
-        self.reward_space = self._hb_env.task.reward_space
+        self.action_space = self._locomujoco_env.action_space
+        self.reward_space = gym.spaces.Dict(
+            {
+                "target_velocity": gym.spaces.Box(
+                    low=1e-10, high=1e1, shape=(), dtype=np.float32
+                ),
+            }
+        )
 
         if len(self._initial_terms) == 0:
             self._initial_terms = [key for key in self.reward_space.keys()]
@@ -137,7 +140,7 @@ class HumanoidBench(gym.Env):
     def _get_obs(self, observation):
         ret_obs = {}
         if self._from_pixels:
-            ret_obs["rgb"] = self._hb_env.render().transpose([2, 0, 1]).copy()
+            ret_obs["rgb"] = self._locomujoco_env.render().transpose([2, 0, 1]).copy()
         else:
             ret_obs["low_dim_state"] = observation.astype(np.float32)
 
@@ -149,9 +152,15 @@ class HumanoidBench(gym.Env):
         reward = 0
         info = {"task_reward": 0.0, **{f"Reward/{k}": 0.0 for k in self._reward_terms}}
         for _ in range(self._action_repeat):
-            next_obs, task_reward, terminated, truncated, _info = self._hb_env.step(
-                action
-            )
+            (
+                next_obs,
+                task_reward,
+                terminated,
+                truncated,
+                _info,
+            ) = self._locomujoco_env.step(action)
+            # target velocity is the reward
+            _info["target_velocity"] = task_reward
             info["task_reward"] += task_reward
             if self._reward_mode == "initial":
                 _reward = np.sum(
@@ -178,17 +187,17 @@ class HumanoidBench(gym.Env):
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
-        agym_obs, info = self._hb_env.reset(seed=seed)
+        agym_obs, info = self._locomujoco_env.reset(seed=seed)
         info.update({key: 0.0 for key in self.reward_space.keys()})
         info.update({"task_reward": 0.0})
         return self._get_obs(agym_obs), info
 
     def render(self) -> None:
-        image = self._hb_env.render()
+        image = self._locomujoco_env.render()
         return image
 
 
-class HumanoidBenchEnvFactory(EnvFactory):
+class LocoMujocoEnvFactory(EnvFactory):
     def _wrap_env(self, env, cfg):
         env = RescaleFromTanh(env)
         if cfg.env.episode_length != 1000:
@@ -203,14 +212,14 @@ class HumanoidBenchEnvFactory(EnvFactory):
         return env
 
     def make_train_env(self, cfg: DictConfig) -> gym.vector.VectorEnv:
-        # vec_env_class = gym.vector.AsyncVectorEnv
-        # kwargs = dict(context=None)
-        vec_env_class = gym.vector.SyncVectorEnv
-        kwargs = dict()
+        vec_env_class = gym.vector.AsyncVectorEnv
+        kwargs = dict(context=None)
+        # vec_env_class = gym.vector.SyncVectorEnv
+        # kwargs = dict()
         return vec_env_class(
             [
                 lambda: self._wrap_env(
-                    HumanoidBench(
+                    LocoMujoco(
                         task_name=cfg.env.task_name,
                         from_pixels=cfg.pixels,
                         action_repeat=cfg.action_repeat,
@@ -221,7 +230,6 @@ class HumanoidBenchEnvFactory(EnvFactory):
                         reward_mode=cfg.env.reward_mode,
                         reward_term_type=cfg.env.reward_term_type,
                         initial_terms=cfg.env.initial_terms,
-                        blocked_hands=cfg.env.blocked_hands,
                     ),
                     cfg,
                 )
@@ -232,7 +240,7 @@ class HumanoidBenchEnvFactory(EnvFactory):
 
     def make_eval_env(self, cfg: DictConfig) -> gym.Env:
         return self._wrap_env(
-            HumanoidBench(
+            LocoMujoco(
                 task_name=cfg.env.task_name,
                 from_pixels=cfg.pixels,
                 action_repeat=cfg.action_repeat,
@@ -243,7 +251,6 @@ class HumanoidBenchEnvFactory(EnvFactory):
                 reward_mode=cfg.env.reward_mode,
                 reward_term_type=cfg.env.reward_term_type,
                 initial_terms=cfg.env.initial_terms,
-                blocked_hands=cfg.env.blocked_hands,
             ),
             cfg,
         )
