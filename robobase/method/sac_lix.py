@@ -47,6 +47,7 @@ class SACLix(ActorCritic):
     def __init__(self, alpha_lr: float, init_temperature: float, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.init_temperature = init_temperature
+        self.alpha_lr = alpha_lr
         self.target_entropy = -torch.prod(
             torch.Tensor(self.action_space.shape).to(self.device)
         ).item()
@@ -54,6 +55,16 @@ class SACLix(ActorCritic):
             torch.tensor(np.log(init_temperature), device=self.device)
         )
         self.a_optimizer = torch.optim.Adam([self.log_alpha], lr=alpha_lr)
+
+    def reset_temperature(self):
+        self.init_temperature = self.init_temperature
+        self.target_entropy = -torch.prod(
+            torch.Tensor(self.action_space.shape).to(self.device)
+        ).item()
+        self.log_alpha = nn.Parameter(
+            torch.tensor(np.log(self.init_temperature), device=self.device)
+        )
+        self.a_optimizer = torch.optim.Adam([self.log_alpha], lr=self.alpha_lr)
 
     def build_encoder(self):
         rgb_spaces = extract_many_from_spec(

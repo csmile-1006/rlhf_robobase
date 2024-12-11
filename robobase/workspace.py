@@ -1156,6 +1156,8 @@ class Workspace:
                             self.agent.reset_critic()
                         if hasattr(self.agent, "reset_actor"):
                             self.agent.reset_actor()
+                        if hasattr(self.agent, "reset_temperature"):
+                            self.agent.reset_temperature()
 
                 if (
                     self.total_feedback <= self.cfg.rlhf.max_feedback
