@@ -27,7 +27,7 @@ reward_method:
 rlhf:
   use_rlhf: true
   feedback_type: gemini
-  comparison_type: random
+  comparison_type: sequential
   query_type: random
   max_feedback: 100
   update_every_steps: 50000
