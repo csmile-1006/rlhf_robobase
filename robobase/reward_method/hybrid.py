@@ -48,6 +48,7 @@ class HybridReward(RewardMethod):
         lambda_weight: float = 1.0,
         reg_weight: float = 0.0,
         apply_final_layer_tanh: bool = False,
+        data_aug_ratio: float = 0.0,
         *args,
         **kwargs,
     ):
@@ -95,6 +96,7 @@ class HybridReward(RewardMethod):
         self.aug = (
             TimeConsistentRandomShiftsAug(pad=4) if use_augmentation else lambda x: x
         )
+        self.data_aug_ratio = data_aug_ratio
 
         # T should be same across all obs
         self.use_pixels = len(self.rgb_spaces) > 0
@@ -442,6 +444,19 @@ class HybridReward(RewardMethod):
 
         return seq
 
+    def get_cropping_mask(self, r_hat, w):
+        mask_ = []
+        for i in range(w):
+            B, S, _ = r_hat.shape
+            length = np.random.randint(int(0.7 * S), int(0.9 * S) + 1, size=B)
+            start_index = np.random.randint(0, S + 1 - length)
+            mask = torch.zeros((B, S, 1)).to(self.device)
+            for b in range(B):
+                mask[b, start_index[b] : start_index[b] + length[b]] = 1
+            mask_.append(mask)
+
+        return torch.cat(mask_)
+
     @override
     def update(
         self, replay_iter, step: int, replay_buffer: ReplayBuffer = None
@@ -465,10 +480,10 @@ class HybridReward(RewardMethod):
         for mem in range(self.num_reward_models):
             batch = next(replay_iter)
             batch = {k: v.to(self.device) for k, v in batch.items()}
-            r_hats_weighted = []
-            r_hat_weights = []
-            scaled_r_hat_weights = []
-            r_hats_computed = []
+            weighted_rewards = []
+            raw_weights = []
+            normalized_weights = []
+            markovian_rewards = []
             for i in range(2):
                 actions = batch[f"seg{i}_action"]
                 if self.low_dim_size > 0:
@@ -492,7 +507,7 @@ class HybridReward(RewardMethod):
                     {key: batch[f"seg{i}_{key}"] for key in self.reward_space.keys()},
                     dim=-1,
                 )
-                # r_hat_weight: (bs * seq, num_reward_terms) -> (bs, seq, num_reward_terms)
+                # raw_weight: (bs * seq, num_reward_terms) -> (bs, seq, num_reward_terms)
                 args = (
                     qpos.reshape(-1, *qpos.shape[2:]),
                     fused_rgb_feats.reshape(-1, *fused_rgb_feats.shape[2:])
@@ -503,34 +518,50 @@ class HybridReward(RewardMethod):
                     if time_obs is not None
                     else None,
                 )
-                r_hat_weight = self.weight_tuner(*args, member=mem).view(
+                raw_weight = self.weight_tuner(*args, member=mem).view(
                     *actions.shape[:-2], -1, reward_terms.shape[-1]
                 )
-                scaled_r_hat_weight = self.weight_tuner.transform_to_tanh(r_hat_weight)
-                # r_hat: (bs, seq, num_reward_terms) -> (bs, seq, 1) -> (bs, 1)
-                r_hat = (
-                    (r_hat_weight * reward_terms).sum(dim=-1, keepdim=True).sum(dim=-2)
-                )
-                r_hats_weighted.append(r_hat)
-                r_hat_weights.append(r_hat_weight)
-                scaled_r_hat_weights.append(scaled_r_hat_weight)
+                normalized_weight = self.weight_tuner.transform_to_tanh(raw_weight)
+                # weighted_reward: (bs, seq, num_reward_terms) -> (bs, seq, 1) -> (bs, 1)
+                weighted_reward = (raw_weight * reward_terms).sum(dim=-1, keepdim=True)
+                if self.data_aug_ratio > 0.0:
+                    mask = self.get_cropping_mask(weighted_reward, self.data_aug_ratio)
+                    weighted_reward = weighted_reward.repeat(self.data_aug_ratio, 1, 1)
+                    weighted_reward = (mask * weighted_reward).sum(axis=-2)
+                else:
+                    weighted_reward = weighted_reward.sum(axis=-2)
+                weighted_rewards.append(weighted_reward)
+                raw_weights.append(raw_weight)
+                normalized_weights.append(normalized_weight)
 
-                # Compute computed reward
-                r_hat_computed = self.markovian(*args, member=mem)
-                # r_hat_computed: (bs, seq, 1) -> (bs, 1)
-                r_hat_computed = r_hat_computed.view(
-                    *actions.shape[:-2], -1, r_hat_computed.shape[-1]
-                ).sum(dim=-2)
-                r_hats_computed.append(r_hat_computed)
+                # Compute markovian reward
+                markovian_reward = self.markovian(*args, member=mem)
+                # markovian_reward: (bs, seq, 1) -> (bs, 1)
+                markovian_reward = markovian_reward.view(
+                    *actions.shape[:-2], -1, markovian_reward.shape[-1]
+                )
+                if self.data_aug_ratio > 0.0:
+                    mask = self.get_cropping_mask(markovian_reward, self.data_aug_ratio)
+                    markovian_reward = markovian_reward.repeat(
+                        self.data_aug_ratio, 1, 1
+                    )
+                    markovian_reward = (mask * markovian_reward).sum(axis=-2)
+                else:
+                    markovian_reward = markovian_reward.sum(axis=-2)
+                markovian_rewards.append(markovian_reward)
+
+            labels = batch["label"]
+            if self.data_aug_ratio > 0:
+                labels = labels.repeat(self.data_aug_ratio, 1)
 
             _weighted_loss_dict = self.weight_tuner.calculate_loss(
-                r_hats_weighted, batch["label"], r_hat_weights
+                weighted_rewards, labels, raw_weights
             )
             for k, v in _weighted_loss_dict.items():
                 weighted_loss_dict[k] += v
 
             _computed_loss_dict = self.markovian.calculate_loss(
-                r_hats_computed, batch["label"]
+                markovian_rewards, labels
             )
             for k, v in _computed_loss_dict.items():
                 computed_loss_dict[k] += v
@@ -565,11 +596,11 @@ class HybridReward(RewardMethod):
             metrics["reward_loss"] = (
                 weighted_loss_dict["loss"] + computed_loss_dict["loss"]
             ).item()
-            r_hat_weights = torch.cat(r_hat_weights, dim=0)
-            scaled_r_hat_weights = torch.cat(scaled_r_hat_weights, dim=0)
+            raw_weights = torch.cat(raw_weights, dim=0)
+            normalized_weights = torch.cat(normalized_weights, dim=0)
             for idx, term in enumerate(self.reward_space):
                 metrics[f"r_hat_weights_{term.split('/')[-1]}"] = (
-                    scaled_r_hat_weights[..., idx].mean().item()
+                    normalized_weights[..., idx].mean().item()
                 )
             for label in range(self.num_labels):
                 metrics[f"weighted_pref_acc_label_{label}"] = weighted_loss_dict[

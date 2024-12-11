@@ -528,7 +528,7 @@ class QueryReplayBuffer(ReplayBuffer):
     def _sample_episode(self):
         eps_fn = np.random.choice(self._episode_files[-self._max_episode_number :])
         _, _, global_index = [int(x) for x in eps_fn.stem.split("_")[1:]]
-        return self._episodes[eps_fn], global_index
+        return self._episodes[eps_fn], global_index, eps_fn
 
     def _load_episode_into_worker(self, eps_fn: Path, global_idx: int):
         # Load episode into memory
@@ -614,7 +614,7 @@ class QueryReplayBuffer(ReplayBuffer):
         # Sample transition index
         if global_index is None:
             # NOTE: here global index is the index of the start of episode.
-            episode, global_index = self._sample_episode()
+            episode, global_index, eps_fn = self._sample_episode()
             # When using sequential, we ensure that frame stack does not repeat
             # the initial frames when sampling the beginning of the episode.
             min_idx = self._transition_seq_len - 1
@@ -626,7 +626,7 @@ class QueryReplayBuffer(ReplayBuffer):
             episodes_to_flatten = [episode]
             while idx >= total_len:
                 # Spill over into another episode
-                _episode, _global_index = self._sample_episode()
+                _episode, _global_index, eps_fn = self._sample_episode()
                 total_len += episode_len(_episode)
                 episodes_to_flatten.append(_episode)
             episode = self._flatten_episodes(episodes_to_flatten)
@@ -673,6 +673,8 @@ class QueryReplayBuffer(ReplayBuffer):
         for name in self._storage_signature.keys():
             if name not in replay_sample:
                 replay_sample[name] = episode[name][transition_idxs]
+
+        replay_sample["episode_number"] = eps_fn.stem.split("_")[1]
 
         return replay_sample
 

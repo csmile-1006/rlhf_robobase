@@ -130,6 +130,7 @@ class MarkovianReward(RewardMethod):
         use_augmentation: bool = False,
         reward_space: gym.spaces.Dict = None,
         apply_final_layer_tanh: bool = False,
+        data_aug_ratio: float = 0.0,
         *args,
         **kwargs,
     ):
@@ -165,6 +166,7 @@ class MarkovianReward(RewardMethod):
         self.aug = (
             TimeConsistentRandomShiftsAug(pad=4) if use_augmentation else lambda x: x
         )
+        self.data_aug_ratio = data_aug_ratio
 
         # T should be same across all obs
         self.use_pixels = len(self.rgb_spaces) > 0
@@ -425,6 +427,19 @@ class MarkovianReward(RewardMethod):
 
         return seq
 
+    def get_cropping_mask(self, r_hat, w):
+        mask_ = []
+        for i in range(w):
+            B, S, _ = r_hat.shape
+            length = np.random.randint(int(0.7 * S), int(0.9 * S) + 1, size=B)
+            start_index = np.random.randint(0, S + 1 - length)
+            mask = torch.zeros((B, S, 1)).to(self.device)
+            for b in range(B):
+                mask[b, start_index[b] : start_index[b] + length[b]] = 1
+            mask_.append(mask)
+
+        return torch.cat(mask_)
+
     @override
     def update(
         self, replay_iter, step: int, replay_buffer: ReplayBuffer = None
@@ -480,10 +495,20 @@ class MarkovianReward(RewardMethod):
                 )
                 r_hat = r_hat_segment.view(
                     *actions.shape[:-2], -1, r_hat_segment.shape[-1]
-                ).sum(dim=-2)
+                )
+                if self.data_aug_ratio > 0.0:
+                    mask = self.get_cropping_mask(r_hat, self.data_aug_ratio)
+                    r_hat = r_hat.repeat(self.data_aug_ratio, 1, 1)
+                    r_hat = (mask * r_hat).sum(axis=-2)
+                else:
+                    r_hat = r_hat_segment.sum(dim=-2)
                 r_hats.append(r_hat)
 
-            _loss_dict = self.reward.calculate_loss(r_hats, batch["label"])
+            labels = batch["label"]
+            if self.data_aug_ratio > 0:
+                labels = labels.repeat(self.data_aug_ratio, 1)
+
+            _loss_dict = self.reward.calculate_loss(r_hats, labels)
             for k, v in _loss_dict.items():
                 loss_dict[k] += v
 

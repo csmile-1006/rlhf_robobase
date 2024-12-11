@@ -149,6 +149,7 @@ class WeightTunerReward(RewardMethod):
         compute_batch_size: int = 32,
         use_augmentation: bool = False,
         reg_weight: float = 0.0,
+        data_aug_ratio: float = 0.0,
         *args,
         **kwargs,
     ):
@@ -194,6 +195,7 @@ class WeightTunerReward(RewardMethod):
         self.aug = (
             TimeConsistentRandomShiftsAug(pad=4) if use_augmentation else lambda x: x
         )
+        self.data_aug_ratio = data_aug_ratio
 
         # T should be same across all obs
         self.use_pixels = len(self.rgb_spaces) > 0
@@ -524,6 +526,19 @@ class WeightTunerReward(RewardMethod):
 
         return seq
 
+    def get_cropping_mask(self, r_hat, w):
+        mask_ = []
+        for i in range(w):
+            B, S, _ = r_hat.shape
+            length = np.random.randint(int(0.7 * S), int(0.9 * S) + 1, size=B)
+            start_index = np.random.randint(0, S + 1 - length)
+            mask = torch.zeros((B, S, 1)).to(self.device)
+            for b in range(B):
+                mask[b, start_index[b] : start_index[b] + length[b]] = 1
+            mask_.append(mask)
+
+        return torch.cat(mask_)
+
     @override
     def update(
         self, replay_iter, step: int, replay_buffer: ReplayBuffer = None
@@ -585,18 +600,22 @@ class WeightTunerReward(RewardMethod):
                 ).view(*actions.shape[:-2], -1, reward_terms.shape[-1])
                 # r_hat: (bs, seq, num_reward_terms) -> (bs, seq, 1) -> (bs, 1)
                 scaled_r_hat_weight = self.reward.transform_to_tanh(r_hat_weight)
-                r_hat = (
-                    (scaled_r_hat_weight * reward_terms)
-                    .sum(dim=-1, keepdim=True)
-                    .sum(dim=-2)
-                )
+                r_hat = (scaled_r_hat_weight * reward_terms).sum(dim=-1, keepdim=True)
+                if self.data_aug_ratio > 0.0:
+                    mask = self.get_cropping_mask(r_hat, self.data_aug_ratio)
+                    r_hat = r_hat.repeat(self.data_aug_ratio, 1, 1)
+                    r_hat = (mask * r_hat).sum(axis=-2)
+                else:
+                    r_hat = r_hat.sum(axis=-2)
                 r_hats.append(r_hat)
                 r_hat_weights.append(r_hat_weight)
                 scaled_r_hat_weights.append(scaled_r_hat_weight)
 
-            _loss_dict = self.reward.calculate_loss(
-                r_hats, batch["label"], r_hat_weights
-            )
+            labels = batch["label"]
+            if self.data_aug_ratio > 0:
+                labels = labels.repeat(self.data_aug_ratio, 1)
+
+            _loss_dict = self.reward.calculate_loss(r_hats, labels, r_hat_weights)
             for k, v in _loss_dict.items():
                 loss_dict[k] += v
 

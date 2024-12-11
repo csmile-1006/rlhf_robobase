@@ -47,6 +47,8 @@ rlhf_replay:
   seq_len: 50
   feedback_batch_size: 128
   max_episode_number: 0
+  initialize_reward_model_per_session: true
+  initialize_agent_per_session: true
 
 hydra:
   run:

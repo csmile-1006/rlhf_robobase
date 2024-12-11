@@ -71,6 +71,7 @@ def _create_default_replay_buffer(
     save_dir: Path = None,
     demo_replay: bool = False,
     extra_replay_elements: dict[str, gym.Space] = None,
+    max_episode_number: int = 0,
 ) -> ReplayBuffer:
     if extra_replay_elements is None:
         extra_replay_elements = spaces.Dict({})
@@ -101,6 +102,7 @@ def _create_default_replay_buffer(
         extra_replay_elements=extra_replay_elements,
         num_workers=cfg.replay.num_workers,
         sequential=cfg.replay.sequential,
+        max_episode_number=max_episode_number,
         purge_replay_on_shutdown=True,
     )
 
@@ -350,14 +352,14 @@ class Workspace:
                 self.query_replay_buffer,
                 batch_size=self.query_replay_buffer.batch_size,
                 num_workers=1,
-                worker_init_fn=_worker_init_fn,
+                worker_init_fn=partial(_worker_init_fn, offset=1234),
             )
             self.feedback_replay_loader = DataLoader(
                 self.feedback_replay_buffer,
                 batch_size=self.feedback_replay_buffer.batch_size,
                 num_workers=cfg.rlhf_replay.num_workers,
                 pin_memory=cfg.rlhf_replay.pin_memory,
-                worker_init_fn=_worker_init_fn,
+                worker_init_fn=partial(_worker_init_fn, offset=4567),
             )
             self._query_replay_iter, self._feedback_replay_iter = None, None
 
@@ -1099,7 +1101,7 @@ class Workspace:
                 if (
                     self.total_feedback < self.cfg.rlhf.max_feedback
                     and should_update_reward_model(
-                        self.global_env_steps
+                        self.global_env_steps - self.cfg.rlhf.num_pretrain_steps
                     )  # first start when pretrain step is finished, and then start when query replay buffer is filled
                     and not reward_until_frame(self.global_env_steps)
                     and not seed_until_size(len(self.query_replay_buffer))
@@ -1136,6 +1138,8 @@ class Workspace:
                                 self.global_env_steps,
                                 prefix="train_reward",
                             )
+                        if reward_update_metrics["pref_acc_label_0"] > 0.97:
+                            break
 
                     if not self.reward_model.activated:
                         self.reward_model.set_activated(True)

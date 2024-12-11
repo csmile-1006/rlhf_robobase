@@ -129,6 +129,7 @@ class UniformReplayBuffer(ReplayBuffer):
         fetch_every: int = 100,
         sequential: bool = False,
         transition_seq_len: int = 1,
+        max_episode_number: int = 0,
     ):
         """Initializes OutOfGraphReplayBuffer.
 
@@ -159,7 +160,7 @@ class UniformReplayBuffer(ReplayBuffer):
             sequential format.
           transition_seq_len (int): the length of the transition sequence to sample
             from sequential replay buffer. Only applicable if sequential is true.
-
+          max_episode_number (int): the maximum number of episodes to store.
         Raises:
           ValueError: If replay_capacity is too small to hold at least one
             transition.
@@ -226,6 +227,7 @@ class UniformReplayBuffer(ReplayBuffer):
         self._nstep = 1 if sequential else nstep
         self._gamma = gamma
         self._sequential = sequential
+        self._max_episode_number = max_episode_number
 
         self.observation_elements = observation_elements
         self.extra_replay_elements = extra_replay_elements
@@ -274,6 +276,7 @@ class UniformReplayBuffer(ReplayBuffer):
         logging.info("\t batch_size: %d", self._batch_size)
         logging.info("\t nstep: %d", self._nstep)
         logging.info("\t gamma: %f", self._gamma)
+        logging.info("\t max_episode_number: %d", self._max_episode_number)
         self._is_first = True
 
     @property
@@ -570,7 +573,7 @@ class UniformReplayBuffer(ReplayBuffer):
         self._size = 0
 
     def _sample_episode(self):
-        eps_fn = np.random.choice(self._episode_files)
+        eps_fn = np.random.choice(self._episode_files[-self._max_episode_number :])
         _, _, global_index = [int(x) for x in eps_fn.stem.split("_")[1:]]
         return self._episodes[eps_fn], global_index
 

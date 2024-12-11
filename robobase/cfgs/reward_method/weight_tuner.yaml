@@ -16,6 +16,7 @@ reward_method:
   seq_len: ${rlhf_replay.seq_len}
   use_augmentation: true
   reg_weight: 0.0
+  data_aug_ratio: 0
 
   encoder_model:
     _target_: robobase.models.encoder.DINOv2Encoder
