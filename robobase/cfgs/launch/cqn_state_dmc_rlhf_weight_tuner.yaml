@@ -13,7 +13,7 @@ frame_stack: 1
 action_repeat: 1
 num_train_envs: 1
 num_eval_episodes: 10
-eval_every_steps: 50000
+eval_every_steps: 12500
 save_snapshot: true
 snapshot_every_n: 50000
 
@@ -33,8 +33,8 @@ rlhf:
   comparison_type: disagreement
   query_type: random
   max_feedback: 1000
-  update_every_steps: 50000
-  num_pretrain_steps: 50000
+  update_every_steps: 20000
+  num_pretrain_steps: 20000
   num_train_frames: 500
   snapshot_every_n: ${rlhf.update_every_steps}
   gemini:
