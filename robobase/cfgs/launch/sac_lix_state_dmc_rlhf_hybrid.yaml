@@ -16,6 +16,7 @@ num_eval_episodes: 10
 eval_every_steps: 50000
 save_snapshot: true
 snapshot_every_n: 50000
+num_train_frames: 502000
 
 update_every_steps: 1
 replay:
@@ -27,11 +28,11 @@ reward_method:
 rlhf:
   use_rlhf: true
   feedback_type: gemini
-  comparison_type: sequential
+  comparison_type: disagreement
   query_type: random
   max_feedback: 200
-  update_every_steps: 50000
-  num_pretrain_steps: 50000
+  update_every_steps: 20000
+  num_pretrain_steps: 20000
   num_train_frames: 200
   initialize_agent_per_session: true
   initialize_reward_model_per_session: true
