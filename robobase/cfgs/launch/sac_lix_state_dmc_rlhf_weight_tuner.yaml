@@ -29,10 +29,10 @@ rlhf:
   feedback_type: gemini
   comparison_type: sequential
   query_type: random
-  max_feedback: 100
+  max_feedback: 200
   update_every_steps: 50000
   num_pretrain_steps: 50000
-  num_train_frames: 100
+  num_train_frames: 200
   initialize_agent_per_session: true
   initialize_reward_model_per_session: true
   snapshot_every_n: ${rlhf.update_every_steps}
@@ -41,11 +41,11 @@ rlhf:
     target_viewpoints: ${env.query_keys}
 
 rlhf_replay:
-  num_queries: 10
+  num_queries: 20
   num_labels: 1
   seq_len: 50
   feedback_batch_size: 128
-  max_episode_number: 100
+  max_episode_number: 25
 
 hydra:
   run:

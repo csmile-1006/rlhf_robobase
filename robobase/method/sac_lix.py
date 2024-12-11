@@ -82,12 +82,12 @@ class SACLix(ActorCritic):
             )
 
     def build_actor(self):
-        self.actor_model = self.actor_model(
+        actor_model_obj = self.actor_model(
             input_shapes=self.get_fully_connected_inputs(),
             output_shape=self.action_space.shape[-1] * 2,
             num_envs=self.num_train_envs + self.num_eval_envs,
         )
-        self.actor = SACActor(self.actor_model).to(self.device)
+        self.actor = SACActor(actor_model_obj).to(self.device)
         self.actor_opt = torch.optim.Adam(self.actor.parameters(), lr=self.actor_lr)
 
     def calculate_target_q(
