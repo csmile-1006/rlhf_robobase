@@ -1,3 +1,7 @@
+import math
+import random
+import copy
+
 import numpy as np
 
 import gymnasium as gym
@@ -5,10 +9,13 @@ from gymnasium import spaces
 
 from gymnasium.wrappers import TimeLimit
 from omegaconf import DictConfig
+import multiprocessing as mp
+from tqdm import tqdm
 
 import loco_mujoco  # noqa
 
-from robobase.envs.env import EnvFactory
+from robobase.utils import add_demo_to_replay_buffer
+from robobase.envs.env import EnvFactory, DemoEnv
 from robobase.envs.wrappers import (
     OnehotTime,
     FrameStack,
@@ -24,6 +31,80 @@ import logging
 
 def _task_name_to_description(task_name: str) -> str:
     return TASK_DESCRIPTION.get(task_name, None)
+
+
+def compute_returns(traj):
+    episode_return = 0
+    for _, _, rew, _, _, _ in traj:
+        episode_return += rew
+
+    return episode_return
+
+
+def split_into_trajectories(
+    observations, actions, rewards, masks, dones_float, next_observations
+):
+    trajs = [[]]
+
+    for i in tqdm(range(len(observations))):
+        trajs[-1].append(
+            (
+                observations[i],
+                actions[i],
+                rewards[i],
+                masks[i],
+                dones_float[i],
+                next_observations[i],
+            )
+        )
+        if dones_float[i] == 1.0 and i + 1 < len(observations):
+            trajs.append([])
+
+    return trajs
+
+
+def get_traj_dataset(env, sorting=True):
+    dataset = env.create_dataset()
+    trajs = split_into_trajectories(
+        dataset["states"],
+        dataset["actions"],
+        dataset["rewards"],
+        dataset["last"],
+        dataset["absorbing"],
+        dataset["next_states"],
+    )
+    if sorting:
+        trajs.sort(key=compute_returns)
+
+    # Convert traj to RoboBase demo
+    converted_trajs = [[]]
+    for traj in trajs:
+        # The first transition only contains (obs, info),
+        # corresponding to the ouput of env.reset()
+        converted_trajs[-1].append([traj[0][0], {"demo": 1}])
+
+        # For the subsequent transitions. we convert
+        # (obs, actions, rew, masks, dones_float, next_obs)
+        # to (next_obs, rew, term, trunc, next_info) required by robobase.DemoEnv.
+        for ts in traj:
+            # truncation is always False as the time limit is handled by
+            # the `TimeLimit` wrapper.
+            converted_trajs[-1].append(
+                [ts[5], ts[2], ts[4], False, {"demo_action": ts[1], "demo": 1}]
+            )
+
+        # If traj length equals to max_episode_len, then termination=False and
+        # truncated=True
+        # NOTE: For d4rl, the collected trajectory has 1 less step then
+        # max_episode_steps.
+        if len(traj) == env.spec.max_episode_steps - 1:
+            converted_trajs[-1][-1][2] = False
+
+        converted_trajs.append([])
+    converted_trajs.pop()  # Remove the last empty traj
+
+    # NOTE: this raw_dataset is not sorted
+    return converted_trajs
 
 
 class LocoMujoco(gym.Env):
@@ -213,6 +294,20 @@ class LocoMujocoEnvFactory(EnvFactory):
         env = FrameStack(env, cfg.frame_stack)
         return env
 
+    def _create_env(self, cfg: DictConfig) -> LocoMujoco:
+        return LocoMujoco(
+            task_name=cfg.env.task_name,
+            from_pixels=cfg.pixels,
+            action_repeat=cfg.action_repeat,
+            visual_observation_shape=cfg.visual_observation_shape,
+            render_mode="rgb_array",
+            use_rlhf=cfg.rlhf.use_rlhf,
+            query_keys=cfg.env.query_keys,
+            reward_mode=cfg.env.reward_mode,
+            reward_term_type=cfg.env.reward_term_type,
+            initial_terms=cfg.env.initial_terms,
+        )
+
     def make_train_env(self, cfg: DictConfig) -> gym.vector.VectorEnv:
         vec_env_class = gym.vector.AsyncVectorEnv
         kwargs = dict(context=None)
@@ -221,18 +316,7 @@ class LocoMujocoEnvFactory(EnvFactory):
         return vec_env_class(
             [
                 lambda: self._wrap_env(
-                    LocoMujoco(
-                        task_name=cfg.env.task_name,
-                        from_pixels=cfg.pixels,
-                        action_repeat=cfg.action_repeat,
-                        visual_observation_shape=cfg.visual_observation_shape,
-                        render_mode="rgb_array",
-                        use_rlhf=cfg.rlhf.use_rlhf,
-                        query_keys=cfg.env.query_keys,
-                        reward_mode=cfg.env.reward_mode,
-                        reward_term_type=cfg.env.reward_term_type,
-                        initial_terms=cfg.env.initial_terms,
-                    ),
+                    self._create_env(cfg),
                     cfg,
                 )
                 for _ in range(cfg.num_train_envs)
@@ -241,21 +325,61 @@ class LocoMujocoEnvFactory(EnvFactory):
         )
 
     def make_eval_env(self, cfg: DictConfig) -> gym.Env:
-        return self._wrap_env(
-            LocoMujoco(
-                task_name=cfg.env.task_name,
-                from_pixels=cfg.pixels,
-                action_repeat=cfg.action_repeat,
-                visual_observation_shape=cfg.visual_observation_shape,
-                render_mode="rgb_array",
-                use_rlhf=cfg.rlhf.use_rlhf,
-                query_keys=cfg.env.query_keys,
-                reward_mode=cfg.env.reward_mode,
-                reward_term_type=cfg.env.reward_term_type,
-                initial_terms=cfg.env.initial_terms,
-            ),
+        env, (self._action_space, self._observation_space) = self._wrap_env(
+            self._create_env(cfg),
             cfg,
+            return_raw_spaces=True,
         )
+        return env
 
     def get_task_description(self, cfg: DictConfig) -> str:
         return _task_name_to_description(cfg.env.task_name)
+
+    def _get_demo_fn(self, cfg: DictConfig, num_demos: int) -> None:
+        env = self._create_env(cfg)
+        demos = get_traj_dataset(env)
+        env.close()
+        logging.info("Finished loading demos.")
+        return demos
+
+    def collect_or_fetch_demos(self, cfg: DictConfig, num_demos: int):
+        manager = mp.Manager()
+        mp_list = manager.list()
+        p = mp.Process(
+            target=self._get_demo_fn,
+            args=(
+                cfg,
+                num_demos,
+                mp_list,
+            ),
+        )
+        p.start()
+        p.join()
+
+        # Only extract num_demos from the full dataset
+        all_demos = list(mp_list)
+        if not math.isfinite(num_demos):
+            num_demos = len(all_demos)
+
+        if cfg.env.random_traj:
+            self._raw_demos = random.sample(all_demos, num_demos)
+        else:
+            self._raw_demos = all_demos[:num_demos]
+
+    def post_collect_or_fetch_demos(self, cfg: DictConfig):
+        self._demos = self._raw_demos
+
+    def load_demos_into_replay(self, cfg: DictConfig, buffer):
+        """See base class for documentation."""
+        assert hasattr(self, "_demos"), (
+            "There's no _demo attribute inside the factory, "
+            "Check `collect_or_fetch_demos` is called before calling this method."
+        )
+        demo_env = self._wrap_env(
+            DemoEnv(
+                copy.deepcopy(self._demos), self._action_space, self._observation_space
+            ),
+            cfg,
+        )
+        for _ in range(len(self._demos)):
+            add_demo_to_replay_buffer(demo_env, buffer)

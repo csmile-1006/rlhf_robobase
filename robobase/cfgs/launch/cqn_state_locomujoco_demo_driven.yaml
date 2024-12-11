@@ -1,0 +1,48 @@
+# @package _global_
+
+defaults:
+  - ../env: null  # Please specify environment to use in command line
+  - ../method: cqn
+
+pixels: false
+frame_stack: 1
+action_repeat: 1
+
+demos: 10
+
+batch_size: 128
+demo_batch_size: 128
+replay:
+  size: 10000000
+  nstep: 1  # Use 1 for walker_walk
+  num_workers: 4
+  demo_size: 100000
+
+num_train_frames: 10001000
+num_pretrain_steps: 0
+num_explore_steps: 0
+replay_size_before_train: 10000
+update_every_steps: 1
+save_snapshot: true
+eval_every_steps: 100000
+snapshot_every_n: 1000000
+visual_observation_shape: [128, 128]
+
+method:
+  critic_lr: 5e-5
+  view_fusion_lr: 5e-5
+  encoder_lr: 5e-5
+  weight_decay: 0.1
+  bc_lambda: 1.0
+  use_dueling: false
+  stddev_schedule: 0.01
+  v_min: 0.0
+  v_max: 200.0
+  atoms: 51
+  always_bootstrap: true
+  critic_target_interval: 1000
+  critic_target_tau: 1.0
+
+hydra:
+  run:
+    dir: ./exp_local/state_cqn/locomujoco_${env.task_name}_${now:%Y%m%d%H%M%S}
