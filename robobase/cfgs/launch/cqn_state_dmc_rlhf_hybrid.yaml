@@ -19,7 +19,10 @@ snapshot_every_n: 50000
 
 update_every_steps: 1
 replay:
-  nstep: 3  # Use 1 for walker_walk
+  nstep: 1  # Use 1 for walker_walk
+
+reward_method:
+  data_aug_ratio: 20
 
 method:
   use_dueling: false
@@ -30,12 +33,12 @@ method:
 rlhf:
   use_rlhf: true
   feedback_type: gemini
-  comparison_type: disagreement
+  comparison_type: sequential
   query_type: random
-  max_feedback: 1000
-  update_every_steps: 20000
-  num_pretrain_steps: 20000
-  num_train_frames: 500
+  max_feedback: 200
+  update_every_steps: 75000
+  num_pretrain_steps: 75000
+  num_train_frames: 200
   initialize_agent_per_session: true
   initialize_reward_model_per_session: true
   snapshot_every_n: ${rlhf.update_every_steps}
@@ -44,11 +47,11 @@ rlhf:
     target_viewpoints: ${env.query_keys}
 
 rlhf_replay:
-  num_queries: 100
+  num_queries: 20
   num_labels: 1
   seq_len: 50
   feedback_batch_size: 128
-  max_episode_number: 0
+  max_episode_number: 25
 
 hydra:
   run:
