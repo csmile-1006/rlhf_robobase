@@ -14,8 +14,8 @@ min_max_margin: 0.1
 batch_size: 256
 demo_batch_size: 256
 replay:
-  size: 10000000
-  nstep: 1  # Use 1 for walker_walk
+  size: 1000000
+  nstep: 3  # Use 1 for walker_walk
   num_workers: 4
   demo_size: 30000
 

@@ -8,17 +8,17 @@ pixels: false
 frame_stack: 1
 action_repeat: 1
 
-batch_size: 128
+batch_size: 256
 update_every_steps: 1
 replay:
-  size: 10000000
+  size: 1000000
   nstep: 3  # Use 1 for walker_walk
-num_train_frames: 10001000
+num_train_frames: 1000100
 num_explore_steps: 10000
 replay_size_before_train: 10000
 save_snapshot: true
-eval_every_steps: 100000
-snapshot_every_n: 1000000
+eval_every_steps: 20000
+snapshot_every_n: 100000
 visual_observation_shape: [128, 128]
 
 method:
@@ -26,13 +26,20 @@ method:
   view_fusion_lr: 5e-5
   encoder_lr: 5e-5
   weight_decay: 0.1
-  use_dueling: false
+  use_dueling: true
   stddev_schedule: 0.01
   v_min: 0.0
   v_max: 200.0
   atoms: 51
-  critic_target_interval: 1000
-  critic_target_tau: 1.0
+  critic_lambda: 0.1
+  always_bootstrap: true
+  advantage_model:
+    keys_to_bottleneck: [fused_view_feats, low_dim_obs, time_obs]
+
+  value_model:
+    keys_to_bottleneck: [fused_view_feats, low_dim_obs, time_obs]
+  # critic_target_interval: 1000
+  # critic_target_tau: 1.0
 
 hydra:
   run:
