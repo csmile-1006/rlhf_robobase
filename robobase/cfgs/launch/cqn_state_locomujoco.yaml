@@ -26,7 +26,7 @@ method:
   view_fusion_lr: 5e-5
   encoder_lr: 5e-5
   weight_decay: 0.1
-  use_dueling: true
+  use_dueling: false
   stddev_schedule: 0.01
   v_min: 0.0
   v_max: 200.0
@@ -38,8 +38,8 @@ method:
 
   value_model:
     keys_to_bottleneck: [fused_view_feats, low_dim_obs, time_obs]
-  # critic_target_interval: 1000
-  # critic_target_tau: 1.0
+  critic_target_interval: 1000
+  critic_target_tau: 1.0
 
 hydra:
   run:
