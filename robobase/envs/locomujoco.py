@@ -1,6 +1,6 @@
 import math
-import random
 import copy
+from typing import List, Callable
 
 import numpy as np
 
@@ -9,7 +9,6 @@ from gymnasium import spaces
 
 from gymnasium.wrappers import TimeLimit
 from omegaconf import DictConfig
-import multiprocessing as mp
 from tqdm import tqdm
 
 import loco_mujoco  # noqa
@@ -20,13 +19,37 @@ from robobase.envs.wrappers import (
     OnehotTime,
     FrameStack,
     RescaleFromTanh,
+    RescaleFromTanhWithMinMax,
     ActionSequence,
+    AppendDemoInfo,
 )
 from robobase.envs.utils.locomujoco_utils import (
     TASK_DESCRIPTION,
 )
 
 import logging
+
+
+def rescale_demo_actions(rescale_fn: Callable, demos: List[List], cfg: DictConfig):
+    """Rescale actions in demonstrations to [-1, 1] Tanh space.
+    This is because RoboBase assumes everything to be in [-1, 1] space.
+
+    Args:
+        rescale_fn: callable that takes info containing demo action and cfg and
+            outputs the rescaled action
+        demos: list of demo episodes whose actions are raw, i.e., not scaled
+        cfg: Configs
+
+    Returns:
+        List[Demo]: list of demo episodes whose actions are rescaled
+    """
+    for demo in demos:
+        for step in demo:
+            info = step[-1]
+            if "demo_action" in info:
+                # Rescale demo actions
+                info["demo_action"] = rescale_fn(info, cfg)
+    return demos
 
 
 def _task_name_to_description(task_name: str) -> str:
@@ -69,8 +92,8 @@ def get_traj_dataset(env, sorting=True):
         dataset["states"],
         dataset["actions"],
         dataset["rewards"],
-        dataset["last"],
         dataset["absorbing"],
+        dataset["last"],
         dataset["next_states"],
     )
     if sorting:
@@ -81,7 +104,9 @@ def get_traj_dataset(env, sorting=True):
     for traj in trajs:
         # The first transition only contains (obs, info),
         # corresponding to the ouput of env.reset()
-        converted_trajs[-1].append([traj[0][0], {"demo": 1}])
+        converted_trajs[-1].append(
+            [{"low_dim_state": traj[0][0].astype(np.float32)}, {"demo": 1}]
+        )
 
         # For the subsequent transitions. we convert
         # (obs, actions, rew, masks, dones_float, next_obs)
@@ -90,14 +115,20 @@ def get_traj_dataset(env, sorting=True):
             # truncation is always False as the time limit is handled by
             # the `TimeLimit` wrapper.
             converted_trajs[-1].append(
-                [ts[5], ts[2], ts[4], False, {"demo_action": ts[1], "demo": 1}]
+                [
+                    {"low_dim_state": ts[5].astype(np.float32)},
+                    ts[2],
+                    ts[4],
+                    False,
+                    {"demo_action": ts[1].astype(np.float32), "demo": 1},
+                ]
             )
 
         # If traj length equals to max_episode_len, then termination=False and
         # truncated=True
         # NOTE: For d4rl, the collected trajectory has 1 less step then
         # max_episode_steps.
-        if len(traj) == env.spec.max_episode_steps - 1:
+        if len(traj) == env.max_episode_steps - 1:
             converted_trajs[-1][-1][2] = False
 
         converted_trajs.append([])
@@ -129,13 +160,13 @@ class LocoMujoco(gym.Env):
         self._viewer = None
         assert render_mode is None or render_mode in self.metadata["render_modes"]
         assert reward_mode in ["initial", "dense"]
-        self._i = 0
         self._render_mode = render_mode
         self._reward_mode = reward_mode
         self._reward_term_type = reward_term_type
         self._initial_terms = initial_terms
         self._pixels_key = "pixels"
         self._query_keys = query_keys
+        self._max_episode_steps = 1000
         assert all(
             key == self._pixels_key for key in query_keys
         ), f"Only {self._pixels_key} view is supported"
@@ -180,7 +211,11 @@ class LocoMujoco(gym.Env):
                     dtype=np.uint8,
                 )
         self.observation_space = spaces.Dict(_obs_space)
-        self.action_space = self._locomujoco_env.action_space
+        self.action_space = gym.spaces.Box(
+            low=self._locomujoco_env.action_space.low,
+            high=self._locomujoco_env.action_space.high,
+            dtype=np.float32,
+        )
         self.reward_space = gym.spaces.Dict(
             {
                 "target_velocity": gym.spaces.Box(
@@ -263,7 +298,6 @@ class LocoMujoco(gym.Env):
         assert not np.any(
             terminated and truncated
         ), "Can't be both terminal and truncated."
-        self._i += 1
         return self._get_obs(next_obs), reward, terminated, truncated, info
 
     def reset(self, seed=None, options=None):
@@ -279,20 +313,44 @@ class LocoMujoco(gym.Env):
         image = np.rot90(image, k=-1)
         return image
 
+    def create_dataset(self):
+        return self._locomujoco_env.create_dataset()
+
+    @property
+    def max_episode_steps(self):
+        return self._max_episode_steps
+
 
 class LocoMujocoEnvFactory(EnvFactory):
-    def _wrap_env(self, env, cfg):
-        env = RescaleFromTanh(env)
-        if cfg.env.episode_length != 1000:
-            # Used in unit tests.
-            env = TimeLimit(env, cfg.env.episode_length)
+    def _wrap_env(self, env, cfg, demo_env=False, train=True, return_raw_spaces=False):
+        action_space = copy.deepcopy(env.action_space)
+        observation_space = copy.deepcopy(env.observation_space)
+
+        if cfg.demos > 0:
+            env = RescaleFromTanhWithMinMax(
+                env=env,
+                action_stats=self._action_stats,
+                min_max_margin=cfg.min_max_margin,
+            )
+        else:
+            env = RescaleFromTanh(env)
         if cfg.use_onehot_time_and_no_bootstrap:
             env = OnehotTime(
                 env, cfg.env.episode_length // cfg.action_repeat
             )  # Time limits are handles by DMC
-        env = ActionSequence(env, cfg.action_sequence)
-        env = FrameStack(env, cfg.frame_stack)
-        return env
+        if not demo_env:
+            env = FrameStack(env, cfg.frame_stack)
+        if cfg.env.episode_length != 1000:
+            # Used in unit tests.
+            env = TimeLimit(env, cfg.env.episode_length)
+
+        if not demo_env:
+            env = ActionSequence(env, cfg.action_sequence)
+        env = AppendDemoInfo(env)
+        if return_raw_spaces:
+            return env, action_space, observation_space
+        else:
+            return env
 
     def _create_env(self, cfg: DictConfig) -> LocoMujoco:
         return LocoMujoco(
@@ -325,7 +383,7 @@ class LocoMujocoEnvFactory(EnvFactory):
         )
 
     def make_eval_env(self, cfg: DictConfig) -> gym.Env:
-        env, (self._action_space, self._observation_space) = self._wrap_env(
+        env, self._action_space, self._observation_space = self._wrap_env(
             self._create_env(cfg),
             cfg,
             return_raw_spaces=True,
@@ -342,32 +400,40 @@ class LocoMujocoEnvFactory(EnvFactory):
         logging.info("Finished loading demos.")
         return demos
 
-    def collect_or_fetch_demos(self, cfg: DictConfig, num_demos: int):
-        manager = mp.Manager()
-        mp_list = manager.list()
-        p = mp.Process(
-            target=self._get_demo_fn,
-            args=(
-                cfg,
-                num_demos,
-                mp_list,
-            ),
-        )
-        p.start()
-        p.join()
+    def _compute_action_stats(self, cfg: DictConfig, demos: List[List]):
+        actions = []
+        for demo in demos:
+            for step in demo[1:]:
+                info = step[-1]
+                if "demo_action" in info:
+                    actions.append(info["demo_action"])
+        actions = np.stack(actions)
+        action_stats = {
+            "mean": np.mean(actions, 0).astype(np.float32),
+            "std": np.std(actions, 0).astype(np.float32),
+            "max": np.max(actions, 0).astype(np.float32),
+            "min": np.min(actions, 0).astype(np.float32),
+        }
+        return action_stats
 
+    def collect_or_fetch_demos(self, cfg: DictConfig, num_demos: int):
+        demos = self._get_demo_fn(cfg, num_demos)
         # Only extract num_demos from the full dataset
-        all_demos = list(mp_list)
+        all_demos = list(demos)
         if not math.isfinite(num_demos):
             num_demos = len(all_demos)
 
-        if cfg.env.random_traj:
-            self._raw_demos = random.sample(all_demos, num_demos)
-        else:
-            self._raw_demos = all_demos[:num_demos]
+        self._raw_demos = all_demos[:num_demos]
+        self._action_stats = self._compute_action_stats(cfg, self._raw_demos)
+        # if cfg.env.random_traj:
+        #     self._raw_demos = random.sample(all_demos, num_demos)
+        # else:
 
     def post_collect_or_fetch_demos(self, cfg: DictConfig):
         self._demos = self._raw_demos
+        self._demos = rescale_demo_actions(
+            self._rescale_demo_action_helper, self._demos, cfg
+        )
 
     def load_demos_into_replay(self, cfg: DictConfig, buffer):
         """See base class for documentation."""
@@ -380,6 +446,15 @@ class LocoMujocoEnvFactory(EnvFactory):
                 copy.deepcopy(self._demos), self._action_space, self._observation_space
             ),
             cfg,
+            demo_env=True,
+            train=False,
         )
         for _ in range(len(self._demos)):
             add_demo_to_replay_buffer(demo_env, buffer)
+
+    def _rescale_demo_action_helper(self, info, cfg: DictConfig):
+        return RescaleFromTanhWithMinMax.transform_to_tanh(
+            info["demo_action"],
+            action_stats=self._action_stats,
+            min_max_margin=cfg.min_max_margin,
+        )
