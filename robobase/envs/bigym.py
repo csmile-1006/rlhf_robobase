@@ -3,8 +3,6 @@ from bigym.action_modes import JointPositionActionMode
 from robobase.utils import (
     DemoEnv,
     add_demo_to_replay_buffer,
-    add_demo_to_query_replay_buffer,
-    convert_demo_to_episode_rollouts,
 )
 from robobase.envs.utils.bigym_utils import TASK_MAP, TASK_DESCRIPTION
 import gymnasium as gym
@@ -30,7 +28,6 @@ from demonstrations.demo import DemoStep
 from demonstrations.demo_store import DemoStore
 from demonstrations.utils import Metadata
 
-from robobase.replay_buffer.rlhf.query_replay_buffer import QueryReplayBuffer
 
 from typing import List, Dict, Tuple, Callable
 import copy
@@ -73,7 +70,7 @@ def _task_name_to_description(task_name: str) -> str:
 class BiGymEnvFactory(EnvFactory):
     def _wrap_env(self, env, cfg, demo_env=False, train=True, return_raw_spaces=False):
         # last two are grippers
-        # assert cfg.demos > 0
+        assert cfg.demos != 0
         assert cfg.action_repeat == 1
 
         action_space = copy.deepcopy(env.action_space)
@@ -171,9 +168,7 @@ class BiGymEnvFactory(EnvFactory):
         )
 
     def make_train_env(self, cfg: DictConfig) -> gym.vector.VectorEnv:
-        vec_env_class = gym.vector.AsyncVectorEnv
-        # vec_env_class = gym.vector.SyncVectorEnv
-        kwargs = dict(context="spawn")
+        vec_env_class = gym.vector.SyncVectorEnv
         return vec_env_class(
             [
                 lambda: self._wrap_env(
@@ -184,7 +179,6 @@ class BiGymEnvFactory(EnvFactory):
                 )
                 for _ in range(cfg.num_train_envs)
             ],
-            **kwargs,
         )
 
     def make_eval_env(self, cfg: DictConfig) -> gym.Env:
@@ -197,7 +191,7 @@ class BiGymEnvFactory(EnvFactory):
         )
         return env
 
-    def _get_demo_fn(self, cfg: DictConfig, num_demos: int, mp_list: List) -> None:
+    def _get_demo_fn(self, cfg: DictConfig, num_demos: int):
         demos = []
 
         logging.info("Start to load demos.")
@@ -221,23 +215,10 @@ class BiGymEnvFactory(EnvFactory):
 
         env.close()
         logging.info("Finished loading demos.")
-        # mp_list.append(demos)
         return demos
 
     def collect_or_fetch_demos(self, cfg: DictConfig, num_demos: int):
-        # manager = mp.Manager()
-        # mp_list = manager.list()
-
-        # p = mp.Process(
-        #     target=self._get_demo_fn,
-        #     args=(cfg, num_demos, mp_list),
-        # )
-        # p.start()
-        # p.join()
-
-        # demos = mp_list[0]
-        demos = self._get_demo_fn(cfg, num_demos, None)
-
+        demos = self._get_demo_fn(cfg, num_demos)
         self._raw_demos = demos
         self._action_stats = self._compute_action_stats(cfg, demos)
         self._obs_stats = self._compute_obs_stats(cfg, demos)
@@ -264,50 +245,34 @@ class BiGymEnvFactory(EnvFactory):
         )
         self._demos = self._demo_to_steps(cfg, demo_list)
 
-    def load_demos_into_replay(
-        self, cfg: DictConfig, buffer, target_indices: list[int] = None
-    ):
+    def load_demos_into_replay(self, cfg: DictConfig, buffer, is_demo_buffer):
         """See base class for documentation."""
         assert hasattr(self, "_demos"), (
             "There's no _demo attribute inside the factory, "
             "Check `collect_or_fetch_demos` is called before calling this method."
         )
-        if target_indices:
-            demos = [self._demos[i] for i in target_indices]
+
+        if is_demo_buffer:
+            # Filter successful demonstrations
+            demos = []
+            for i, demo in enumerate(self._demos):
+                successful = demo[0][-1]["demo"] == 1
+                if successful:
+                    demos.append(demo)
+                else:
+                    print(f"Skipping failed demonstration {i}")
+                    continue
         else:
             demos = self._demos
+
         demo_env = self._wrap_env(
             DemoEnv(copy.deepcopy(demos), self._action_space, self._observation_space),
             cfg,
             demo_env=True,
             train=False,
         )
-        add_demo_fn = (
-            add_demo_to_query_replay_buffer
-            if isinstance(buffer, QueryReplayBuffer)
-            else add_demo_to_replay_buffer
-        )
         for _ in range(len(demos)):
-            add_demo_fn(demo_env, buffer)
-
-    def load_demos_into_rollouts(self, cfg: DictConfig):
-        """See base class for documentation."""
-        assert hasattr(self, "_demos"), (
-            "There's no _demo attribute inside the factory, "
-            "Check `collect_or_fetch_demos` is called before calling this method."
-        )
-        demo_env = self._wrap_env(
-            DemoEnv(
-                copy.deepcopy(self._demos), self._action_space, self._observation_space
-            ),
-            cfg,
-            demo_env=True,
-            train=False,
-        )
-        demos = []
-        for _ in range(len(self._demos)):
-            demos.append(convert_demo_to_episode_rollouts(demo_env))
-        return demos
+            add_demo_to_replay_buffer(demo_env, buffer)
 
     def _demo_to_steps(
         self, cfg: DictConfig, demo_list: List[List[DemoStep]]
@@ -316,21 +281,31 @@ class BiGymEnvFactory(EnvFactory):
 
         for demo in demo_list:
             cur_demo = []
+            last_timestep = False
+
+            # Detect whether this demo is successful or not
+            rewards = []
+            for step in demo:
+                reward = step.reward
+                rewards.append(reward)
+            successful_demo = sum(rewards) > 0.25
+
             for i, step in enumerate(demo):
-                step.info.update({"demo": 1})
+                step.info.update({"demo": int(successful_demo)})
                 if i == 0:
                     cur_demo.append((step.observation, step.info))
                 else:
                     term, trunc = step.termination, step.truncation
                     reward = step.reward
-                    if i == len(demo) - 1:
+                    if i == len(demo) - 1 or reward > 0:
                         if not (term or trunc):
                             term = False
                             trunc = True
-
-                        reward = 1
+                        last_timestep = True
 
                     cur_demo.append((step.observation, reward, term, trunc, step.info))
+                if last_timestep:
+                    break
             ret_demos.append(cur_demo)
 
         return ret_demos
