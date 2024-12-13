@@ -148,6 +148,7 @@ class LocoMujoco(gym.Env):
         action_repeat: int = 1,
         visual_observation_shape: tuple[int, int] = (84, 84),
         render_mode: str = "rgb_array",
+        use_absorbing_states: bool = False,
         use_rlhf: bool = False,
         query_keys: list[str] = ["right"],
         reward_mode: str = "dense",
@@ -161,6 +162,7 @@ class LocoMujoco(gym.Env):
         assert render_mode is None or render_mode in self.metadata["render_modes"]
         assert reward_mode in ["initial", "dense"]
         self._render_mode = render_mode
+        self._use_absorbing_states = use_absorbing_states
         self._reward_mode = reward_mode
         self._reward_term_type = reward_term_type
         self._initial_terms = initial_terms
@@ -182,6 +184,7 @@ class LocoMujoco(gym.Env):
         self._locomujoco_env = gym.make(
             "LocoMujoco",
             env_name=self._task_name,
+            use_absorbing_states=self._use_absorbing_states,
             width=width,
             height=height,
             render_mode=render_mode,
@@ -359,6 +362,7 @@ class LocoMujocoEnvFactory(EnvFactory):
             action_repeat=cfg.action_repeat,
             visual_observation_shape=cfg.visual_observation_shape,
             render_mode="rgb_array",
+            use_absorbing_states=cfg.env.use_absorbing_states,
             use_rlhf=cfg.rlhf.use_rlhf,
             query_keys=cfg.env.query_keys,
             reward_mode=cfg.env.reward_mode,
