@@ -56,17 +56,17 @@ rlhf_replay:
 hydra:
   run:
     dir: >-
-      ./exp_local/state_cqn_rlhf/dmc_${env.task_name}/
-      rlhf_weight_tuner_${rlhf.feedback_type}_
-      numf${rlhf.max_feedback}_
-      numq${rlhf_replay.num_queries}_
-      update${rlhf.update_every_steps}_
-      pretrain${rlhf.num_pretrain_steps}_
-      comp-${rlhf.comparison_type}_
-      reward-reset-${rlhf.initialize_reward_model_per_session}_
-      agent-reset-${rlhf.initialize_agent_per_session}_
-      lambda${reward_method.lambda_weight}_
-      sc-${rlhf.gemini.compute_self_consistency}-
-      sc-temp${rlhf.gemini.self_consistency_temperature}-
-      sc-n${rlhf.gemini.n_self_consistency_samples}_
+      ./exp_local/state_cqn_rlhf/dmc_${env.task_name}/\
+      rlhf_weight_tuner_${rlhf.feedback_type}_\
+      numf${rlhf.max_feedback}_\
+      numq${rlhf_replay.num_queries}_\
+      update${rlhf.update_every_steps}_\
+      pretrain${rlhf.num_pretrain_steps}_\
+      comp-${rlhf.comparison_type}_\
+      reward-reset-${rlhf.initialize_reward_model_per_session}_\
+      agent-reset-${rlhf.initialize_agent_per_session}_\
+      lambda${reward_method.lambda_weight}_\
+      sc-${rlhf.gemini.compute_self_consistency}-\
+      sc-temp${rlhf.gemini.self_consistency_temperature}-\
+      sc-n${rlhf.gemini.n_self_consistency_samples}_\
       seed${seed}_${now:%Y%m%d%H%M%S}
