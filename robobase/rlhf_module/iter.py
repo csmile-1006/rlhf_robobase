@@ -1,28 +1,29 @@
-import logging
-from functools import partial
-from typing import Callable, Sequence
 import asyncio
+import logging
+from copy import deepcopy
+from functools import partial
+from pathlib import Path
+from typing import Callable, Sequence
 
 import numpy as np
 from omegaconf import DictConfig
 from tqdm import tqdm
-from pathlib import Path
 
 from robobase.envs.env import EnvFactory
 from robobase.reward_method.core import RewardMethod
 from robobase.rlhf_module.comparison import get_comparison_fn
 from robobase.rlhf_module.feedback import get_feedback_fn
 from robobase.rlhf_module.prompt import (
-    get_zeroshot_video_evaluation_prompt,
-    get_zeroshot_subtask_identification_prompt,
-    get_zeroshot_manipulation_pairwise_comparison_prompt,
     get_zeroshot_locomotion_pairwise_comparison_prompt,
+    get_zeroshot_manipulation_pairwise_comparison_prompt,
+    get_zeroshot_subtask_identification_prompt,
+    get_zeroshot_video_evaluation_prompt,
 )
 from robobase.rlhf_module.third_party.gemini import (
-    load_gemini_model,
     get_gemini_video_ids,
+    load_gemini_model,
+    postprocess_gemini_response,
 )
-from robobase.rlhf_module.third_party.gemini import postprocess_gemini_response
 
 """
 General function to collect preferences (LLM vs non-LLM)
@@ -346,16 +347,67 @@ async def collect_gemini_locomotion_preferences(
         video_evaluation2,
     ) in zip(videos, results):
         metadata = {
-            "response": response,
-            "quest": quest,
-            "video1": video1,
-            "video2": video2,
+            "response": response.text,
+            # "quest": quest,
             "video_evaluation1": video_evaluation1,
             "video_evaluation2": video_evaluation2,
+            "label": label,
         }
+        metadata.update(
+            {f"video1_{key}": val.display_name for key, val in video1.items()}
+        )
+        metadata.update(
+            {f"video2_{key}": val.display_name for key, val in video2.items()}
+        )
         feedbacks.append(pref_dict)
         total_metadata.append(metadata)
     logging.info("FINISH!")
+
+    if gemini_model_config.compute_self_consistency:
+        # compute self consistency with different temperatures
+        sf_gemini_model_config = deepcopy(gemini_model_config)
+        sf_gemini_model_config.temperature = (
+            gemini_model_config.self_consistency_temperature
+        )
+        # Create multiple copies of videos for self-consistency evaluation
+        num_original_videos = len(videos)
+        num_samples = gemini_model_config.n_self_consistency_samples
+
+        # Duplicate each video pair num_samples times
+        self_consistency_videos = videos * num_samples
+
+        # Get feedback for all duplicated videos
+        self_consistency_responses = await _collect_locomotion_feedback(
+            self_consistency_videos, sf_gemini_model_config, task_description
+        )
+
+        # Group responses by original video pair
+        # e.g. if we have 2 video pairs and 3 samples:
+        # [v1_s1, v1_s2, v1_s3, v2_s1, v2_s2, v2_s3] -> [[v1_s1, v1_s2, v1_s3], [v2_s1, v2_s2, v2_s3]]
+        sf_responses = [
+            self_consistency_responses[i::num_original_videos]
+            for i in range(num_original_videos)
+        ]
+
+        sf_metadata = []
+        for i in tot_queries:
+            target_elem = total_metadata[i]
+            for j in range(gemini_model_config.n_self_consistency_samples):
+                response, quest, video_evaluation1, video_evaluation2 = sf_responses[i][
+                    j
+                ]
+                label = postprocess_gemini_response(response)
+                target_elem.update(
+                    {
+                        f"sf_{j}_response": response.text,
+                        # f"sf_{j}_quest": quest,
+                        f"sf_{j}_video_evaluation1": video_evaluation1,
+                        f"sf_{j}_video_evaluation2": video_evaluation2,
+                        f"sf_{j}_label": label,
+                    }
+                )
+            sf_metadata.append(target_elem)
+        total_metadata = sf_metadata
 
     return feedbacks, total_metadata
 

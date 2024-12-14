@@ -25,8 +25,13 @@ class ComparisonFn(ABC):
 
 
 class SequentialComparisonFn(ComparisonFn):
+    def initialize(self, segments):
+        large_batch_size = len(segments[list(segments.keys())[0]])
+        half_size = large_batch_size // 2
+        self.indices = [(i, i + half_size) for i in range(half_size)]
+
     def __call__(self, i):
-        return [i, 2 * i]
+        return self.indices[i]
 
 
 class SequentialPairwiseComparisonFn(ComparisonFn):

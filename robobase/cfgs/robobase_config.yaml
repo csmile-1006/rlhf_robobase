@@ -86,6 +86,9 @@ rlhf:
     target_viewpoints: [left_wrist, head]
     output_path: null
     task_description: null
+    compute_self_consistency: false
+    self_consistency_temperature: 1.0
+    n_self_consistency_samples: 5
 
 
 # Reward Model Replay buffer settings

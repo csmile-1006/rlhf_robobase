@@ -73,7 +73,8 @@ def _create_default_replay_buffer(
     extra_replay_elements: dict[str, gym.Space] = None,
     max_episode_number: int = 0,
 ) -> ReplayBuffer:
-    extra_replay_elements = spaces.Dict({})
+    if extra_replay_elements is None:
+        extra_replay_elements = spaces.Dict({})
     if cfg.demos != 0:
         extra_replay_elements["demo"] = spaces.Box(0, 1, shape=(), dtype=np.uint8)
     # Create replay_class with buffer-specific hyperparameters
@@ -587,7 +588,9 @@ class Workspace:
     def _eval(self, eval_record_all_episode: bool = False) -> dict[str, Any]:
         # TODO: In future, this func could do with a further refactor
         self.agent.set_eval_env_running(True)
-        step, episode, total_reward, successes = 0, 0, 0, 0
+        step, episode, total_reward, total_task_reward, successes = 0, 0, 0, 0, 0
+        if self.use_rlhf:
+            reward_term_dict = {key: 0 for key in self.extra_replay_elements}
         eval_until_episode = utils.Until(self.cfg.num_eval_episodes)
         first_rollout = []
         metrics = {}
@@ -623,7 +626,12 @@ class Workspace:
                     if hasattr(self.eval_env, "give_agent_info"):
                         self.eval_env.give_agent_info(env_metrics["agent_act_info"])
                 self.eval_video_recorder.record(self.eval_env)
-                total_reward += info.get("task_reward", reward)
+                total_task_reward += info.get("task_reward", reward)
+                total_reward += reward
+                if self.use_rlhf:
+                    for key in info.keys():
+                        if key.startswith("Reward/"):
+                            reward_term_dict[key] += info[key]
                 step += 1
                 episode_pbar.update(1)
             if episode == 0:
@@ -643,9 +651,14 @@ class Workspace:
         metrics.update(
             {
                 "episode_reward": total_reward / episode,
+                "episode_task_reward": total_task_reward / episode,
                 "episode_length": step * self.cfg.action_repeat / episode,
             }
         )
+        if self.use_rlhf:
+            metrics.update(
+                {key: val / episode for key, val in reward_term_dict.items()}
+            )
         if successes is not None:
             metrics["episode_success"] = successes / episode
         if self.cfg.log_eval_video and len(first_rollout) > 0:

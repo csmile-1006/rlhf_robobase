@@ -17,8 +17,8 @@ from collections import defaultdict
 import logging
 from typing_extensions import override
 
-import pickle
 import torch
+import ujson as json
 from gymnasium import spaces
 from natsort import natsort
 import numpy as np
@@ -40,8 +40,8 @@ LABEL = "label"
 
 
 def save_metadata(metadata, metadata_fn):
-    with metadata_fn.open("wb") as f:
-        pickle.dump(metadata, f)
+    with metadata_fn.open("w") as f:
+        json.dump(metadata, f, indent=4, sort_keys=True)
 
 
 def episode_len(episode):
