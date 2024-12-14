@@ -588,7 +588,7 @@ class Workspace:
     def _eval(self, eval_record_all_episode: bool = False) -> dict[str, Any]:
         # TODO: In future, this func could do with a further refactor
         self.agent.set_eval_env_running(True)
-        step, episode, total_reward, total_task_reward, successes = 0, 0, 0, 0, 0
+        step, episode, total_reward, successes = 0, 0, 0, 0
         if self.use_rlhf:
             reward_term_dict = {key: 0 for key in self.extra_replay_elements}
         eval_until_episode = utils.Until(self.cfg.num_eval_episodes)
@@ -626,8 +626,7 @@ class Workspace:
                     if hasattr(self.eval_env, "give_agent_info"):
                         self.eval_env.give_agent_info(env_metrics["agent_act_info"])
                 self.eval_video_recorder.record(self.eval_env)
-                total_task_reward += info.get("task_reward", reward)
-                total_reward += reward
+                total_reward += info.get("task_reward", reward)
                 if self.use_rlhf:
                     for key in info.keys():
                         if key.startswith("Reward/"):
@@ -651,7 +650,6 @@ class Workspace:
         metrics.update(
             {
                 "episode_reward": total_reward / episode,
-                "episode_task_reward": total_task_reward / episode,
                 "episode_length": step * self.cfg.action_repeat / episode,
             }
         )
