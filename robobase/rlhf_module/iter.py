@@ -365,8 +365,8 @@ async def collect_gemini_locomotion_preferences(
 
     if gemini_model_config.compute_self_consistency:
         # compute self consistency with different temperatures
-        sf_gemini_model_config = deepcopy(gemini_model_config)
-        sf_gemini_model_config.temperature = (
+        sc_gemini_model_config = deepcopy(gemini_model_config)
+        sc_gemini_model_config.temperature = (
             gemini_model_config.self_consistency_temperature
         )
         # Create multiple copies of videos for self-consistency evaluation
@@ -378,36 +378,36 @@ async def collect_gemini_locomotion_preferences(
 
         # Get feedback for all duplicated videos
         self_consistency_responses = await _collect_locomotion_feedback(
-            self_consistency_videos, sf_gemini_model_config, task_description
+            self_consistency_videos, sc_gemini_model_config, task_description
         )
 
         # Group responses by original video pair
         # e.g. if we have 2 video pairs and 3 samples:
         # [v1_s1, v1_s2, v1_s3, v2_s1, v2_s2, v2_s3] -> [[v1_s1, v1_s2, v1_s3], [v2_s1, v2_s2, v2_s3]]
-        sf_responses = [
+        sc_responses = [
             self_consistency_responses[i::num_original_videos]
             for i in range(num_original_videos)
         ]
 
-        sf_metadata = []
+        sc_metadata = []
         for i in tot_queries:
             target_elem = total_metadata[i]
             for j in range(gemini_model_config.n_self_consistency_samples):
-                response, quest, video_evaluation1, video_evaluation2 = sf_responses[i][
+                response, quest, video_evaluation1, video_evaluation2 = sc_responses[i][
                     j
                 ]
                 label = postprocess_gemini_response(response)
                 target_elem.update(
                     {
-                        f"sf_{j}_response": response.text,
-                        # f"sf_{j}_quest": quest,
-                        f"sf_{j}_video_evaluation1": video_evaluation1,
-                        f"sf_{j}_video_evaluation2": video_evaluation2,
-                        f"sf_{j}_label": label,
+                        f"sc_{j}_response": response.text,
+                        # f"sc_{j}_quest": quest,
+                        f"sc_{j}_video_evaluation1": video_evaluation1,
+                        f"sc_{j}_video_evaluation2": video_evaluation2,
+                        f"sc_{j}_label": label,
                     }
                 )
-            sf_metadata.append(target_elem)
-        total_metadata = sf_metadata
+            sc_metadata.append(target_elem)
+        total_metadata = sc_metadata
 
     return feedbacks, total_metadata
 
