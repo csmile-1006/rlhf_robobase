@@ -16,6 +16,7 @@ num_eval_episodes: 10
 eval_every_steps: 12500
 save_snapshot: true
 snapshot_every_n: 50000
+num_train_frames: 1001000
 
 update_every_steps: 1
 replay:
@@ -65,7 +66,7 @@ hydra:
       comp-${rlhf.comparison_type}_
       reward-reset-${rlhf.initialize_reward_model_per_session}_
       agent-reset-${rlhf.initialize_agent_per_session}_
-      lambda${reward_method.lambda_weight}_
+      reg${reward_method.reg_weight}_
       sc-${rlhf.gemini.compute_self_consistency}-
       sc-temp${rlhf.gemini.self_consistency_temperature}-
       sc-n${rlhf.gemini.n_self_consistency_samples}_

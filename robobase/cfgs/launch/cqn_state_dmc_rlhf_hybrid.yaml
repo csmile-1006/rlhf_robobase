@@ -16,6 +16,7 @@ num_eval_episodes: 10
 eval_every_steps: 12500
 save_snapshot: true
 snapshot_every_n: 50000
+num_train_frames: 1001000
 
 update_every_steps: 1
 replay:
@@ -35,7 +36,7 @@ rlhf:
   feedback_type: gemini
   comparison_type: sequential
   query_type: random
-  max_feedback: 200
+  max_feedback: 100
   update_every_steps: 50000
   num_pretrain_steps: 50000
   num_train_frames: 200
@@ -47,7 +48,7 @@ rlhf:
     target_viewpoints: ${env.query_keys}
 
 rlhf_replay:
-  num_queries: 20
+  num_queries: 10
   num_labels: 1
   seq_len: 50
   feedback_batch_size: 128
