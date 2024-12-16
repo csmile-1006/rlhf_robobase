@@ -78,7 +78,7 @@ hydra:
       comp-${rlhf.comparison_type}_
       reward-reset-${rlhf.initialize_reward_model_per_session}_
       agent-reset-${rlhf.initialize_agent_per_session}_
-      lambda${reward_method.lambda_weight}_
+      reg${reward_method.reg_weight}_
       sc-${rlhf.gemini.compute_self_consistency}-
       sc-temp${rlhf.gemini.self_consistency_temperature}-
       sc-n${rlhf.gemini.n_self_consistency_samples}_
