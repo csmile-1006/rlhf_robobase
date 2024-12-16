@@ -152,7 +152,7 @@ class FeedbackReplayBuffer(ReplayBuffer):
         time_dims = []
         new_observation_elements = {}
         for name, space in observation_elements.items():
-            if "query_video" in name:
+            if "query_pixels" in name:
                 continue
             if len(space.shape) <= 1:
                 raise ValueError(

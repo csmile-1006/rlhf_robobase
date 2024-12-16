@@ -11,7 +11,10 @@ from tqdm import tqdm
 
 from robobase.envs.env import EnvFactory
 from robobase.reward_method.core import RewardMethod
-from robobase.rlhf_module.comparison import get_comparison_fn
+from robobase.rlhf_module.comparison import (
+    RootPairwiseComparisonFn,
+    get_comparison_fn,
+)
 from robobase.rlhf_module.feedback import get_feedback_fn
 from robobase.rlhf_module.prompt import (
     get_zeroshot_locomotion_pairwise_comparison_prompt,
@@ -24,6 +27,7 @@ from robobase.rlhf_module.third_party.gemini import (
     load_gemini_model,
     postprocess_gemini_response,
 )
+from robobase.rlhf_module.utils.utils import check_valid_pair
 
 """
 General function to collect preferences (LLM vs non-LLM)
@@ -43,9 +47,13 @@ def collect_basic_preferences(
 
     feedbacks = []
     for i in tot_queries:
-        pair = comparison_fn(i)
+        pair = comparison_fn()
+        while not check_valid_pair(segments, pair):
+            comparison_fn.increment()
+            pair = comparison_fn()
         label = feedback_fn(segments, pair, index=i, len_tot_queries=len(tot_queries))
         comparison_fn.update(pair, label)
+        comparison_fn.increment()
 
         pref_dict = {
             "segment_0": {
@@ -175,7 +183,10 @@ async def collect_gemini_manipulation_preferences(
     pair_indices = []
     videos = []
     for i in tqdm(tot_queries, desc="Uploading videos", position=0, leave=False):
-        pair = comparison_fn(i)
+        pair = comparison_fn()
+        while not check_valid_pair(segments, pair):
+            comparison_fn.increment()
+            pair = comparison_fn()
         video1 = get_gemini_video_ids(
             segments, pair[0], target_viewpoints, video_path, feedback_iter, i, 0
         )
@@ -185,7 +196,7 @@ async def collect_gemini_manipulation_preferences(
         pair_indices.append(pair)
         videos.append(video1)
         videos.append(video2)
-        comparison_fn.update(pair, i)
+        comparison_fn.increment()
 
     videos = [(videos[i], videos[i + 1]) for i in range(0, len(videos), 2)]
     responses = await _collect_manipulation_feedback(
@@ -304,7 +315,10 @@ async def collect_gemini_locomotion_preferences(
     pair_indices = []
     videos = []
     for i in tqdm(tot_queries, desc="Uploading videos", position=0, leave=False):
-        pair = comparison_fn(i)
+        pair = comparison_fn()
+        while not check_valid_pair(segments, pair):
+            comparison_fn.increment()
+            pair = comparison_fn()
         video1 = get_gemini_video_ids(
             segments, pair[0], target_viewpoints, video_path, feedback_iter, i, 0
         )
@@ -314,7 +328,7 @@ async def collect_gemini_locomotion_preferences(
         pair_indices.append(pair)
         videos.append(video1)
         videos.append(video2)
-        comparison_fn.update(pair, i)
+        comparison_fn.increment()
 
     videos = [(videos[i], videos[i + 1]) for i in range(0, len(videos), 2)]
     responses = await _collect_locomotion_feedback(
@@ -422,6 +436,9 @@ def get_rlhf_iter_fn(
         case "gemini":
             task_description = env_factory.get_task_description(cfg)
             assert task_description is not None, "Task description is not provided."
+            assert (
+                comparison_fn != RootPairwiseComparisonFn
+            ), "RootPairwiseComparisonFn is not supported for Gemini."
             gemini_model_config = cfg.rlhf.gemini
             video_path = work_dir / "videos"
             video_path.mkdir(parents=True, exist_ok=True)

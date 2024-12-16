@@ -31,7 +31,7 @@ reward_method:
 method:
   use_dueling: false
   v_min: 0.0
-  v_max: 200.0
+  v_max: 100.0
   atoms: 51
   weight_decay: 0.1
   stddev_schedule: 0.01
@@ -51,7 +51,7 @@ rlhf:
   max_feedback: 200
   update_every_steps: 50000
   num_pretrain_steps: 50000
-  num_train_frames: 200
+  num_train_frames: 500
   initialize_agent_per_session: true
   initialize_reward_model_per_session: true
   snapshot_every_n: ${rlhf.update_every_steps}
@@ -64,7 +64,7 @@ rlhf_replay:
   num_labels: 1
   seq_len: 30
   feedback_batch_size: 128
-  max_episode_number: 25
+  max_episode_number: 500
 
 hydra:
   run:

@@ -96,3 +96,12 @@ def get_label(ans):
         return 0
     elif ans == "d":
         return 1
+
+
+def check_valid_pair(segments, pair):
+    index_1, index_2 = segments["indices"][pair[0]], segments["indices"][pair[1]]
+    ep_num_1, ep_num_2 = (
+        segments["episode_number"][pair[0]],
+        segments["episode_number"][pair[1]],
+    )
+    return index_1 != index_2 or ep_num_1 != ep_num_2

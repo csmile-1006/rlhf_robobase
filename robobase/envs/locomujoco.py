@@ -207,7 +207,7 @@ class LocoMujoco(gym.Env):
         self._use_rlhf = use_rlhf
         if use_rlhf:
             for key in self._query_keys:
-                _obs_space[f"query_video_{key}"] = spaces.Box(
+                _obs_space[f"query_pixels_{key}"] = spaces.Box(
                     low=0,
                     high=255,
                     shape=(height, width, 3),
@@ -264,7 +264,7 @@ class LocoMujoco(gym.Env):
             ret_obs["low_dim_state"] = observation.astype(np.float32)
 
         if self._use_rlhf:
-            ret_obs[f"query_video_{self._query_keys[0]}"] = self.render().copy()
+            ret_obs[f"query_pixels_{self._query_keys[0]}"] = self.render().copy()
         return ret_obs
 
     def step(self, action):

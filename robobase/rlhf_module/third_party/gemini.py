@@ -74,15 +74,15 @@ def get_gemini_video_ids(
     output = {}
     for viewpoint in target_viewpoints:
         assert (
-            f"query_video_{viewpoint}" in segments
-        ), "query_video_{viewpoint} not found in segments"
+            f"query_pixels_{viewpoint}" in segments
+        ), "query_pixels_{viewpoint} not found in segments"
         index = segments["indices"][idx]
         video_file_path = (
             video_path
-            / f"query_video-{viewpoint}-feedback_iter{feedback_iter}-pair{i}_{j}-ep{segments['episode_number'][idx]}-timestep_{index}_{index + segments['action'].shape[1]}.mp4"  # noqa
+            / f"query_pixels-{viewpoint}-feedback_iter{feedback_iter}-pair{i}_{j}-ep{segments['episode_number'][idx]}-timestep_{index}_{index + segments['action'].shape[1]}.mp4"  # noqa
         )
         imageio.mimsave(
-            video_file_path, segments[f"query_video_{viewpoint}"][idx], fps=20
+            video_file_path, segments[f"query_pixels_{viewpoint}"][idx], fps=20
         )
         gemini_video_file_path = upload_video_to_genai(video_file_path, verbose=False)
         output[viewpoint] = gemini_video_file_path

@@ -82,7 +82,7 @@ class AGym(gym.Env):
             dtype=np.float32,
         )
         for key in self._query_keys:
-            obs_dict[f"query_video_{key}"] = spaces.Box(
+            obs_dict[f"query_pixels_{key}"] = spaces.Box(
                 low=0,
                 high=255,
                 shape=(self.__agym_env.height, self.__agym_env.width, 3),
@@ -131,7 +131,7 @@ class AGym(gym.Env):
     def _get_obs(self, observation, image):
         return {
             "low_dim_state": observation.astype(np.float32),
-            **{f"query_video_{key}": image[key] for key in self._query_keys},
+            **{f"query_pixels_{key}": image[key] for key in self._query_keys},
         }
 
     def _flatten_obs(self, observation):
@@ -161,7 +161,7 @@ class AGym(gym.Env):
             if self._render_mode is None:
                 images = {
                     key: np.zeros_like(
-                        self.observation_space.sample()[f"query_video_{key}"],
+                        self.observation_space.sample()[f"query_pixels_{key}"],
                         dtype=np.uint8,
                     )
                     for key in self._query_keys
@@ -182,7 +182,7 @@ class AGym(gym.Env):
         if self._render_mode is None:
             images = {
                 key: np.zeros_like(
-                    self.observation_space.sample()[f"query_video_{key}"],
+                    self.observation_space.sample()[f"query_pixels_{key}"],
                     dtype=np.uint8,
                 )
                 for key in self._query_keys
