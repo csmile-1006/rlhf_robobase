@@ -42,6 +42,8 @@ core_requirements = [
     "matplotlib",
     "jupyter",
     "python-dotenv",
+    "ujson",
+    "tensorboard",
 ]
 
 setuptools.setup(

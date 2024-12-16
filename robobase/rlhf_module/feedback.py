@@ -154,7 +154,7 @@ def get_feedback_fn(env_name, feedback_type):
     elif feedback_type == "human":
         return human_feedback_fn
     elif feedback_type == "gemini":
-        if env_name == "dmc":
+        if env_name in ["dmc", "locomujoco"]:
             return gemini_locomotion_feedback_fn
         elif env_name == "agym":
             return gemini_manipulation_feedback_fn

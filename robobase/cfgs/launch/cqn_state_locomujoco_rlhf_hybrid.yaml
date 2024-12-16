@@ -1,0 +1,85 @@
+# @package _global_
+
+defaults:
+  - ../env: null  # Please specify environment to use in command line
+  - ../method: cqn
+  - ../reward_method: hybrid
+
+env:
+  reward_mode: initial
+
+pixels: false
+frame_stack: 1
+action_repeat: 1
+num_train_envs: 1
+num_eval_episodes: 10
+eval_every_steps: 12500
+save_snapshot: true
+snapshot_every_n: 50000
+num_train_frames: 1001000
+num_explore_steps: 10000
+replay_size_before_train: 10000
+visual_observation_shape: [128, 128]
+
+update_every_steps: 1
+replay:
+  nstep: 3  # Use 1 for walker_walk
+
+reward_method:
+  data_aug_ratio: 20
+
+method:
+  use_dueling: false
+  v_min: 0.0
+  v_max: 200.0
+  atoms: 51
+  weight_decay: 0.1
+  stddev_schedule: 0.01
+  advantage_model:
+    keys_to_bottleneck: [fused_view_feats, low_dim_obs, time_obs]
+
+  value_model:
+    keys_to_bottleneck: [fused_view_feats, low_dim_obs, time_obs]
+  # critic_target_interval: 1000
+  # critic_target_tau: 1.0
+
+rlhf:
+  use_rlhf: true
+  feedback_type: gemini
+  comparison_type: sequential
+  query_type: random
+  max_feedback: 200
+  update_every_steps: 50000
+  num_pretrain_steps: 50000
+  num_train_frames: 200
+  initialize_agent_per_session: true
+  initialize_reward_model_per_session: true
+  snapshot_every_n: ${rlhf.update_every_steps}
+  gemini:
+    model_type: gemini-1.5-pro
+    target_viewpoints: ${env.query_keys}
+
+rlhf_replay:
+  num_queries: 20
+  num_labels: 1
+  seq_len: 50
+  feedback_batch_size: 128
+  max_episode_number: 25
+
+hydra:
+  run:
+    dir: >-
+      ./exp_local/state_cqn_rlhf/locomujoco_${env.task_name}/
+      rlhf_hybrid_${rlhf.feedback_type}_
+      numf${rlhf.max_feedback}_
+      numq${rlhf_replay.num_queries}_
+      update${rlhf.update_every_steps}_
+      pretrain${rlhf.num_pretrain_steps}_
+      comp-${rlhf.comparison_type}_
+      reward-reset-${rlhf.initialize_reward_model_per_session}_
+      agent-reset-${rlhf.initialize_agent_per_session}_
+      lambda${reward_method.lambda_weight}_
+      sc-${rlhf.gemini.compute_self_consistency}-
+      sc-temp${rlhf.gemini.self_consistency_temperature}-
+      sc-n${rlhf.gemini.n_self_consistency_samples}_
+      seed${seed}_${now:%Y%m%d%H%M%S}

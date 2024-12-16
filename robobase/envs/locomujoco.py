@@ -221,7 +221,7 @@ class LocoMujoco(gym.Env):
         )
         self.reward_space = gym.spaces.Dict(
             {
-                "target_velocity": gym.spaces.Box(
+                "Reward/target_velocity": gym.spaces.Box(
                     low=1e-10, high=1e1, shape=(), dtype=np.float32
                 ),
             }
@@ -269,7 +269,7 @@ class LocoMujoco(gym.Env):
 
     def step(self, action):
         reward = 0
-        info = {"task_reward": 0.0, **{f"Reward/{k}": 0.0 for k in self._reward_terms}}
+        info = {"task_reward": 0.0, **{k: 0.0 for k in self._reward_terms}}
         for _ in range(self._action_repeat):
             (
                 next_obs,
@@ -279,7 +279,7 @@ class LocoMujoco(gym.Env):
                 _info,
             ) = self._locomujoco_env.step(action)
             # target velocity is the reward
-            _info["target_velocity"] = task_reward
+            _info["Reward/target_velocity"] = task_reward
             info["task_reward"] += task_reward
             if self._reward_mode == "initial":
                 _reward = np.sum(
@@ -293,7 +293,7 @@ class LocoMujoco(gym.Env):
 
             reward += _reward
             for key in self._reward_terms:
-                info[f"Reward/{key}"] += _info[key]
+                info[key] += _info[key]
             if terminated or truncated:
                 break
         # See https://github.com/google-deepmind/dm_control/blob/f2f0e2333d8bd82c0b6ba83628fe44c2bcc94ef5/dm_control/rl/control.py#L115C18-L115C29
@@ -371,10 +371,10 @@ class LocoMujocoEnvFactory(EnvFactory):
         )
 
     def make_train_env(self, cfg: DictConfig) -> gym.vector.VectorEnv:
-        vec_env_class = gym.vector.AsyncVectorEnv
-        kwargs = dict(context=None)
-        # vec_env_class = gym.vector.SyncVectorEnv
-        # kwargs = dict()
+        # vec_env_class = gym.vector.AsyncVectorEnv
+        # kwargs = dict(context=None)
+        vec_env_class = gym.vector.SyncVectorEnv
+        kwargs = dict()
         return vec_env_class(
             [
                 lambda: self._wrap_env(
