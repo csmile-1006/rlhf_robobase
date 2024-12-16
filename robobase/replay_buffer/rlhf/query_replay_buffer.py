@@ -614,24 +614,17 @@ class QueryReplayBuffer(ReplayBuffer):
         # Sample transition index
         if global_index is None:
             # NOTE: here global index is the index of the start of episode.
-            episode, global_index, eps_fn = self._sample_episode()
-            # When using sequential, we ensure that frame stack does not repeat
-            # the initial frames when sampling the beginning of the episode.
-            min_idx = self._transition_seq_len - 1
-            # There's no need to handle self._nstep at the end of episode, which
-            # allows for sampling last timestep without using separate next_idxs
-            max_idx = episode_len(episode) + self._transition_seq_len
-            idx = np.random.randint(min_idx, max_idx)
-            total_len = episode_len(episode)
-            episodes_to_flatten = [episode]
-            while idx >= total_len:
-                # Spill over into another episode
-                _episode, _global_index, eps_fn = self._sample_episode()
-                total_len += episode_len(_episode)
-                episodes_to_flatten.append(_episode)
-            episode = self._flatten_episodes(episodes_to_flatten)
-
-            # global index of the transition = index of episode_start + transition_idx
+            while True:
+                episode, global_index, eps_fn = self._sample_episode()
+                episode_length = episode_len(episode)
+                min_idx = self._transition_seq_len - 1
+                max_idx = episode_length
+                if max_idx > min_idx:
+                    idx = np.random.randint(min_idx, max_idx)
+                    break
+            episode = self._flatten_episodes(
+                [episode]
+            )  # global index of the transition = index of episode_start + transition_idx
             global_index += idx
         else:
             if global_index not in self._global_idxs_to_episode_and_transition_idx:

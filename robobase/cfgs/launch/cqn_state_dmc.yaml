@@ -7,10 +7,16 @@ defaults:
 pixels: false
 frame_stack: 1
 action_repeat: 1
+num_train_envs: 1
+num_eval_episodes: 10
+eval_every_steps: 12500
+save_snapshot: true
+snapshot_every_n: 50000
+num_train_frames: 1001000
 
 update_every_steps: 1
 replay:
-  nstep: 3  # Use 1 for walker_walk
+  nstep: 1  # Use 1 for walker_walk
 
 method:
   use_dueling: false
