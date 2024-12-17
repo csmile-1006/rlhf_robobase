@@ -9,4 +9,4 @@ env:
   query_keys: ["pixels"]
   blocked_hands: "False"
 
-action_repeat: 2
+action_repeat: 1

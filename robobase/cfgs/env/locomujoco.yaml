@@ -9,4 +9,4 @@ env:
   initial_terms: []
   query_keys: ["pixels"]
 
-action_repeat: 2
+action_repeat: 1
