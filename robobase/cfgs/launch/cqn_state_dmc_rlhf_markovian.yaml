@@ -40,6 +40,8 @@ rlhf:
   update_every_steps: 50000
   num_pretrain_steps: 50000
   num_train_frames: 200
+  initialize_agent_per_session: true
+  initialize_reward_model_per_session: true
   snapshot_every_n: ${rlhf.update_every_steps}
   gemini:
     model_type: gemini-1.5-pro
@@ -51,8 +53,6 @@ rlhf_replay:
   seq_len: 50
   feedback_batch_size: 128
   max_episode_number: 25
-  initialize_reward_model_per_session: true
-  initialize_agent_per_session: true
 
 hydra:
   run:
