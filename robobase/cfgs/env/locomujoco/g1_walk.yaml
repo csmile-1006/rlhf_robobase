@@ -5,4 +5,4 @@ defaults:
   - _self_
 
 env:
-  task_name: UnitreeG1.walk.perfect
+  task_name: UnitreeG1.walk.real
