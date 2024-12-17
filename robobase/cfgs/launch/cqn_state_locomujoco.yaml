@@ -2,7 +2,7 @@
 
 defaults:
   - ../env: null  # Please specify environment to use in command line
-  - ../method: cqn
+  - ../method: cqn_simple
 
 pixels: false
 frame_stack: 1
@@ -19,25 +19,19 @@ replay_size_before_train: 10000
 save_snapshot: true
 eval_every_steps: 20000
 snapshot_every_n: 100000
-visual_observation_shape: [128, 128]
 
 method:
-  # critic_lr: 5e-5
-  # view_fusion_lr: 5e-5
-  # encoder_lr: 5e-5
-  weight_decay: 0.1
+  critic_lr: 5e-5
+  view_fusion_lr: 5e-5
+  encoder_lr: 5e-5
   use_dueling: false
   stddev_schedule: 0.01
-  v_min: 0.0
-  v_max: 100.0
-  atoms: 51
   advantage_model:
     keys_to_bottleneck: [fused_view_feats, low_dim_obs, time_obs]
-
   value_model:
     keys_to_bottleneck: [fused_view_feats, low_dim_obs, time_obs]
-  # critic_target_interval: 1000
-  # critic_target_tau: 1.0
+  critic_target_interval: 1000
+  critic_target_tau: 1.0
 
 hydra:
   run:
