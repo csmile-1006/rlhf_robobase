@@ -585,6 +585,10 @@ class Workspace:
     def eval(self) -> dict[str, Any]:
         return self._eval(eval_record_all_episode=True)
 
+    def _check_reset(self, info):
+        # checking the location of pelvis: need to tune the threshold value
+        return info["qpos"]["pelvis_tx"] > 0.05
+
     def _eval(self, eval_record_all_episode: bool = False) -> dict[str, Any]:
         # TODO: In future, this func could do with a further refactor
         self.agent.set_eval_env_running(True)
@@ -610,6 +614,14 @@ class Workspace:
                 leave=False,
                 position=1,
             )
+
+            # remove dummy capture at the reset function
+            self.eval_video_recorder.frames = []
+            # bool for masking robot states
+            robot_reset = False
+            # counter for trimming the first few steps (where the camera moving up): not sure if this helps
+            reset_cnt = 0
+
             while not (termination or truncation):
                 (
                     action,
@@ -625,6 +637,15 @@ class Workspace:
                 if "agent_act_info" in env_metrics:
                     if hasattr(self.eval_env, "give_agent_info"):
                         self.eval_env.give_agent_info(env_metrics["agent_act_info"])
+
+                # checking robot states and skipping steps
+                if not robot_reset:
+                    if reset_cnt < 20 or not self._check_reset(info):
+                        reset_cnt += 1
+                        continue
+                    else:
+                        robot_reset = True
+
                 self.eval_video_recorder.record(self.eval_env)
                 total_reward += info.get("task_reward", reward)
                 if self.use_rlhf:
