@@ -12,12 +12,12 @@ pixels: false
 frame_stack: 1
 action_repeat: 1
 
-batch_size: 128
+batch_size: 256
 update_every_steps: 1
 replay:
-  size: 1000000
+  size: 7000000
   nstep: 3  # Use 1 for walker_walk
-num_train_frames: 1001000
+num_train_frames: 7001000
 save_snapshot: true
 eval_every_steps: 20000
 snapshot_every_n: 50000
@@ -38,8 +38,6 @@ method:
     keys_to_bottleneck: [fused_view_feats, low_dim_obs, time_obs]
   value_model:
     keys_to_bottleneck: [fused_view_feats, low_dim_obs, time_obs]
-  critic_target_interval: 1000
-  critic_target_tau: 1.0
 
 rlhf:
   use_rlhf: true
