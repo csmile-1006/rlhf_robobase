@@ -296,6 +296,10 @@ class LocoMujoco(gym.Env):
                 info[key] += _info[key]
             if terminated or truncated:
                 break
+
+        # add robot state info into _info for masking env steps
+        info.update(_info)
+
         # See https://github.com/google-deepmind/dm_control/blob/f2f0e2333d8bd82c0b6ba83628fe44c2bcc94ef5/dm_control/rl/control.py#L115C18-L115C29
         truncated = truncated and not terminated
         assert not np.any(
