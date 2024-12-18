@@ -969,7 +969,6 @@ class Workspace:
             start_time = time.time()
 
         *env_step_tuple, next_info = env.step(action)
-        # print(next_info)
 
         if self.agent.logging:
             execution_time_for_env_step = time.time() - start_time
