@@ -2,7 +2,7 @@
 
 defaults:
   - ../env: null  # Please specify environment to use in command line
-  - ../method: cqn_simple
+  - ../method: cqn
 
 pixels: false
 frame_stack: 1
