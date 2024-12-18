@@ -8,7 +8,7 @@ pixels: false
 frame_stack: 1
 action_repeat: 1
 
-batch_size: 256
+batch_size: 128
 update_every_steps: 1
 replay:
   size: 7000000
@@ -30,7 +30,9 @@ method:
     keys_to_bottleneck: [fused_view_feats, low_dim_obs, time_obs]
   value_model:
     keys_to_bottleneck: [fused_view_feats, low_dim_obs, time_obs]
+  critic_target_interval: 1000
+  critic_target_tau: 1.0
 
 hydra:
   run:
-    dir: ./exp_local/state_cqn_new_hp/humanoidbench_${env.task_name}/default_seed${seed}_${now:%Y%m%d%H%M%S}
+    dir: ./exp_local/state_cqn/humanoidbench_${env.task_name}/default_seed${seed}_${now:%Y%m%d%H%M%S}
