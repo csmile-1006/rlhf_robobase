@@ -22,6 +22,8 @@ save_snapshot: false
 snapshot_every_n: 1000
 batch_size: 256
 is_imitation_learning: false
+use_compile: false
+use_cuda_graph: false
 
 # Demonstration settings
 demos: 0

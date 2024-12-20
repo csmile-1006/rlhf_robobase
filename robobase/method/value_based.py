@@ -5,6 +5,7 @@ from typing import Iterator, Optional
 import numpy as np
 import torch
 import torch.nn as nn
+from tensordict import TensorDict
 
 from robobase import utils
 from robobase.method.core import OffPolicyMethod
@@ -281,6 +282,14 @@ class ValueBased(OffPolicyMethod, ABC):
                 self.intr_critic_opt,
             ) = self.build_critic()
 
+        if self.use_torch_compile:
+            torch.set_float32_matmul_precision(
+                "high"
+            )  # accelerate training when using torch.compile with tensorcore
+            torch._dynamo.config.cache_size_limit = (
+                64  # need this to make torch.compile work
+            )
+
     def reset_critic(self):
         self.critic, self.critic_target, self.critic_opt = self.build_critic()
         if self.intrinsic_reward_module:
@@ -548,7 +557,6 @@ class ValueBased(OffPolicyMethod, ABC):
         demos,
         updating_intrinsic_critic,
     ):
-        lp = "intrinsic_" if updating_intrinsic_critic else ""
         if updating_intrinsic_critic:
             critic, critic_opt = (
                 self.intr_critic,
@@ -582,9 +590,10 @@ class ValueBased(OffPolicyMethod, ABC):
         critic_loss = torch.mean(critic_loss)
 
         if self.logging:
-            metrics[f"{lp}critic_target_q"] = target_qs_a.mean().item()
-            metrics[f"{lp}critic_q"] = qs_a.mean().item()
-            metrics[f"{lp}critic_loss"] = critic_loss.item()
+            pass
+            # metrics[f"{lp}critic_target_q"] = target_qs_a.mean().item()
+            # metrics[f"{lp}critic_q"] = qs_a.mean().item()
+            # metrics[f"{lp}critic_loss"] = critic_loss.item()
 
         if self.bc_lambda > 0.0 and not updating_intrinsic_critic:
             # No BC loss when updating intrinsic critic
@@ -597,7 +606,8 @@ class ValueBased(OffPolicyMethod, ABC):
                 margin_loss = torch.tensor(0.0, device=demos.device)
             critic_loss = critic_loss + self.bc_lambda * margin_loss
             if self.logging:
-                metrics[f"{lp}margin_loss"] = margin_loss.item()
+                pass
+                # metrics[f"{lp}margin_loss"] = margin_loss.item()
 
         # optimize encoder and critic
         if self.use_pixels and self.encoder_opt is not None:
@@ -606,12 +616,13 @@ class ValueBased(OffPolicyMethod, ABC):
                 self.view_fusion_opt.zero_grad(set_to_none=True)
         critic_opt.zero_grad(set_to_none=True)
         critic_loss.backward()
-        if self.critic_grad_clip:
-            critic_norm = nn.utils.clip_grad_norm_(
-                critic.parameters(), self.critic_grad_clip
-            )
-            if self.logging:
-                metrics[f"{lp}critic_norm"] = critic_norm.item()
+        # if self.critic_grad_clip:
+        #     critic_norm = nn.utils.clip_grad_norm_(
+        #         critic.parameters(), self.critic_grad_clip
+        #     )
+        #     if self.logging:
+        #         pass
+        #         # metrics[f"{lp}critic_norm"] = critic_norm.item()
         critic_opt.step()
         if self.use_pixels and self.encoder is not None:
             if self.critic_grad_clip:
@@ -627,7 +638,7 @@ class ValueBased(OffPolicyMethod, ABC):
         self, replay_iter: Iterator[dict[str, torch.Tensor]]
     ) -> tuple[
         dict[str, np.ndarray],
-        dict[str, torch.Tensor],
+        TensorDict,
         torch.Tensor,
         torch.Tensor,
         torch.Tensor,
@@ -641,7 +652,7 @@ class ValueBased(OffPolicyMethod, ABC):
     ]:
         metrics = dict()
         batch = next(replay_iter)
-        batch = {k: v.to(self.device) for k, v in batch.items()}
+        batch = TensorDict({k: v.to(self.device) for k, v in batch.items()})
         action = batch["action"]
         reward = batch["reward"].unsqueeze(1)
         discount = batch["discount"].to(reward.dtype).unsqueeze(1)
@@ -665,7 +676,8 @@ class ValueBased(OffPolicyMethod, ABC):
         demos = extract_from_batch(batch, "demo", missing_ok=True)
         loss_coeff = loss_weights(batch, self.replay_beta)
         if self.logging:
-            metrics["batch_reward"] = reward.mean().item()
+            pass
+            # metrics["batch_reward"] = reward.mean().item()
 
         # Flatten action sequence dimension
         action = action.flatten(-2)
@@ -698,13 +710,14 @@ class ValueBased(OffPolicyMethod, ABC):
         rgb_obs = extract_many_from_batch(batch, r"rgb(?!.*?tp1)")
         next_rgb_obs = extract_many_from_batch(batch, r"rgb.*tp1")
 
-        metrics = {}
+        metrics = dict()
         if self.logging:
+            pass
             # Get first batch item and last timestep
-            for k, v in rgb_obs.items():
-                metrics[k] = v[0, -1]
-            for k, v in next_rgb_obs.items():
-                metrics[k] = v[0, -1]
+            # for k, v in rgb_obs.items():
+            #     metrics[k] = v[0, -1]
+            # for k, v in next_rgb_obs.items():
+            #     metrics[k] = v[0, -1]
 
         # -> (B, V, T, 3. H, W)
         rgb_obs = stack_tensor_dictionary(rgb_obs, 1)

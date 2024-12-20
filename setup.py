@@ -44,6 +44,7 @@ core_requirements = [
     "python-dotenv",
     "ujson",
     "tensorboard",
+    "tensordict",
 ]
 
 setuptools.setup(

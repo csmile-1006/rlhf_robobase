@@ -1,10 +1,12 @@
 import asyncio
 import logging
+import os
 import random
 import shutil
 import signal
 import sys
 import time
+import warnings
 from functools import partial
 from pathlib import Path
 from typing import Any, Callable
@@ -16,6 +18,7 @@ import torch
 from gymnasium import spaces
 from hydra.core.hydra_config import HydraConfig
 from omegaconf import DictConfig
+from tensordict.nn import CudaGraphModule
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
@@ -36,6 +39,11 @@ from robobase.rlhf_module.query import get_query_fn
 from robobase.rlhf_module.third_party.gemini import configure_gemini
 
 torch.backends.cudnn.benchmark = True
+
+warnings.filterwarnings("ignore", category=DeprecationWarning)
+
+os.environ["MKL_SERVICE_FORCE_INTEL"] = "1"
+os.environ["MUJOCO_GL"] = "egl"
 
 
 def _worker_init_fn(worker_id, offset=0):
@@ -569,6 +577,21 @@ class Workspace:
         # if self.use_rlhf:
         #     self._pretrain_reward_model_on_demos()
 
+        # self._update_fn = self.agent.update
+        if self.cfg.use_compile:
+            self._update_fn = torch.compile(self.agent.update)
+            self._act_fn = torch.compile(self.agent.act)
+            torch.set_float32_matmul_precision("high")
+            torch._dynamo.config.cache_size_limit = (
+                64  # need this to make torch.compile work
+            )
+        else:
+            self._update_fn = self.agent.update
+            self._act_fn = self.agent.act
+
+        if self.cfg.use_cuda_graph:
+            self._update_fn = CudaGraphModule(self._update_fn)
+
         # Perform online rl with exploration.
         self._online_rl()
 
@@ -826,14 +849,13 @@ class Workspace:
             if (self.main_loop_iterations + i) % self.cfg.update_every_steps != 0:
                 # Skip update
                 continue
-            for _ in range(self.cfg.num_update_steps):
-                metrics.update(
-                    self.agent.update(
-                        self.replay_iter,
-                        self.main_loop_iterations + i,
-                        self.replay_buffer,
-                    )
-                )
+            num_update_steps = (
+                self.agent.num_update_steps if self.main_loop_iterations == 0 else 1
+            )
+            for _ in range(num_update_steps):
+                batch = self.agent.extract_batch(self.replay_iter)
+                metrics.update(self._update_fn(batch))
+                self.agent.update_target_critic(self.main_loop_iterations + i)
         self.agent.train(False)
         if self.agent.logging:
             execution_time_for_update = time.time() - start_time
@@ -915,13 +937,14 @@ class Workspace:
             start_time = time.time()
         with torch.no_grad(), utils.eval_mode(self.agent):
             torch_observations = {
-                k: torch.from_numpy(v).to(self.device) for k, v in observations.items()
+                k: torch.from_numpy(v).cuda(self.device)
+                for k, v in observations.items()
             }
             if eval_mode:
                 torch_observations = {
                     k: v.unsqueeze(0) for k, v in torch_observations.items()
                 }
-            action = self.agent.act(
+            action = self._act_fn(
                 torch_observations, self.main_loop_iterations, eval_mode=eval_mode
             )
             metrics = {}

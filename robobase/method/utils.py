@@ -170,11 +170,9 @@ def loss_weights(replay_sample, beta=1.0):
 def random_action_if_within_delta(qs, delta=0.0001):
     q_diff = qs.max(-1).values - qs.min(-1).values
     random_action_mask = q_diff < delta
-    if random_action_mask.sum() == 0:
-        return None
     argmax_q = qs.max(-1)[1]
-    random_actions = torch.randint(0, qs.size(-1), random_action_mask.shape).to(
-        qs.device
+    random_actions = torch.randint(
+        0, qs.size(-1), random_action_mask.shape, device=qs.device
     )
     argmax_q = torch.where(random_action_mask, random_actions, argmax_q)
     return argmax_q

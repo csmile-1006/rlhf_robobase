@@ -27,9 +27,9 @@ method:
   use_dueling: false
   stddev_schedule: 0.01
   advantage_model:
-    keys_to_bottleneck: [fused_view_feats, low_dim_obs, time_obs]
+    keys_to_bottleneck: []
   value_model:
-    keys_to_bottleneck: [fused_view_feats, low_dim_obs, time_obs]
+    keys_to_bottleneck: []
 
 hydra:
   run:
