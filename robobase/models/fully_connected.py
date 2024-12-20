@@ -172,7 +172,7 @@ class MLPWithBottleneckFeatures(RNNFullyConnectedModule):
 
         out_mlp = []
         out_mlp.append(nn.Linear(in_size, np.prod(self._output_shape)))
-        # out_mlp.append(Reshape(self._output_shape, 1))
+        out_mlp.append(Reshape(self._output_shape, 1))
         self.out_mlp = nn.Sequential(*out_mlp)
 
         self.apply(utils.weight_init)
@@ -228,7 +228,7 @@ class MLPWithBottleneckFeatures(RNNFullyConnectedModule):
         Could be useful when a user wants to specify the initialization scheme for
         the output layer (e.g., zero initialization)
         """
-        output_layer = self.out_mlp[-1]
+        output_layer = self.out_mlp[-2]
         assert isinstance(output_layer, nn.Linear)
         output_layer.apply(initialize_fn)
 
@@ -325,7 +325,7 @@ class MLPWithBottleneckFeaturesAndSequenceOutput(MLPWithBottleneckFeatures):
                         in_size,
                         self.output_sequence_length * np.prod(self._output_shape),
                     ),
-                    # Reshape((self.output_sequence_length, *self._output_shape), 1),
+                    Reshape((self.output_sequence_length, *self._output_shape), 1),
                 ]
             )
         self.out_mlp = nn.Sequential(*out_mlp)
