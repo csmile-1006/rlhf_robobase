@@ -5,7 +5,6 @@ from typing import Iterator, Optional
 import numpy as np
 import torch
 import torch.nn as nn
-from tensordict import TensorDict
 
 from robobase import utils
 from robobase.method.core import OffPolicyMethod
@@ -638,7 +637,7 @@ class ValueBased(OffPolicyMethod, ABC):
         self, replay_iter: Iterator[dict[str, torch.Tensor]]
     ) -> tuple[
         dict[str, np.ndarray],
-        TensorDict,
+        dict[str, torch.Tensor],
         torch.Tensor,
         torch.Tensor,
         torch.Tensor,
@@ -652,7 +651,7 @@ class ValueBased(OffPolicyMethod, ABC):
     ]:
         metrics = dict()
         batch = next(replay_iter)
-        batch = TensorDict({k: v.to(self.device) for k, v in batch.items()})
+        batch = {k: v.to(self.device) for k, v in batch.items()}
         action = batch["action"]
         reward = batch["reward"].unsqueeze(1)
         discount = batch["discount"].to(reward.dtype).unsqueeze(1)

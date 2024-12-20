@@ -5,7 +5,6 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from tensordict import TensorDict
 
 from robobase.method.value_based import ValueBased
 
@@ -355,7 +354,7 @@ class CQNSimple(ValueBased):
 
     def update(
         self,
-        batch: TensorDict,
+        batch: dict[str, torch.Tensor],
     ) -> dict[str, np.ndarray]:
         (
             metrics,

@@ -1,5 +1,5 @@
 from copy import deepcopy
-from typing import Iterator, Optional
+from typing import Optional
 
 import numpy as np
 import torch
@@ -10,8 +10,6 @@ from robobase.method.value_based import ValueBased
 
 from robobase import utils
 from robobase.models.fully_connected import FullyConnectedModule
-from robobase.replay_buffer.replay_buffer import ReplayBuffer
-from robobase.replay_buffer.prioritized_replay_buffer import PrioritizedReplayBuffer
 from robobase.method.utils import (
     random_action_if_within_delta,
     zoom_in,
@@ -466,9 +464,6 @@ class CQN(ValueBased):
                     if logging:
                         metrics["bc_margin_loss"] = margin_loss.item()
 
-        # Compute priority
-        new_pri = torch.sqrt(q_critic_loss + 1e-10)
-        self._td_error = (new_pri / torch.max(new_pri)).cpu().detach().numpy()
         critic_loss = torch.mean(critic_loss)
 
         if logging:
@@ -502,137 +497,88 @@ class CQN(ValueBased):
 
     def update(
         self,
-        replay_iter: Iterator[dict[str, torch.Tensor]],
-        step: int,
-        replay_buffer: ReplayBuffer = None,
+        batch: dict[str, torch.Tensor],
     ) -> dict[str, np.ndarray]:
-        if step != 0:
-            num_update_steps = self.num_update_steps
-        else:
-            num_update_steps = 1  # pre-training when step == 0
-        for _ in range(num_update_steps):
+        (
+            metrics,
+            batch,
+            action,
+            reward,
+            discount,
+            terminal,
+            truncated,
+            bootstrap,
+            demos,
+            time_obs,
+            next_time_obs,
+            loss_coeff,
+        ) = batch
+
+        low_dim_obs = next_low_dim_obs = None
+        fused_view_feats = next_fused_view_feats = None
+        if self.low_dim_size > 0:
+            low_dim_obs, next_low_dim_obs = self.extract_low_dim_state(batch)
+
+        if self.use_pixels:
+            rgb_obs, next_rgb_obs, ext_metrics = self.extract_pixels(batch)
+            metrics.update(ext_metrics)
+            enc_metrics, rgb_feats, next_rgb_feats = self.encode(rgb_obs, next_rgb_obs)
+            metrics.update(enc_metrics)
             (
-                metrics,
-                batch,
+                fusion_metrics,
+                fused_view_feats,
+                next_fused_view_feats,
+            ) = self.multi_view_fusion(rgb_obs, rgb_feats, next_rgb_feats)
+            metrics.update(fusion_metrics)
+            if not self.frame_stack_on_channel:
+                fused_view_feats = fused_view_feats.view(
+                    -1, self.time_dim, *fused_view_feats.shape[1:]
+                )
+                next_fused_view_feats = next_fused_view_feats.view(
+                    -1, self.time_dim, *next_fused_view_feats.shape[1:]
+                )
+
+        with torch.no_grad():
+            # NOTE: Pre-compute next_action here, outside update_critic to support
+            # using the same next_action for both critic/intr_critic updates
+            next_action, mets = self.critic.get_action(
+                next_low_dim_obs,
+                next_fused_view_feats,
+                next_time_obs,
+                self.intr_critic,
+                return_metrics=True,
+                logging=self.logging,
+            )
+            metrics.update(**mets)
+
+        metrics.update(
+            self.update_critic(
+                low_dim_obs,
+                fused_view_feats,
                 action,
                 reward,
                 discount,
-                terminal,
-                truncated,
                 bootstrap,
-                demos,
+                next_low_dim_obs,
+                next_fused_view_feats,
+                next_action,
                 time_obs,
                 next_time_obs,
                 loss_coeff,
-            ) = self.extract_batch(replay_iter)
-
-            low_dim_obs = next_low_dim_obs = None
-            fused_view_feats = next_fused_view_feats = None
-            if self.low_dim_size > 0:
-                low_dim_obs, next_low_dim_obs = self.extract_low_dim_state(batch)
-
-            if self.use_pixels:
-                rgb_obs, next_rgb_obs, ext_metrics = self.extract_pixels(batch)
-                metrics.update(ext_metrics)
-                enc_metrics, rgb_feats, next_rgb_feats = self.encode(
-                    rgb_obs, next_rgb_obs
-                )
-                metrics.update(enc_metrics)
-                (
-                    fusion_metrics,
-                    fused_view_feats,
-                    next_fused_view_feats,
-                ) = self.multi_view_fusion(rgb_obs, rgb_feats, next_rgb_feats)
-                metrics.update(fusion_metrics)
-                if not self.frame_stack_on_channel:
-                    fused_view_feats = fused_view_feats.view(
-                        -1, self.time_dim, *fused_view_feats.shape[1:]
-                    )
-                    next_fused_view_feats = next_fused_view_feats.view(
-                        -1, self.time_dim, *next_fused_view_feats.shape[1:]
-                    )
-
-            with torch.no_grad():
-                # NOTE: Pre-compute next_action here, outside update_critic to support
-                # using the same next_action for both critic/intr_critic updates
-                next_action, mets = self.critic.get_action(
-                    next_low_dim_obs,
-                    next_fused_view_feats,
-                    next_time_obs,
-                    self.intr_critic,
-                    return_metrics=True,
-                    logging=self.logging,
-                )
-                metrics.update(**mets)
-
-            metrics.update(
-                self.update_critic(
-                    low_dim_obs,
-                    fused_view_feats,
-                    action,
-                    reward,
-                    discount,
-                    bootstrap,
-                    next_low_dim_obs,
-                    next_fused_view_feats,
-                    next_action,
-                    time_obs,
-                    next_time_obs,
-                    loss_coeff,
-                    demos,
-                    False,
-                    logging=self.logging,
-                )
+                demos,
+                False,
+                logging=self.logging,
             )
-
-            if isinstance(replay_buffer, PrioritizedReplayBuffer):
-                replay_buffer.set_priority(
-                    indices=batch["indices"].cpu().detach().numpy(),
-                    priorities=self._td_error**self.replay_alpha,
-                )
-
-            if self.intrinsic_reward_module is not None:
-                intrinsic_rewards = self.intrinsic_reward_module.compute_irs(
-                    batch, step
-                )
-                self.intrinsic_reward_module.update(batch)
-                metrics.update(
-                    self.update_critic(
-                        low_dim_obs,
-                        fused_view_feats.detach()
-                        if fused_view_feats is not None
-                        else None,
-                        action,
-                        intrinsic_rewards,
-                        discount,
-                        bootstrap,
-                        next_low_dim_obs,
-                        next_fused_view_feats.detach()
-                        if next_fused_view_feats is not None
-                        else None,
-                        next_action,
-                        time_obs,
-                        next_time_obs,
-                        loss_coeff,
-                        None,
-                        True,
-                        logging=self.logging,
-                    )
-                )
-                if step % self.critic_target_interval == 0:
-                    utils.soft_update_params(
-                        self.intr_critic,
-                        self.intr_critic_target,
-                        self.critic_target_tau,
-                    )
-
-            # update critic target
-            if step % self.critic_target_interval == 0:
-                utils.soft_update_params(
-                    self.critic, self.critic_target, self.critic_target_tau
-                )
+        )
 
         return metrics
+
+    def update_target_critic(self, step: int):
+        # update critic target
+        if step % self.critic_target_interval == 0:
+            utils.soft_update_params(
+                self.critic, self.critic_target, self.critic_target_tau
+            )
 
     def calculate_target_q(
         self,
@@ -659,3 +605,44 @@ class CQN(ValueBased):
                 bootstrap,
             )
             return target_q_probs_a
+
+    def act(
+        self,
+        observations: dict[str, torch.Tensor],
+        step: int,
+        eval_mode: bool,
+    ):
+        low_dim_obs = fused_rgb_feats = time_obs = None
+        if self.low_dim_size > 0:
+            low_dim_obs = self._act_extract_low_dim_state(observations)
+        if self.use_pixels:
+            rgb_obs = self._act_extract_rgb_obs(observations)
+            with torch.no_grad():
+                multi_view_rgb_feats = self.encoder(rgb_obs.float())
+                fused_rgb_feats = self.view_fusion(multi_view_rgb_feats)
+                if not self.frame_stack_on_channel:
+                    fused_rgb_feats = fused_rgb_feats.view(
+                        -1, self.time_dim, *fused_rgb_feats.shape[1:]
+                    )
+        if self.time_obs_size > 0:
+            time_obs = self._act_extract_time_obs(observations)
+        if self.use_target_network_for_rollout:
+            critic = self.critic_target
+            intr_critic = self.intr_critic_target
+        else:
+            critic = self.critic
+            intr_critic = self.intr_critic
+        action = critic.get_action(low_dim_obs, fused_rgb_feats, time_obs, intr_critic)
+        std = torch.ones_like(action) * self.get_std(step)
+        dist = utils.TruncatedNormal(action, std)
+        if eval_mode:
+            action = dist.mean
+        else:
+            action = dist.sample()
+            if step < self.num_explore_steps:
+                action.uniform_(-1, 1)
+
+        action = self.critic.encode_decode_action(action)
+        # Unflatten to include action_sequence dimension
+        action = action.view(*action.shape[:-1], *self.action_space.shape)
+        return action
