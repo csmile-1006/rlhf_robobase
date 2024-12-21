@@ -1,10 +1,11 @@
 from copy import deepcopy
-from typing import Optional
+from typing import Optional, Iterator
 
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from tensordict import TensorDict
 
 from robobase.method.value_based import ValueBased
 
@@ -13,6 +14,7 @@ from robobase.models.fully_connected import FullyConnectedModule
 from robobase.method.utils import (
     random_action_if_within_delta,
     zoom_in,
+    loss_weights,
     encode_action,
     decode_action,
 )
@@ -233,43 +235,58 @@ class CQNSimple(ValueBased):
         critic_target.eval()
         return critic, critic_target, critic_opt
 
+    def extract_batch(
+        self, replay_iter: Iterator[dict[str, torch.Tensor]]
+    ) -> tuple[dict, TensorDict]:
+        batch = next(replay_iter)
+        batch = TensorDict(
+            {
+                k: torch.as_tensor(v, dtype=v.dtype, device=self.device)
+                for k, v in batch.items()
+            },
+            batch_size=batch["action"].shape[0],
+        )
+        batch["reward"] = batch["reward"].unsqueeze(1)
+        batch["discount"] = batch["discount"].to(batch["reward"].dtype).unsqueeze(1)
+        batch["terminal"] = batch["terminal"].to(batch["reward"].dtype)
+        batch["truncated"] = batch["truncated"].to(batch["reward"].dtype)
+        # 1. If not terminal and not truncated, we bootstrap
+        # 2. If not terminal and truncated, we bootstrap
+        # 3. If terminal and not truncated, we don't bootstrap
+        # 4. If terminal and truncated,(e.g., success in last timestep)
+        #    we don't bootstrap as terminal has a priortiy over truncated
+        # In summary, we do not bootstrap when terminal; otherwise we do bootstrap
+        batch["bootstrap"] = (1.0 - batch["terminal"]).unsqueeze(1)
+        if self.always_bootstrap:
+            # Override bootstrap to be 1
+            batch["bootstrap"] = torch.ones_like(batch["bootstrap"])
+        batch["loss_coeff"] = loss_weights(batch, self.replay_beta)
+        batch["action"] = batch["action"].flatten(-2)
+        return batch
+
     def update_critic(
         self,
         low_dim_obs,
-        fused_view_feats,
         action,
         reward,
         discount,
         bootstrap,
         next_low_dim_obs,
-        next_fused_view_feats,
         next_action,
-        time_obs,
-        next_time_obs,
         loss_coeff,
-        demos,
-        updating_intrinsic_critic,
-        logging,
     ):
-        lp = "intrinsic_" if updating_intrinsic_critic else ""
-        if updating_intrinsic_critic:
-            critic, critic_opt = (
-                self.intr_critic,
-                self.intr_critic_opt,
-            )
-        else:
-            critic, critic_opt = (
-                self.critic,
-                self.critic_opt,
-            )
+        critic, critic_opt = (
+            self.critic,
+            self.critic_opt,
+        )
 
         metrics = dict()
         with torch.no_grad():
             target_v = self.critic_target(
                 next_low_dim_obs,
-                next_fused_view_feats,
+                None,
                 next_action,
-                next_time_obs,
+                None,
             )[1]
             target_q = (
                 reward.unsqueeze(-1)
@@ -278,99 +295,25 @@ class CQNSimple(ValueBased):
 
         qs_a = critic(
             low_dim_obs,
-            fused_view_feats,
+            None,
             action,
-            time_obs,
+            None,
         )[1]
 
         q_critic_loss = F.mse_loss(qs_a, target_q)
         critic_loss = self.critic_lambda * (q_critic_loss * loss_coeff).mean()
-        if logging:
-            metrics["q_critic_loss"] = q_critic_loss.mean().item()
-            metrics["loss_coeff"] = loss_coeff.mean().item()
-
-        if self.bc_lambda > 0.0 and demos is not None:
-            qs = None
-            demos = demos.float()
-            if logging:
-                metrics["ratio_of_demos"] = demos.mean().item()
-            if torch.sum(demos) > 0:
-                # qs: [B, L, D, bins], qs_a: [B, L, D]
-                qs_cdf = torch.cumsum(qs, -1)
-                qs_a_cdf = torch.cumsum(qs_a, -1)
-                # qs_{a_{i}} is stochastically dominant over qs_{a_{-i}}
-                bc_fosd_loss = (
-                    (qs_a_cdf.unsqueeze(-2) - qs_cdf)
-                    .clamp(min=0)
-                    .sum(-1)
-                    .mean([-1, -2, -3])
-                )
-                bc_fosd_loss = (bc_fosd_loss * demos).sum() / demos.sum()
-                critic_loss = critic_loss + self.bc_lambda * bc_fosd_loss
-                if logging:
-                    metrics["bc_fosd_loss"] = bc_fosd_loss.item()
-
-                if self.bc_margin > 0:
-                    qs = (qs * self.critic.support.expand_as(qs)).sum(-1)
-                    qs_a = (qs_a * self.critic.support.expand_as(qs_a)).sum(-1)
-                    margin_loss = torch.clamp(
-                        self.bc_margin - (qs_a.unsqueeze(-1) - qs), min=0
-                    ).mean([-1, -2, -3])
-                    margin_loss = (margin_loss * demos).sum() / demos.sum()
-                    critic_loss = critic_loss + self.bc_lambda * margin_loss
-                    if logging:
-                        metrics["bc_margin_loss"] = margin_loss.item()
-
         critic_loss = torch.mean(critic_loss)
 
-        if logging:
-            metrics[f"{lp}critic_loss"] = critic_loss.item()
-
         # optimize encoder and critic
-        if self.use_pixels and self.encoder_opt is not None:
-            self.encoder_opt.zero_grad(set_to_none=True)
-            if self.use_multicam_fusion and self.view_fusion_opt is not None:
-                self.view_fusion_opt.zero_grad(set_to_none=True)
         critic_opt.zero_grad(set_to_none=True)
         critic_loss.backward()
-        if self.critic_grad_clip:
-            critic_norm = nn.utils.clip_grad_norm_(
-                critic.parameters(), self.critic_grad_clip
-            )
-            if logging:
-                metrics[f"{lp}critic_norm"] = critic_norm.item()
         critic_opt.step()
-        if self.use_pixels and self.encoder is not None:
-            if self.critic_grad_clip:
-                encoder_norm = nn.utils.clip_grad_norm_(
-                    self.encoder.parameters(), self.critic_grad_clip
-                )
-                if logging:
-                    metrics[f"{lp}encoder_norm"] = encoder_norm.item()
-            self.encoder_opt.step()
-            if self.use_multicam_fusion and self.view_fusion_opt is not None:
-                self.view_fusion_opt.step()
         return metrics
 
     def update(
         self,
-        batch: dict[str, torch.Tensor],
+        batch: TensorDict,
     ) -> dict[str, np.ndarray]:
-        (
-            metrics,
-            batch,
-            action,
-            reward,
-            discount,
-            terminal,
-            truncated,
-            bootstrap,
-            demos,
-            time_obs,
-            next_time_obs,
-            loss_coeff,
-        ) = batch
-
         low_dim_obs = next_low_dim_obs = None
         fused_view_feats = next_fused_view_feats = None
         if self.low_dim_size > 0:
@@ -378,15 +321,12 @@ class CQNSimple(ValueBased):
 
         if self.use_pixels:
             rgb_obs, next_rgb_obs, ext_metrics = self.extract_pixels(batch)
-            metrics.update(ext_metrics)
             enc_metrics, rgb_feats, next_rgb_feats = self.encode(rgb_obs, next_rgb_obs)
-            metrics.update(enc_metrics)
             (
                 fusion_metrics,
                 fused_view_feats,
                 next_fused_view_feats,
             ) = self.multi_view_fusion(rgb_obs, rgb_feats, next_rgb_feats)
-            metrics.update(fusion_metrics)
             if not self.frame_stack_on_channel:
                 fused_view_feats = fused_view_feats.view(
                     -1, self.time_dim, *fused_view_feats.shape[1:]
@@ -401,33 +341,22 @@ class CQNSimple(ValueBased):
             next_action, mets = self.critic.get_action(
                 next_low_dim_obs,
                 next_fused_view_feats,
-                next_time_obs,
+                None,
                 self.intr_critic,
                 return_metrics=True,
                 logging=self.logging,
             )
-            metrics.update(**mets)
 
-        metrics.update(
-            self.update_critic(
-                low_dim_obs,
-                fused_view_feats,
-                action,
-                reward,
-                discount,
-                bootstrap,
-                next_low_dim_obs,
-                next_fused_view_feats,
-                next_action,
-                time_obs,
-                next_time_obs,
-                loss_coeff,
-                demos,
-                False,
-                logging=self.logging,
-            )
+        metrics = self.update_critic(
+            low_dim_obs,
+            batch["action"],
+            batch["reward"],
+            batch["discount"],
+            batch["bootstrap"],
+            next_low_dim_obs,
+            next_action,
+            batch["loss_coeff"],
         )
-
         return metrics
 
     def update_target_critic(self, step: int):

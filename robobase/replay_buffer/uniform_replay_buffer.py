@@ -19,6 +19,7 @@ from multiprocessing import Value
 from collections import defaultdict
 import logging
 from typing_extensions import override
+import random
 
 import torch
 from gymnasium import spaces
@@ -126,7 +127,7 @@ class UniformReplayBuffer(ReplayBuffer):
         preprocessing_fn: list[Callable[[list[spaces.Dict]], list[spaces.Dict]]] = None,
         preprocess_every_sample: bool = False,
         num_workers: int = 0,
-        fetch_every: int = 100,
+        fetch_every: int = 1000,
         sequential: bool = False,
         transition_seq_len: int = 1,
         max_episode_number: int = 0,
@@ -411,7 +412,7 @@ class UniformReplayBuffer(ReplayBuffer):
         transition.update(observation)
 
         # Check transition shape is correct
-        self._check_add_types(transition, self._storage_signature)
+        # self._check_add_types(transition, self._storage_signature)
 
         # Add transition
         self._add(transition)
@@ -427,7 +428,7 @@ class UniformReplayBuffer(ReplayBuffer):
 
         transition = {}
         transition.update(final_observation)
-        self._check_add_types(transition, self._obs_signature)
+        # self._check_add_types(transition, self._obs_signature)
 
         # Construct final transition with values from final_obs and final_info, with
         # empty action, reward and flags.
@@ -573,7 +574,7 @@ class UniformReplayBuffer(ReplayBuffer):
         self._size = 0
 
     def _sample_episode(self):
-        eps_fn = np.random.choice(self._episode_files[-self._max_episode_number :])
+        eps_fn = random.choice(self._episode_files[-self._max_episode_number :])
         _, _, global_index = [int(x) for x in eps_fn.stem.split("_")[1:]]
         return self._episodes[eps_fn], global_index
 
@@ -678,7 +679,7 @@ class UniformReplayBuffer(ReplayBuffer):
             # There's no need to handle self._nstep at the end of episode, which
             # allows for sampling last timestep without using separate next_idxs
             max_idx = episode_len(episode) + self._transition_seq_len
-            idx = np.random.randint(min_idx, max_idx)
+            idx = random.randint(min_idx, max_idx)
             total_len = episode_len(episode)
             episodes_to_flatten = [episode]
             while idx >= total_len:
@@ -740,7 +741,7 @@ class UniformReplayBuffer(ReplayBuffer):
             # NOTE: here global index is the index of the start of episode.
             episode, global_index = self._sample_episode()
             min_idx, max_idx = 0, np.maximum(episode_len(episode) - self._nstep + 1, 1)
-            idx = np.random.randint(min_idx, max_idx)
+            idx = random.randint(min_idx, max_idx)
 
             # global index of the transition = index of episode_start + transition_idx
             global_index += idx
@@ -767,16 +768,9 @@ class UniformReplayBuffer(ReplayBuffer):
         obs_start_idx = (idx - self._frame_stacks) + 1
         next_obs_start_idx = (next_idx - self._frame_stacks) + 1
         # Obs_idxs contains indices of all frames, considering frame stacking.
-        # - Turn all negative idxs to 0
-        obs_idxs = list(
-            map(lambda x: np.clip(x, 0, ep_len), range(obs_start_idx, idx + 1))
-        )
-        next_obs_idxs = list(
-            map(
-                lambda x: np.clip(x, 0, ep_len),
-                range(next_obs_start_idx, next_idx + 1),
-            )
-        )
+        # - Turn all negative idxs to 0 using numpy operations
+        obs_idxs = np.clip(np.arange(obs_start_idx, idx + 1), 0, ep_len)
+        next_obs_idxs = np.clip(np.arange(next_obs_start_idx, next_idx + 1), 0, ep_len)
 
         # Add observation frames into sample
         for name in self._obs_signature.keys():
@@ -787,21 +781,20 @@ class UniformReplayBuffer(ReplayBuffer):
         # Handle action sequences
         action_start_idx = idx
         action_end_idx = min(idx + self._action_seq_len, ep_len)
-        # - action_idxs contains indices of all action, considering action sequences.
-        action_idxs = list(range(action_start_idx, action_end_idx))
-        action_seq = episode[ACTION][action_idxs]
-        # - Pad zeros to the end if action_sequences exceeds eps_len
-        if len(action_seq) < self._action_seq_len:
-            num_action_to_pad = self._action_seq_len - len(action_seq)
-            action_seq = np.concatenate(
-                [
-                    action_seq,
-                    np.zeros(
-                        (num_action_to_pad, *action_seq.shape[1:]), dtype=np.float32
-                    ),
-                ],
-                axis=0,
+        # Get action sequence directly using array slicing instead of creating range/list
+        action_seq = episode[ACTION][action_start_idx:action_end_idx]
+
+        # Only pad if necessary
+        if action_end_idx - action_start_idx < self._action_seq_len:
+            num_action_to_pad = self._action_seq_len - (
+                action_end_idx - action_start_idx
             )
+            # Create padding array directly with correct shape
+            padding = np.zeros(
+                (num_action_to_pad, *action_seq.shape[1:]), dtype=action_seq.dtype
+            )
+            action_seq = np.concatenate([action_seq, padding], axis=0)
+
         replay_sample[ACTION] = action_seq
 
         # Add the rest

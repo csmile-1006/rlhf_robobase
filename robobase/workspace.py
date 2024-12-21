@@ -937,7 +937,7 @@ class Workspace:
             start_time = time.time()
         with torch.no_grad(), utils.eval_mode(self.agent):
             torch_observations = {
-                k: torch.from_numpy(v).cuda(self.device)
+                k: torch.as_tensor(v, dtype=torch.float32, device=self.device)
                 for k, v in observations.items()
             }
             if eval_mode:

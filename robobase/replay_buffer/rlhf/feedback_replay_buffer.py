@@ -7,33 +7,34 @@ off-policy corrections.
 """
 
 from __future__ import annotations
+
+import logging
 import os
+import random
 import tempfile
+from collections import defaultdict
 from datetime import datetime
+from multiprocessing import Value
 from pathlib import Path
 from typing import Callable, Type
-from multiprocessing import Value
-from collections import defaultdict
-import logging
-from typing_extensions import override
 
+import numpy as np
 import torch
 import ujson as json
 from gymnasium import spaces
 from natsort import natsort
-import numpy as np
+from typing_extensions import override
 
 from robobase.replay_buffer.replay_buffer import (
     ReplayBuffer,
     ReplayElement,
 )
-
 from robobase.replay_buffer.uniform_replay_buffer import (
-    save_episode,
-    load_episode,
     ACTION,
     INDICES,
     IS_FIRST,
+    load_episode,
+    save_episode,
 )
 
 LABEL = "label"
@@ -491,7 +492,7 @@ class FeedbackReplayBuffer(ReplayBuffer):
     ### Below are the Dataset functions ###
 
     def _sample_episode(self):
-        eps_fn = np.random.choice(self._episode_files)
+        eps_fn = random.choice(self._episode_files)
         _, _, global_index = [int(x) for x in eps_fn.stem.split("_")[1:]]
         return self._episodes[eps_fn], global_index
 

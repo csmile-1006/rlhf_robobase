@@ -57,7 +57,7 @@ replay:
   save_dir: null
   nstep: 3
   num_workers: 4
-  pin_memory: true
+  pin_memory: false
   alpha: 0.7  # prioritization
   beta: 0.5  # prioritization
   sequential: false
@@ -99,7 +99,7 @@ rlhf_replay:
   query_save_dir: null
   feedback_save_dir: null
   num_workers: 4
-  pin_memory: true
+  pin_memory: false
   num_queries: 1
   num_labels: 1
   seq_len: 50

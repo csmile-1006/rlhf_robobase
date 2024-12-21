@@ -238,7 +238,7 @@ def onehot_from_logits(logits, eps=0.0):
     # get random actions in one-hot form
     rand_acs = Variable(
         torch.eye(logits.shape[1])[
-            [np.random.choice(range(logits.shape[1]), size=logits.shape[0])]
+            [random.choice(range(logits.shape[1]), size=logits.shape[0])]
         ],
         requires_grad=False,
     )
