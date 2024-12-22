@@ -577,7 +577,6 @@ class Workspace:
         # if self.use_rlhf:
         #     self._pretrain_reward_model_on_demos()
 
-        # self._update_fn = self.agent.update
         if self.cfg.use_compile:
             self._update_fn = torch.compile(self.agent.update)
             self._act_fn = torch.compile(self.agent.act)

@@ -55,7 +55,7 @@ class C2FCriticSimple(nn.Module):
         action,
         time_obs,
     ):
-        net_ins = dict()
+        net_ins = TensorDict()
         if low_dim_obs is not None:
             net_ins["low_dim_obs"] = low_dim_obs
             bs = low_dim_obs.shape[0]
@@ -108,8 +108,8 @@ class C2FCriticSimple(nn.Module):
         return_metrics=False,
         logging=False,
     ):
-        metrics = dict()
-        net_ins = dict()
+        metrics = TensorDict()
+        net_ins = TensorDict()
         if low_dim_obs is not None:
             net_ins["low_dim_obs"] = low_dim_obs
             bs = low_dim_obs.shape[0]
@@ -156,7 +156,7 @@ class C2FCriticSimple(nn.Module):
                     ..., 0
                 ]  # [..., D]
                 if logging:
-                    metrics[f"critic_target_q_level{level}"] = qs_a.mean().item()
+                    metrics[f"critic_target_q_level{level}"] = qs_a.mean().detach()
 
             # Zoom-in
             low, high = zoom_in(low, high, argmax_q, self.bins)
@@ -280,7 +280,6 @@ class CQNSimple(ValueBased):
             self.critic_opt,
         )
 
-        metrics = dict()
         with torch.no_grad():
             target_v = self.critic_target(
                 next_low_dim_obs,
@@ -302,13 +301,15 @@ class CQNSimple(ValueBased):
 
         q_critic_loss = F.mse_loss(qs_a, target_q)
         critic_loss = self.critic_lambda * (q_critic_loss * loss_coeff).mean()
-        critic_loss = torch.mean(critic_loss)
 
         # optimize encoder and critic
         critic_opt.zero_grad(set_to_none=True)
         critic_loss.backward()
         critic_opt.step()
-        return metrics
+        return TensorDict(
+            q_critic_loss=q_critic_loss.mean().detach(),
+            loss_coeff=loss_coeff.mean().detach(),
+        )
 
     def update(
         self,

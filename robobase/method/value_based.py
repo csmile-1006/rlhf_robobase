@@ -588,26 +588,6 @@ class ValueBased(OffPolicyMethod, ABC):
         self._td_error = (new_pri / torch.max(new_pri)).cpu().detach().numpy()
         critic_loss = torch.mean(critic_loss)
 
-        if self.logging:
-            pass
-            # metrics[f"{lp}critic_target_q"] = target_qs_a.mean().item()
-            # metrics[f"{lp}critic_q"] = qs_a.mean().item()
-            # metrics[f"{lp}critic_loss"] = critic_loss.item()
-
-        if self.bc_lambda > 0.0 and not updating_intrinsic_critic:
-            # No BC loss when updating intrinsic critic
-            if demos is not None and torch.sum(demos) > 0:
-                margin_loss = torch.clamp(
-                    self.bc_margin - (qs_a.unsqueeze(-1) - qs), min=0
-                ).mean([-3, -2, -1])
-                margin_loss = (margin_loss * demos).sum() / demos.sum()
-            else:
-                margin_loss = torch.tensor(0.0, device=demos.device)
-            critic_loss = critic_loss + self.bc_lambda * margin_loss
-            if self.logging:
-                pass
-                # metrics[f"{lp}margin_loss"] = margin_loss.item()
-
         # optimize encoder and critic
         if self.use_pixels and self.encoder_opt is not None:
             self.encoder_opt.zero_grad(set_to_none=True)
@@ -615,13 +595,6 @@ class ValueBased(OffPolicyMethod, ABC):
                 self.view_fusion_opt.zero_grad(set_to_none=True)
         critic_opt.zero_grad(set_to_none=True)
         critic_loss.backward()
-        # if self.critic_grad_clip:
-        #     critic_norm = nn.utils.clip_grad_norm_(
-        #         critic.parameters(), self.critic_grad_clip
-        #     )
-        #     if self.logging:
-        #         pass
-        #         # metrics[f"{lp}critic_norm"] = critic_norm.item()
         critic_opt.step()
         if self.use_pixels and self.encoder is not None:
             if self.critic_grad_clip:
@@ -711,12 +684,11 @@ class ValueBased(OffPolicyMethod, ABC):
 
         metrics = dict()
         if self.logging:
-            pass
             # Get first batch item and last timestep
-            # for k, v in rgb_obs.items():
-            #     metrics[k] = v[0, -1]
-            # for k, v in next_rgb_obs.items():
-            #     metrics[k] = v[0, -1]
+            for k, v in rgb_obs.items():
+                metrics[k] = v[0, -1]
+            for k, v in next_rgb_obs.items():
+                metrics[k] = v[0, -1]
 
         # -> (B, V, T, 3. H, W)
         rgb_obs = stack_tensor_dictionary(rgb_obs, 1)

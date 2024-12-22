@@ -4,6 +4,7 @@ from typing import Tuple
 import numpy as np
 import torch
 from torch import nn as nn
+from tensordict import TensorDict
 
 from robobase import utils
 from robobase.models.core import (
@@ -183,20 +184,21 @@ class MLPWithBottleneckFeatures(RNNFullyConnectedModule):
         return self._output_shape
 
     def forward(self, x: dict[str, torch.Tensor]) -> torch.Tensor:
-        assert isinstance(x, dict), "Expected input to be dict of str to tensors."
+        assert isinstance(
+            x, (dict, TensorDict)
+        ), "Expected input to be dict of str to tensors."
         if self.training and self.time_dim_rnn is not None and self._need_flatten:
             self._need_flatten = False
             self.time_dim_rnn.flatten_parameters()
         if not self.training and not self._need_flatten:
             # We have been in eval mode and need to flatten next time ee train
             self._need_flatten = True
-        # inputs = [v for k, v in x.items() if k not in self.keys_to_bottleneck]
-        # feats = []
-        # for k, mlp in self.input_preprocess_modules.items():
-        #     feats.append(mlp(x[k]))
-        # feats.extend(inputs)
+        inputs = [v for k, v in x.items() if k not in self.keys_to_bottleneck]
+        feats = []
+        for k, mlp in self.input_preprocess_modules.items():
+            feats.append(mlp(x[k]))
+        feats.extend(inputs)
 
-        feats = list(x.values())
         expanded_feats = []
         for _x in feats:
             if self.input_time_dim_size > 0 and _x.ndim == 2:  # i.e. (B, Z)
@@ -275,14 +277,7 @@ class Reshape(nn.Module):
         self.last_dim_to_keep = last_dim_to_keep
 
     def forward(self, x):
-        # Explicitly construct the new shape tuple to avoid dynamic concatenation
-        prefix_shape = x.shape[: -self.last_dim_to_keep]
-        if isinstance(self.shapes, tuple):
-            new_shape = prefix_shape + self.shapes
-        else:
-            new_shape = prefix_shape + (self.shapes,)
-        # Convert tuple to list to avoid fake tensor issues with torch.compile
-        return x.reshape(new_shape)
+        return x.view(x.shape[: -self.last_dim_to_keep] + self.shapes)
 
     def __repr__(self):
         return (

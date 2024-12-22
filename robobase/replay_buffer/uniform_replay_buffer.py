@@ -741,7 +741,7 @@ class UniformReplayBuffer(ReplayBuffer):
             # NOTE: here global index is the index of the start of episode.
             episode, global_index = self._sample_episode()
             min_idx, max_idx = 0, np.maximum(episode_len(episode) - self._nstep + 1, 1)
-            idx = random.randint(min_idx, max_idx)
+            idx = np.random.randint(min_idx, max_idx)
 
             # global index of the transition = index of episode_start + transition_idx
             global_index += idx
@@ -761,58 +761,54 @@ class UniformReplayBuffer(ReplayBuffer):
         # Construct replay sample from sampled transition index
         ep_len = episode_len(episode)
         next_idx = idx + self._nstep
-        # If next_idx > eps_len, next_idx will point to final_obs
+
+        # Pre-calculate indices arrays once
+        obs_idxs = np.clip(np.arange(idx - self._frame_stacks + 1, idx + 1), 0, ep_len)
+        next_obs_idxs = np.clip(
+            np.arange(next_idx - self._frame_stacks + 1, next_idx + 1), 0, ep_len
+        )
+
+        # Initialize replay sample with observations
         replay_sample = {}
+        for name in self._obs_signature:
+            obs = episode[name]
+            replay_sample[name] = obs[obs_idxs]
+            replay_sample[name + "_tp1"] = obs[next_obs_idxs]
 
-        # Handle frame stacking, calculate observation indices.
-        obs_start_idx = (idx - self._frame_stacks) + 1
-        next_obs_start_idx = (next_idx - self._frame_stacks) + 1
-        # Obs_idxs contains indices of all frames, considering frame stacking.
-        # - Turn all negative idxs to 0 using numpy operations
-        obs_idxs = np.clip(np.arange(obs_start_idx, idx + 1), 0, ep_len)
-        next_obs_idxs = np.clip(np.arange(next_obs_start_idx, next_idx + 1), 0, ep_len)
-
-        # Add observation frames into sample
-        for name in self._obs_signature.keys():
-            replay_sample[name] = episode[name][obs_idxs]
-            # Retrieve tp1 observations
-            replay_sample[name + "_tp1"] = episode[name][next_obs_idxs]
-
-        # Handle action sequences
-        action_start_idx = idx
+        # Handle action sequences efficiently
         action_end_idx = min(idx + self._action_seq_len, ep_len)
-        # Get action sequence directly using array slicing instead of creating range/list
-        action_seq = episode[ACTION][action_start_idx:action_end_idx]
+        action_seq = episode[ACTION][idx:action_end_idx]
 
-        # Only pad if necessary
-        if action_end_idx - action_start_idx < self._action_seq_len:
-            num_action_to_pad = self._action_seq_len - (
-                action_end_idx - action_start_idx
+        if pad_len := self._action_seq_len - len(action_seq):
+            # Only create padding if needed
+            action_seq = np.concatenate(
+                [
+                    action_seq,
+                    np.zeros((pad_len, *action_seq.shape[1:]), dtype=action_seq.dtype),
+                ]
             )
-            # Create padding array directly with correct shape
-            padding = np.zeros(
-                (num_action_to_pad, *action_seq.shape[1:]), dtype=action_seq.dtype
-            )
-            action_seq = np.concatenate([action_seq, padding], axis=0)
 
-        replay_sample[ACTION] = action_seq
-
-        # Add the rest
+        # Calculate discounted reward sum
         discount_slice_len = next_idx - idx
+        discounted_reward = np.sum(
+            episode[REWARD][idx:next_idx]
+            * self._cumulative_discount_vector[:discount_slice_len]
+        )
+
+        # Add remaining items
         replay_sample.update(
             {
-                REWARD: np.sum(
-                    episode[REWARD][idx:next_idx]
-                    * self._cumulative_discount_vector[:discount_slice_len]
-                ),
+                ACTION: action_seq,
+                REWARD: discounted_reward,
                 TERMINAL: episode[TERMINAL][next_idx - 1],
                 TRUNCATED: episode[TRUNCATED][next_idx - 1],
                 INDICES: global_index,
-                DISCOUNT: self._gamma**discount_slice_len,  # effective discount
+                DISCOUNT: self._gamma**discount_slice_len,
             }
         )
-        # Add remaining (extra) items
-        for name in self._storage_signature.keys():
+
+        # Add any extra storage items not already added
+        for name in self._storage_signature:
             if name not in replay_sample:
                 replay_sample[name] = episode[name][idx]
 
