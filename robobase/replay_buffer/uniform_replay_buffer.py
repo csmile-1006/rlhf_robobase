@@ -641,17 +641,16 @@ class UniformReplayBuffer(ReplayBuffer):
                     eps_fns.append(eps_fn)
             # Sort only the new episodes, which should be much fewer
             eps_fns.sort(reverse=True)
+            # Cache stat call result
+            if self._episode_files:
+                first_ep_ctime = self._episode_files[0].stat().st_ctime
+                if self._episode_ctimes[self._episode_files[0]] != first_ep_ctime:
+                    # If the last episode is already loaded but has been modified, reload episodes.
+                    logging.info("reset buffer")
+                    self._reset_buffer()
         else:
             eps_fns = sorted(self._replay_dir.glob("*.npz"), reverse=True)
         fetched_size = 0
-
-        # Cache stat call result
-        if self._episode_files:
-            first_ep_ctime = self._episode_files[0].stat().st_ctime
-            if self._episode_ctimes[self._episode_files[0]] != first_ep_ctime:
-                # If the last episode is already loaded but has been modified, reload episodes.
-                logging.info("reset buffer")
-                self._reset_buffer()
 
         for eps_fn in eps_fns:
             eps_idx, eps_len, global_idx = [int(x) for x in eps_fn.stem.split("_")[1:]]
