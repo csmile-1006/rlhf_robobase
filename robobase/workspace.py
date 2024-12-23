@@ -255,8 +255,8 @@ class Workspace:
                 f"must be >= episode_length ({cfg.env.episode_length})."
             )
 
-        if cfg.method.is_rl and cfg.action_sequence != 1:
-            raise ValueError("Action sequence > 1 is not supported for RL methods")
+        # if cfg.method.is_rl and cfg.action_sequence != 1:
+        #     raise ValueError("Action sequence > 1 is not supported for RL methods")
         if cfg.method.is_rl and cfg.execution_length != 1:
             raise ValueError("execution_length > 1 is not supported for RL methods")
         if not cfg.method.is_rl and cfg.replay.nstep != 1:
@@ -517,7 +517,11 @@ class Workspace:
             self._main_loop_iterations
             * self.cfg.action_repeat
             * self.train_envs.num_envs
-            * self.cfg.action_sequence
+            * (
+                self.cfg.action_sequence
+                if not self.cfg.temporal_ensemble
+                else self.cfg.execution_length
+            )
             + self.pretrain_steps
         )
 

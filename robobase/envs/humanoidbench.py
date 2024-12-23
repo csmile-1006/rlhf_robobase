@@ -14,6 +14,7 @@ from robobase.envs.wrappers import (
     FrameStack,
     RescaleFromTanh,
     ActionSequence,
+    RecedingHorizonControl,
 )
 from robobase.envs.utils.humanoidbench_utils import (
     TASK_DESCRIPTION,
@@ -198,7 +199,20 @@ class HumanoidBenchEnvFactory(EnvFactory):
             env = OnehotTime(
                 env, cfg.env.episode_length // cfg.action_repeat
             )  # Time limits are handles by DMC
-        env = ActionSequence(env, cfg.action_sequence)
+        if cfg.temporal_ensemble:
+            logging.info(
+                f"Using temporal ensemble with action sequence {cfg.action_sequence}"
+            )
+            env = RecedingHorizonControl(
+                env,
+                cfg.action_sequence,
+                cfg.env.episode_length // cfg.action_repeat,
+                cfg.execution_length,
+                temporal_ensemble=cfg.temporal_ensemble,
+                gain=cfg.temporal_ensemble_gain,
+            )
+        else:
+            env = ActionSequence(env, cfg.action_sequence)
         env = FrameStack(env, cfg.frame_stack)
         return env
 

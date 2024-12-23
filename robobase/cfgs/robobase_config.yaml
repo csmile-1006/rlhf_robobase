@@ -41,7 +41,7 @@ use_onehot_time_and_no_bootstrap: false
 action_repeat: 1
 action_sequence: 1 # ActionSequenceWrapper
 execution_length: 1  # If execution_length < action_sequence, we use receding horizon control
-temporal_ensemble: true  # Temporal ensemling only applicable to action sequence > 1
+temporal_ensemble: false  # Temporal ensemling only applicable to action sequence > 1
 temporal_ensemble_gain: 0.01
 use_standardization: false  # Demo-based standardization for action space
 use_min_max_normalization: false  # Demo-based min-max normalization for action space

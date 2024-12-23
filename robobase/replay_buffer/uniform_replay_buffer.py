@@ -627,15 +627,26 @@ class UniformReplayBuffer(ReplayBuffer):
         except Exception:
             worker_id = 0
 
-        eps_fns = sorted(self._replay_dir.glob("*.npz"), reverse=True)
+        # Get only new episodes by checking the latest loaded episode's creation time
+        latest_ctime = (
+            0 if not self._episode_files else self._episode_files[-1].stat().st_ctime
+        )
+        eps_fns = []
+        for eps_fn in self._replay_dir.glob("*.npz"):
+            # Only consider episodes newer than our latest loaded one
+            if eps_fn.stat().st_ctime > latest_ctime:
+                eps_fns.append(eps_fn)
+        # Sort only the new episodes, which should be much fewer
+        eps_fns.sort(reverse=True)
         fetched_size = 0
 
-        if (
-            eps_fns[-1] in self._episodes
-            and os.path.getctime(str(eps_fns[-1])) != self._episode_ctimes[eps_fns[-1]]
-        ):
-            # If the last episode is already loaded but has been modified, reload episodes.
-            self._reset_buffer()
+        # Cache stat call result
+        if self._episode_files:
+            first_ep_ctime = self._episode_files[0].stat().st_ctime
+            if self._episode_ctimes[self._episode_files[0]] != first_ep_ctime:
+                # If the last episode is already loaded but has been modified, reload episodes.
+                logging.info("reset buffer")
+                self._reset_buffer()
 
         for eps_fn in eps_fns:
             eps_idx, eps_len, global_idx = [int(x) for x in eps_fn.stem.split("_")[1:]]
@@ -775,40 +786,39 @@ class UniformReplayBuffer(ReplayBuffer):
             replay_sample[name] = obs[obs_idxs]
             replay_sample[name + "_tp1"] = obs[next_obs_idxs]
 
-        # Handle action sequences efficiently
+        # Handle action sequences
+        action_start_idx = idx
         action_end_idx = min(idx + self._action_seq_len, ep_len)
-        action_seq = episode[ACTION][idx:action_end_idx]
-
-        if pad_len := self._action_seq_len - len(action_seq):
-            # Only create padding if needed
-            action_seq = np.concatenate(
-                [
-                    action_seq,
-                    np.zeros((pad_len, *action_seq.shape[1:]), dtype=action_seq.dtype),
-                ]
+        # Get action sequence directly using array slicing instead of creating range/list
+        action_seq = episode[ACTION][action_start_idx:action_end_idx]
+        # Only pad if necessary
+        if action_end_idx - action_start_idx < self._action_seq_len:
+            num_action_to_pad = self._action_seq_len - (
+                action_end_idx - action_start_idx
             )
+            # Create padding array directly with correct shape
+            padding = np.zeros(
+                (num_action_to_pad, *action_seq.shape[1:]), dtype=action_seq.dtype
+            )
+            action_seq = np.concatenate([action_seq, padding], axis=0)
 
-        # Calculate discounted reward sum
+        replay_sample[ACTION] = action_seq
+        # Add the rest
         discount_slice_len = next_idx - idx
-        discounted_reward = np.sum(
-            episode[REWARD][idx:next_idx]
-            * self._cumulative_discount_vector[:discount_slice_len]
-        )
-
-        # Add remaining items
         replay_sample.update(
             {
-                ACTION: action_seq,
-                REWARD: discounted_reward,
+                REWARD: np.sum(
+                    episode[REWARD][idx:next_idx]
+                    * self._cumulative_discount_vector[:discount_slice_len]
+                ),
                 TERMINAL: episode[TERMINAL][next_idx - 1],
                 TRUNCATED: episode[TRUNCATED][next_idx - 1],
                 INDICES: global_index,
-                DISCOUNT: self._gamma**discount_slice_len,
+                DISCOUNT: self._gamma**discount_slice_len,  # effective discount
             }
         )
-
-        # Add any extra storage items not already added
-        for name in self._storage_signature:
+        # Add remaining (extra) items
+        for name in self._storage_signature.keys():
             if name not in replay_sample:
                 replay_sample[name] = episode[name][idx]
 

@@ -1,10 +1,10 @@
+import re
 from typing import Dict
 
 import gymnasium as gym
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import re
 
 
 class RandomShiftsAug(nn.Module):

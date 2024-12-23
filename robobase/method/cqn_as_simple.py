@@ -26,78 +26,127 @@ class C2FCriticNetwork(nn.Module):
         low_dim: int,
         action_shape: Tuple,
         hidden_dim: int,
+        gru_layers: int,
         levels: int,
         bins: int,
     ):
         super().__init__()
         self._levels = levels
-        self._actor_dim = action_shape[0]
+        self._action_sequence, self._actor_dim = action_shape
         self._bins = bins
 
         self.net = nn.Sequential(
-            nn.Linear(low_dim + self._actor_dim + levels, hidden_dim, bias=False),
+            nn.Linear(
+                low_dim + self._action_sequence + self._actor_dim + levels,
+                hidden_dim,
+                bias=False,
+            ),
             nn.LayerNorm(hidden_dim),
-            nn.SiLU(inplace=False),
+            nn.SiLU(),
             nn.Linear(hidden_dim, hidden_dim, bias=False),
             nn.LayerNorm(hidden_dim),
-            nn.SiLU(inplace=False),
+            nn.SiLU(),
         )
-        self.head = nn.Linear(hidden_dim, self._actor_dim * bins)
-        self.output_shape = (self._actor_dim, bins)
+        self.gru = nn.GRU(
+            hidden_dim,
+            hidden_dim,
+            num_layers=gru_layers,
+            batch_first=True,
+        )
+        self.head = nn.Linear(
+            hidden_dim,
+            self._actor_dim * bins,
+        )
+        self.output_shape = (self._action_sequence * self._actor_dim, bins)
 
         self.apply(utils.weight_init)
         self.head.weight.data.fill_(0.0)
         self.head.bias.data.fill_(0.0)
 
     def forward_each_level(
-        self, level: int, low_dim_obs: torch.Tensor, prev_action: torch.Tensor
+        self,
+        level: int,
+        obs: torch.Tensor,
+        prev_action: torch.Tensor,
     ):
         """
         Implementation to compute Q-values at each level.
 
         Inputs:
         - level: level index (integer, not one-hot)
-        - low_dim_obs: low-dimensional observations
+        - obs: low-dimensional observations
         - prev_actions: actions from *all* previous levels
 
         Outputs:
-        - q_values: (batch_size, actor_dim, bins)
+        - q_values: (batch_size, level, action_sequence * actor_dim, bins)
         """
-        level_id = (
-            torch.eye(self._levels, device=low_dim_obs.device, dtype=low_dim_obs.dtype)[
-                level
-            ]
-            .unsqueeze(0)
-            .repeat_interleave(low_dim_obs.shape[0], 0)
-        )
+        h = obs
 
-        adv_x = torch.cat([low_dim_obs, prev_action, level_id], -1)
-        q_values = self.head(self.net(adv_x)).view(-1, *self.output_shape)
+        level_id = (
+            torch.eye(self._levels, device=h.device, dtype=h.dtype)[level]
+            .unsqueeze(0)
+            .repeat_interleave(h.shape[0], 0)
+        )
+        level_id = level_id.unsqueeze(1).repeat_interleave(self._action_sequence, 1)
+        prev_action = prev_action.view(
+            -1, self._action_sequence, self._actor_dim
+        )  # [B, T, D]
+        action_sequence_id = (
+            torch.eye(self._action_sequence, device=h.device, dtype=h.dtype)
+            .unsqueeze(0)
+            .repeat_interleave(h.shape[0], 0)
+        )  # [B, T, T]
+
+        h = h.unsqueeze(1).repeat_interleave(self._action_sequence, 1)
+        x = torch.cat([h, prev_action, action_sequence_id, level_id], -1)  # [B, T, D]
+        # Process through MLP for each action sequence step
+        feats = self.net(x)
+        # Process through GRU
+        feats, _ = self.gru(feats)
+        q_values = self.head(feats).view(-1, *self.output_shape)
+
         return q_values
 
-    def forward(self, obs: torch.Tensor, prev_actions: torch.Tensor):
+    def forward(
+        self,
+        obs: torch.Tensor,
+        prev_actions: torch.Tensor,
+    ):
         """
         Optimized implementation to compute Q-values at all levels in parallel.
         See `forward_each_level` for implementation that processes each level.
 
         Inputs:
-        - low_dim_obs: low-dimensional observations
+        - obs: low-dimensional observations
         - prev_actions: actions from *all* previous levels
 
         Outputs:
-        - q_values: (batch_size, level, actor_dim, bins)
+        - q_values: (batch_size, level, action_sequence * actor_dim, bins)
         """
         device, dtype = obs.device, obs.dtype
-        B, L = prev_actions.shape[:2]
+        levels = prev_actions.size(1)
+        B, L, T = prev_actions.size(0), levels, self._action_sequence
+
         # Reshape previous actions
-        prev_actions = prev_actions.view(B, L, self._actor_dim)  # [B, L, T, D]
+        prev_actions = prev_actions.view(-1, L, T, self._actor_dim)  # [B, L, T, D]
 
-        # level id - [L, L] -> [B, L, L]
-        level_id = torch.eye(L, device=device, dtype=dtype)[None, :, :].repeat(B, 1, 1)
+        # Action sequence id - [T, T] -> [B, L, T, T]
+        action_sequence_id = torch.eye(T, device=device, dtype=dtype)[
+            None, None, :, :
+        ].repeat(B, L, 1, 1)
 
-        obs = obs[:, None, :].repeat(1, L, 1)
-        adv_x = torch.cat([obs, prev_actions, level_id], -1)
-        q_values = self.head(self.net(adv_x)).view(B, L, *self.output_shape)
+        # level id - [L, L] -> [B, L, T, L]
+        level_id = torch.eye(L, device=device, dtype=dtype)[None, :, None, :].repeat(
+            B, 1, T, 1
+        )
+
+        obs = obs[:, None, None, :].repeat(1, L, T, 1)
+        x = torch.cat([obs, prev_actions, action_sequence_id, level_id], -1)
+        feats = self.net(x)
+        # Process through GRU
+        feats = feats.view(B * L, T, -1)
+        feats = self.gru(feats)[0]
+        q_values = self.head(feats).view(B, L, *self.output_shape)
         return q_values
 
 
@@ -109,19 +158,28 @@ class C2FCriticSimple(nn.Module):
         hidden_dim: int,
         levels: int,
         bins: int,
+        gru_layers: int,
     ):
         super().__init__()
 
         self.levels = levels
         self.bins = bins
-        actor_dim = action_shape[0]
+        actor_dim = action_shape[0] * action_shape[1]  # action_sequence * action_dim
         self.initial_low = nn.Parameter(
             torch.FloatTensor([-1.0] * actor_dim), requires_grad=False
         )
         self.initial_high = nn.Parameter(
             torch.FloatTensor([1.0] * actor_dim), requires_grad=False
         )
-        self.network = C2FCriticNetwork(low_dim, action_shape, hidden_dim, levels, bins)
+
+        self.network = C2FCriticNetwork(
+            low_dim,
+            action_shape,
+            hidden_dim,
+            gru_layers,
+            levels,
+            bins,
+        )
 
     def get_action(self, obs: torch.Tensor):
         low = self.initial_low.repeat(obs.shape[0], 1).detach()
@@ -132,6 +190,7 @@ class C2FCriticSimple(nn.Module):
             argmax_q = random_action_if_within_delta(qs)
             if argmax_q is None:
                 argmax_q = qs.max(-1)[1]  # [..., D]
+
             # Zoom-in
             low, high = zoom_in(low, high, argmax_q, self.bins)
         continuous_action = (high + low) / 2.0  # [..., D]
@@ -156,7 +215,6 @@ class C2FCriticSimple(nn.Module):
         low = self.initial_low.repeat(obs.shape[0], 1).detach()
         high = self.initial_high.repeat(obs.shape[0], 1).detach()
 
-        # Pre-compute previous actions for all the levels
         prev_actions = []
         for level in range(self.levels):
             prev_actions.append((low + high) / 2)
@@ -198,13 +256,15 @@ class C2FCriticSimple(nn.Module):
         return continuous_action
 
 
-class CQNSimple(ValueBased):
+class CQNASSimple(ValueBased):
     def __init__(
         self,
         levels: int,
         critic_lambda: float,
         centralized_critic: bool,
         critic_target_interval: int,
+        hidden_dim: int,
+        gru_layers: int,
         *args,
         **kwargs,
     ):
@@ -212,6 +272,8 @@ class CQNSimple(ValueBased):
         self.critic_lambda = critic_lambda
         self.centralized_critic = centralized_critic
         self.critic_target_interval = critic_target_interval
+        self.hidden_dim = hidden_dim
+        self.gru_layers = gru_layers
         super().__init__(*args, **kwargs)
 
     def build_critic(self):
@@ -222,11 +284,12 @@ class CQNSimple(ValueBased):
         input_shapes["low_high"] = (actor_dim,)
 
         critic = critic_cls(
-            action_shape=(actor_dim,),
+            action_shape=self.action_space.shape,
             low_dim=input_shapes["low_dim_obs"][0],
-            hidden_dim=512,
+            hidden_dim=self.hidden_dim,
             levels=self.levels,
             bins=self.bins,
+            gru_layers=self.gru_layers,
         ).to(self.device)
         critic_target = deepcopy(critic)
         critic_target.load_state_dict(critic.state_dict())
@@ -276,11 +339,6 @@ class CQNSimple(ValueBased):
         next_action,
         loss_coeff,
     ):
-        critic, critic_opt = (
-            self.critic,
-            self.critic_opt,
-        )
-
         with torch.no_grad():
             target_v = self.critic_target(
                 next_low_dim_obs,
@@ -291,16 +349,16 @@ class CQNSimple(ValueBased):
                 + bootstrap.unsqueeze(-1) * discount.unsqueeze(-1) * target_v
             )
 
-        qs_a = critic(
+        qs_a = self.critic(
             low_dim_obs,
             action,
         )[1]
 
         q_critic_loss = F.mse_loss(qs_a, target_q)
         critic_loss = self.critic_lambda * (q_critic_loss * loss_coeff).mean()
-        critic_opt.zero_grad(set_to_none=True)
+        self.critic_opt.zero_grad(set_to_none=True)
         critic_loss.backward()
-        critic_opt.step()
+        self.critic_opt.step()
         return TensorDict(critic_loss=critic_loss.detach())
 
     def update(
@@ -341,8 +399,7 @@ class CQNSimple(ValueBased):
         eval_mode: bool,
     ):
         low_dim_obs = self._act_extract_low_dim_state(observations)
-        critic = self.critic
-        action = critic.get_action(low_dim_obs)
+        action = self.critic.get_action(low_dim_obs)
         std = torch.ones_like(action) * self.get_std(step)
         dist = utils.TruncatedNormal(action, std)
         if eval_mode:
