@@ -628,16 +628,21 @@ class UniformReplayBuffer(ReplayBuffer):
             worker_id = 0
 
         # Get only new episodes by checking the latest loaded episode's creation time
-        latest_ctime = (
-            0 if not self._episode_files else self._episode_files[-1].stat().st_ctime
-        )
-        eps_fns = []
-        for eps_fn in self._replay_dir.glob("*.npz"):
-            # Only consider episodes newer than our latest loaded one
-            if eps_fn.stat().st_ctime > latest_ctime:
-                eps_fns.append(eps_fn)
-        # Sort only the new episodes, which should be much fewer
-        eps_fns.sort(reverse=True)
+        if self._save_snapshot:
+            latest_ctime = (
+                0
+                if not self._episode_files
+                else self._episode_files[-1].stat().st_ctime
+            )
+            eps_fns = []
+            for eps_fn in self._replay_dir.glob("*.npz"):
+                # Only consider episodes newer than our latest loaded one
+                if eps_fn.stat().st_ctime > latest_ctime:
+                    eps_fns.append(eps_fn)
+            # Sort only the new episodes, which should be much fewer
+            eps_fns.sort(reverse=True)
+        else:
+            eps_fns = sorted(self._replay_dir.glob("*.npz"), reverse=True)
         fetched_size = 0
 
         # Cache stat call result
