@@ -112,7 +112,7 @@ def _create_default_replay_buffer(
         sequential=cfg.replay.sequential,
         max_episode_number=max_episode_number,
         purge_replay_on_shutdown=True,
-        save_snapshot=not cfg.rlhf.use_rlhf,
+        save_snapshot=cfg.rlhf.use_rlhf,
     )
 
 
