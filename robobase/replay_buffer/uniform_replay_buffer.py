@@ -131,6 +131,7 @@ class UniformReplayBuffer(ReplayBuffer):
         sequential: bool = False,
         transition_seq_len: int = 1,
         max_episode_number: int = 0,
+        save_snapshot: bool = False,
     ):
         """Initializes OutOfGraphReplayBuffer.
 
@@ -264,7 +265,6 @@ class UniformReplayBuffer(ReplayBuffer):
         self._num_workers = num_workers
         self._fetch_every = fetch_every
         self._samples_since_last_fetch = self._fetch_every
-        save_snapshot = True
         self._save_snapshot = save_snapshot
         self._fetch_force = False
 
