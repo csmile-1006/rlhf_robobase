@@ -955,7 +955,9 @@ class Workspace:
                     k: v.unsqueeze(0) for k, v in torch_observations.items()
                 }
             action = self._act_fn(
-                torch_observations, self.main_loop_iterations, eval_mode=eval_mode
+                torch_observations,
+                self.main_loop_iterations,
+                eval_mode=True if self.cfg.temporal_ensemble else eval_mode,
             )
             metrics = {}
             # Below is testing a feature which can be enforced in v6.
@@ -1105,7 +1107,7 @@ class Workspace:
             ) = self._perform_env_steps(
                 observations,
                 self.train_envs,
-                True if self.cfg.temporal_ensemble else False,
+                False,
             )
 
             agent_0_reward += next_info.get("task_reward", rewards)[0]
