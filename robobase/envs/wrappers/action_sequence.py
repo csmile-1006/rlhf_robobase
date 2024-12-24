@@ -1,9 +1,10 @@
 """Wrapper for allowing action sequences."""
 
+from copy import deepcopy
 from typing import Any, Dict, Union
 
-import numpy as np
 import gymnasium as gym
+import numpy as np
 from gymnasium.spaces import Box
 
 from robobase import utils
@@ -144,6 +145,7 @@ class RecedingHorizonControl(ActionSequence):
             self._cur_step, self._cur_step : self._cur_step + self._sequence_length
         ] = action
 
+        new_action = deepcopy(action)
         for i, sub_action in enumerate(action):
             if self._temporal_ensemble and self._sequence_length > 1:
                 # Select all predicted actions for self._cur_step. This will cover the
@@ -174,6 +176,7 @@ class RecedingHorizonControl(ActionSequence):
                             -1.0,
                             1.0,
                         )
+                new_action[i] = sub_action
 
             observation, reward, termination, truncation, info = self.env.step(
                 sub_action
@@ -198,6 +201,8 @@ class RecedingHorizonControl(ActionSequence):
         info["action_sequence_mask"] = (
             np.arange(self._sequence_length) < action_idx_reached
         ).astype(int)
+        if self._temporal_ensemble and self._sequence_length > 1:
+            info["temporal_ensemble_action"] = new_action
         if self.is_demo_env:
             info["demo_action"] = np.array(demo_actions)
         return (

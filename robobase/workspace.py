@@ -644,7 +644,7 @@ class Workspace:
             )
             while not (termination or truncation):
                 (
-                    action,
+                    _,
                     (next_observation, reward, termination, truncation, next_info),
                     env_metrics,
                 ) = self._perform_env_steps(observation, self.eval_env, True)
@@ -989,9 +989,14 @@ class Workspace:
             metrics["env_steps_per_second"] = (
                 self.train_envs.num_envs / execution_time_for_env_step
             )
-            for k, v in next_info.items():
-                # if train env, then will be vectorised, so get first elem
-                metrics[f"env_info/{k}"] = v if eval_mode else v[0]
+            # for k, v in next_info.items():
+            #     # if train env, then will be vectorised, so get first elem
+            #     metrics[f"env_info/{k}"] = v if eval_mode else v[0]
+
+        if self.cfg.temporal_ensemble:
+            # change action to be the output of the temporal ensemble
+            if next_info.get("temporal_ensemble_action", None) is not None:
+                action = next_info.pop("temporal_ensemble_action")
 
         return action, (*env_step_tuple, next_info), metrics
 
