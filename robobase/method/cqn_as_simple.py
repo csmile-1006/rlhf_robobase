@@ -278,10 +278,7 @@ class CQNASSimple(ValueBased):
 
     def build_critic(self):
         critic_cls = C2FCriticSimple
-        actor_dim = np.prod(self.action_space.shape)
         input_shapes = self.get_fully_connected_inputs()
-        input_shapes["level"] = (self.levels,)
-        input_shapes["low_high"] = (actor_dim,)
 
         critic = critic_cls(
             action_shape=self.action_space.shape,
@@ -309,7 +306,6 @@ class CQNASSimple(ValueBased):
                 k: torch.as_tensor(v, dtype=v.dtype, device=self.device)
                 for k, v in batch.items()
             },
-            batch_size=batch["action"].shape[0],
         )
         batch["reward"] = batch["reward"].unsqueeze(1)
         batch["discount"] = batch["discount"].to(batch["reward"].dtype).unsqueeze(1)
@@ -360,7 +356,11 @@ class CQNASSimple(ValueBased):
         self.critic_opt.zero_grad(set_to_none=True)
         critic_loss.backward()
         self.critic_opt.step()
-        return TensorDict(critic_loss=critic_loss.detach())
+        return TensorDict(
+            critic_loss=critic_loss.detach(),
+            loss_coeff=loss_coeff.detach(),
+            q_critic_loss=q_critic_loss.detach(),
+        )
 
     def update(
         self,

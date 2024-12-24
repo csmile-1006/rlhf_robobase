@@ -467,6 +467,7 @@ class Workspace:
         self._pretrain_step = 0
         self._main_loop_iterations = 0
         self._global_env_episode = 0
+        self._update_step = 0
         self._act_dim = self.eval_env.action_space.shape[0]
         if self.train_envs:
             self._episode_rollouts = [[] for _ in range(self.train_envs.num_envs)]
@@ -487,6 +488,10 @@ class Workspace:
     @property
     def reward_pretrain_steps(self):
         return self._reward_pretrain_step
+
+    @property
+    def update_steps(self):
+        return self._update_step
 
     @property
     def total_feedback(self):
@@ -594,7 +599,7 @@ class Workspace:
             self._act_fn = self.agent.act
 
         if self.cfg.use_cuda_graph:
-            self._update_fn = CudaGraphModule(self._update_fn)
+            self._update_fn = CudaGraphModule(self._update_fn, in_keys=[], out_keys=[])
 
         # Perform online rl with exploration.
         self._online_rl()
@@ -859,7 +864,8 @@ class Workspace:
             for _ in range(num_update_steps):
                 batch = self.agent.extract_batch(self.replay_iter)
                 metrics.update(self._update_fn(batch))
-                self.agent.update_target_critic(self.main_loop_iterations + i)
+                self._update_step += 1
+                self.agent.update_target_critic(self.update_steps)
         self.agent.train(False)
         if self.agent.logging:
             execution_time_for_update = time.time() - start_time
@@ -1096,7 +1102,11 @@ class Workspace:
                 action,
                 (next_observations, rewards, terminations, truncations, next_info),
                 env_metrics,
-            ) = self._perform_env_steps(observations, self.train_envs, False)
+            ) = self._perform_env_steps(
+                observations,
+                self.train_envs,
+                True if self.cfg.temporal_ensemble else False,
+            )
 
             agent_0_reward += next_info.get("task_reward", rewards)[0]
             agent_0_ep_len += 1

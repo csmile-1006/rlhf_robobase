@@ -648,8 +648,7 @@ class ValueBased(OffPolicyMethod, ABC):
         demos = extract_from_batch(batch, "demo", missing_ok=True)
         loss_coeff = loss_weights(batch, self.replay_beta)
         if self.logging:
-            pass
-            # metrics["batch_reward"] = reward.mean().item()
+            metrics["batch_reward"] = reward.mean().item()
 
         # Flatten action sequence dimension
         action = action.flatten(-2)

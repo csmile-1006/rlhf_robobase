@@ -130,6 +130,10 @@ class RecedingHorizonControl(ActionSequence):
         self._init_action_history()
         return super().reset(seed=seed, options=options)
 
+    @property
+    def cur_step(self):
+        return self._cur_step
+
     def _step_sequence(self, action):
         total_reward = np.array(0.0)
         action_idx_reached = 0
@@ -175,6 +179,7 @@ class RecedingHorizonControl(ActionSequence):
                 sub_action
             )
             self._cur_step += 1
+            self._total_step += 1
             if self.is_demo_env:
                 demo_actions[i] = info.pop("demo_action")
             total_reward += reward
@@ -195,7 +200,6 @@ class RecedingHorizonControl(ActionSequence):
         ).astype(int)
         if self.is_demo_env:
             info["demo_action"] = np.array(demo_actions)
-        self._total_step += 1
         return (
             observation,
             total_reward,

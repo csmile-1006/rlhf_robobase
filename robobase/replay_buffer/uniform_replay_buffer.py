@@ -413,7 +413,7 @@ class UniformReplayBuffer(ReplayBuffer):
         transition.update(observation)
 
         # Check transition shape is correct
-        # self._check_add_types(transition, self._storage_signature)
+        self._check_add_types(transition, self._storage_signature)
 
         # Add transition
         self._add(transition)
@@ -429,7 +429,7 @@ class UniformReplayBuffer(ReplayBuffer):
 
         transition = {}
         transition.update(final_observation)
-        # self._check_add_types(transition, self._obs_signature)
+        self._check_add_types(transition, self._obs_signature)
 
         # Construct final transition with values from final_obs and final_info, with
         # empty action, reward and flags.
@@ -806,9 +806,13 @@ class UniformReplayBuffer(ReplayBuffer):
                 padding = np.zeros(
                     (num_action_to_pad, *action_seq.shape[1:]), dtype=action_seq.dtype
                 )
+                action_seq = np.concatenate([action_seq, padding], axis=0)
             elif self._fill_action == "last_action":
-                padding = action_seq[-1:] * num_action_to_pad
-            action_seq = np.concatenate([action_seq, padding], axis=0)
+                action_seq = np.concatenate(
+                    [action_seq] + [action_seq[-1:]] * num_action_to_pad, axis=0
+                )
+            else:
+                raise ValueError(f"Invalid fill_action: {self._fill_action}")
 
         replay_sample[ACTION] = action_seq
         # Add the rest
