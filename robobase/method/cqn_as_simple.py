@@ -358,7 +358,7 @@ class CQNASSimple(ValueBased):
         self.critic_opt.step()
         return TensorDict(
             critic_loss=critic_loss.detach(),
-            loss_coeff=loss_coeff.detach(),
+            loss_coeff=loss_coeff.detach().mean(),
             q_critic_loss=q_critic_loss.detach(),
         )
 
