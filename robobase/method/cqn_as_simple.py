@@ -296,6 +296,7 @@ class CQNASSimple(ValueBased):
         critic_opt = torch.optim.AdamW(
             critic.parameters(), lr=self.critic_lr, weight_decay=self.weight_decay
         )
+        critic.train(True)
         critic_target.eval()
         return critic, critic_target, critic_opt
 

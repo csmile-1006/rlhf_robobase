@@ -1,10 +1,12 @@
 """Wrapper for allowing action sequences."""
 
-from typing import Any, Dict
+from typing import Any, Dict, Union
 
 import numpy as np
 import gymnasium as gym
 from gymnasium.spaces import Box
+
+from robobase import utils
 
 
 class ActionSequence(gym.ActionWrapper, gym.utils.RecordConstructorArgs):
@@ -76,6 +78,9 @@ class RecedingHorizonControl(ActionSequence):
         execution_length: int,
         temporal_ensemble: bool = True,
         gain: float = 0.01,
+        stddev_schedule: Union[float, str] = "linear(1.0, 0.0, 1000000)",
+        num_explore_steps: int = 1000000,
+        eval_mode: bool = False,
     ):
         """Init.
 
@@ -92,6 +97,12 @@ class RecedingHorizonControl(ActionSequence):
         self._execution_length = execution_length
         self._temporal_ensemble = temporal_ensemble
         self._gain = gain
+
+        self._total_step = 0
+        self._eval_mode = eval_mode
+        self._stddev_schedule = stddev_schedule
+        self._num_explore_steps = num_explore_steps
+
         self._init_action_history()
 
     def _init_action_history(self):
@@ -143,6 +154,22 @@ class RecedingHorizonControl(ActionSequence):
                 exp_weights = np.exp(-self._gain * np.arange(len(cur_actions)))
                 exp_weights = (exp_weights / exp_weights.sum())[:, None]
                 sub_action = (cur_actions * exp_weights).sum(axis=0)
+                if not self._eval_mode:
+                    # add noise to the action in training mode.
+                    if self._total_step < self._num_explore_steps:
+                        sub_action = np.random.uniform(
+                            -1.0, 1.0, size=sub_action.shape
+                        ).astype(sub_action.dtype)
+                    else:
+                        stddev = utils.schedule(self._stddev_schedule, self._total_step)
+                        sub_action = np.clip(
+                            sub_action
+                            + np.random.normal(0, stddev, size=sub_action.shape).astype(
+                                sub_action.dtype
+                            ),
+                            -1.0,
+                            1.0,
+                        )
 
             observation, reward, termination, truncation, info = self.env.step(
                 sub_action
@@ -168,6 +195,7 @@ class RecedingHorizonControl(ActionSequence):
         ).astype(int)
         if self.is_demo_env:
             info["demo_action"] = np.array(demo_actions)
+        self._total_step += 1
         return (
             observation,
             total_reward,

@@ -190,7 +190,7 @@ class HumanoidBench(gym.Env):
 
 
 class HumanoidBenchEnvFactory(EnvFactory):
-    def _wrap_env(self, env, cfg):
+    def _wrap_env(self, env, cfg, eval_mode: bool = False):
         env = RescaleFromTanh(env)
         if cfg.env.episode_length != 1000:
             # Used in unit tests.
@@ -210,6 +210,9 @@ class HumanoidBenchEnvFactory(EnvFactory):
                 cfg.execution_length,
                 temporal_ensemble=cfg.temporal_ensemble,
                 gain=cfg.temporal_ensemble_gain,
+                stddev_schedule=cfg.method.get("stddev_schedule", 0.01),
+                num_explore_steps=cfg.num_explore_steps,
+                eval_mode=eval_mode,
             )
         else:
             env = ActionSequence(env, cfg.action_sequence)
@@ -236,6 +239,7 @@ class HumanoidBenchEnvFactory(EnvFactory):
                         blocked_hands=cfg.env.blocked_hands,
                     ),
                     cfg,
+                    eval_mode=False,
                 )
                 for _ in range(cfg.num_train_envs)
             ],
@@ -258,6 +262,7 @@ class HumanoidBenchEnvFactory(EnvFactory):
                 blocked_hands=cfg.env.blocked_hands,
             ),
             cfg,
+            eval_mode=True,
         )
 
     def get_task_description(self, cfg: DictConfig) -> str:
