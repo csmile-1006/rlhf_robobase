@@ -132,6 +132,7 @@ class UniformReplayBuffer(ReplayBuffer):
         transition_seq_len: int = 1,
         max_episode_number: int = 0,
         save_snapshot: bool = False,
+        fill_action: str = "last_action",
     ):
         """Initializes OutOfGraphReplayBuffer.
 
@@ -230,7 +231,7 @@ class UniformReplayBuffer(ReplayBuffer):
         self._gamma = gamma
         self._sequential = sequential
         self._max_episode_number = max_episode_number
-
+        self._fill_action = fill_action
         self.observation_elements = observation_elements
         self.extra_replay_elements = extra_replay_elements
 
@@ -800,10 +801,13 @@ class UniformReplayBuffer(ReplayBuffer):
             num_action_to_pad = self._action_seq_len - (
                 action_end_idx - action_start_idx
             )
-            # Create padding array directly with correct shape
-            padding = np.zeros(
-                (num_action_to_pad, *action_seq.shape[1:]), dtype=action_seq.dtype
-            )
+            if self._fill_action == "zero_action":
+                # Create padding array directly with correct shape
+                padding = np.zeros(
+                    (num_action_to_pad, *action_seq.shape[1:]), dtype=action_seq.dtype
+                )
+            elif self._fill_action == "last_action":
+                padding = action_seq[-1:] * num_action_to_pad
             action_seq = np.concatenate([action_seq, padding], axis=0)
 
         replay_sample[ACTION] = action_seq
