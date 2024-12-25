@@ -994,13 +994,14 @@ class Workspace:
             #     metrics[f"env_info/{k}"] = v if eval_mode else v[0]
 
         if self.cfg.temporal_ensemble:
-            # change action to be the output of the temporal ensemble
-            temporal_ensemble_action = next_info.pop("temporal_ensemble_action")
-            if not eval_mode:
-                temporal_ensemble_action = np.stack(
-                    [elem for elem in temporal_ensemble_action], axis=0
-                )
-            action = temporal_ensemble_action
+            if "temporal_ensemble_action" in next_info:
+                # change action to be the output of the temporal ensemble
+                temporal_ensemble_action = next_info.pop("temporal_ensemble_action")
+                if not eval_mode:
+                    temporal_ensemble_action = np.stack(
+                        [elem for elem in temporal_ensemble_action], axis=0
+                    )
+                action = temporal_ensemble_action
 
         return action, (*env_step_tuple, next_info), metrics
 

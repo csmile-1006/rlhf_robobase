@@ -129,9 +129,7 @@ class RecedingHorizonControl(ActionSequence):
         self, *, seed: int | None = None, options: Dict[str, Any] | None = None
     ) -> tuple[Any, dict[str, Any]]:
         self._init_action_history()
-        obs, info = super().reset(seed=seed, options=options)
-        info["temporal_ensemble_action"] = np.zeros_like(self.action_space.low)
-        return obs, info
+        return super().reset(seed=seed, options=options)
 
     @property
     def cur_step(self):
