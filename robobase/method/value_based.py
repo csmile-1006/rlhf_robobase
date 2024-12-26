@@ -1,3 +1,4 @@
+import logging
 from abc import ABC
 from copy import deepcopy
 from typing import Iterator, Optional
@@ -492,6 +493,7 @@ class ValueBased(OffPolicyMethod, ABC):
         low_dim_obs = extract_from_spec(observations, "low_dim_state")
         if self.frame_stack_on_channel:
             low_dim_obs = flatten_time_dim_into_channel_dim(low_dim_obs)
+        logging.debug(f"low_dim_obs.shape: {low_dim_obs.shape}")
         return low_dim_obs
 
     def _act_extract_time_obs(self, observations: dict[str, torch.Tensor]):

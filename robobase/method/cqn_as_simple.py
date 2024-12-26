@@ -346,8 +346,8 @@ class CQNASSimple(ValueBased):
             )
 
         qs_a = self.critic(low_dim_obs, action)[1]
-        q_critic_loss = F.mse_loss(qs_a, target_q)
-        critic_loss = self.critic_lambda * (q_critic_loss * loss_coeff).mean()
+        critic_loss = F.mse_loss(qs_a, target_q)
+        # critic_loss = self.critic_lambda * (q_critic_loss * loss_coeff).mean()
 
         self.critic_opt.zero_grad(set_to_none=True)
         critic_loss.backward()
@@ -355,7 +355,7 @@ class CQNASSimple(ValueBased):
         return TensorDict(
             critic_loss=critic_loss.detach(),
             loss_coeff=loss_coeff.detach().mean(),
-            q_critic_loss=q_critic_loss.detach(),
+            # q_critic_loss=q_critic_loss.detach(),
         )
 
     def update(
@@ -381,7 +381,9 @@ class CQNASSimple(ValueBased):
         )
 
         metrics["batch_reward"] = batch["reward"].mean().detach()
-        metrics["batch_discount"] = batch["discount"].mean().detach()
+        metrics["batch_discount"] = (
+            (batch["bootstrap"] * batch["discount"]).mean().detach()
+        )
 
         return metrics
 

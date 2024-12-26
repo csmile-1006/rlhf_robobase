@@ -192,8 +192,8 @@ def encode_action(
     Returns:
         torch.Tensor: [..., L, D] shape tensor where L is the level
     """
-    low = low.repeat(*continuous_action.shape[:-1], 1).detach()
-    high = high.repeat(*continuous_action.shape[:-1], 1).detach()
+    low = low.repeat(*continuous_action.shape[:-1], 1)
+    high = high.repeat(*continuous_action.shape[:-1], 1)
 
     idxs = []
     for _ in range(levels):
@@ -228,8 +228,8 @@ def decode_action(
     Returns:
         torch.Tensor: [..., D] shape continuous action tensor
     """
-    low = low.repeat(*discrete_action.shape[:-2], 1).detach()
-    high = high.repeat(*discrete_action.shape[:-2], 1).detach()
+    low = low.repeat(*discrete_action.shape[:-2], 1)
+    high = high.repeat(*discrete_action.shape[:-2], 1)
     for i in range(levels):
         slice_range = (high - low) / bins
         continuous_action = low + slice_range * discrete_action[..., i, :]
@@ -241,7 +241,16 @@ def decode_action(
     return continuous_action
 
 
-def zoom_in(low, high, argmax_q, bins):
+def zoom_in(low: torch.Tensor, high: torch.Tensor, argmax_q: torch.Tensor, bins: int):
+    """Zoom-in to the selected interval
+
+    Args:
+        low: [D] shape tensor that denotes minimum of the current interval
+        high: [D] shape tensor that denotes maximum of the current interval
+    Returns:
+        low: [D] shape tensor that denotes minimum of the *next* interval
+        high: [D] shape tensor that denotes maximum of the *next* interval
+    """
     slice_range = (high - low) / bins
     continuous_action = low + slice_range * argmax_q
     low = continuous_action
