@@ -347,7 +347,6 @@ class CQNASSimple(ValueBased):
 
         qs_a = self.critic(low_dim_obs, action)[1]
         critic_loss = F.mse_loss(qs_a, target_q)
-        # critic_loss = self.critic_lambda * (q_critic_loss * loss_coeff).mean()
 
         self.critic_opt.zero_grad(set_to_none=True)
         critic_loss.backward()

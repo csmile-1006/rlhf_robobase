@@ -2,9 +2,12 @@ import re
 from typing import Dict
 
 import gymnasium as gym
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+from dm_env import specs
 
 
 class RandomShiftsAug(nn.Module):
@@ -258,3 +261,92 @@ def zoom_in(low: torch.Tensor, high: torch.Tensor, argmax_q: torch.Tensor, bins:
     low = torch.maximum(-torch.ones_like(low), low)
     high = torch.minimum(torch.ones_like(high), high)
     return low, high
+
+
+class TemporalEnsembleControl:
+    def __init__(
+        self,
+        episode_length: int,
+        action_spec: specs.BoundedArray,
+        action_sequence: int,
+        gain: float = 0.01,
+    ):
+        self._episode_length = episode_length
+        self._action_dtype = action_spec.dtype
+        self._action_dim = action_spec.shape[0]
+        self._action_sequence = action_sequence
+        self._gain = gain
+        self._init_action_history()
+
+    def _init_action_history(self):
+        self._action_history = np.zeros(
+            [
+                self._episode_length,
+                self._episode_length + self._action_sequence,
+                self._action_dim,
+            ],
+            self._action_dtype,
+        )
+        self._cur_step = 0
+
+    def register_action_sequence(self, action_sequence):
+        self._action_history[self._cur_step, self._cur_step : self._cur_step + self._action_sequence] = action_sequence
+
+    def get_action(self):
+        cur_actions = self._action_history[:, self._cur_step]
+        indices = np.all(cur_actions != 0, axis=1)
+        cur_actions = cur_actions[indices]
+
+        # earlier predicted actions will have smaller weights.
+        exp_weights = np.exp(-self._gain * np.arange(len(cur_actions), dtype=self._action_dtype))
+        exp_weights = (exp_weights / exp_weights.sum())[:, None]
+        action = (cur_actions * exp_weights).sum(axis=0)
+        self._cur_step += 1
+        return action
+
+    def reset(self):
+        self._init_action_history()
+
+
+class TrainTemporalEnsembleControl(TemporalEnsembleControl):
+    def __init__(
+        self,
+        num_train_envs: int,
+        episode_length: int,
+        action_spec: specs.BoundedArray,
+        action_sequence: int,
+        gain: float = 0.01,
+    ):
+        super().__init__(episode_length, action_spec, action_sequence, gain)
+        self._num_train_envs = num_train_envs
+        self._init_action_history()
+
+    def _init_action_history(self):
+        self._action_history = np.zeros(
+            [
+                self._num_train_envs,
+                self._episode_length,
+                self._episode_length + self._action_sequence,
+                self._action_dim,
+            ],
+            self._action_dtype,
+        )
+        self._cur_step = 0
+
+    def register_action_sequence(self, action_sequence):
+        self._action_history[self._cur_step, self._cur_step : self._cur_step + self._action_sequence] = action_sequence
+
+    def get_action(self):
+        cur_actions = self._action_history[:, self._cur_step]
+        indices = np.all(cur_actions != 0, axis=1)
+        cur_actions = cur_actions[indices]
+
+        # earlier predicted actions will have smaller weights.
+        exp_weights = np.exp(-self._gain * np.arange(len(cur_actions), dtype=self._action_dtype))
+        exp_weights = (exp_weights / exp_weights.sum())[:, None]
+        action = (cur_actions * exp_weights).sum(axis=0)
+        self._cur_step += 1
+        return action
+
+    def reset(self):
+        self._init_action_history()

@@ -213,7 +213,6 @@ def _create_default_envs(cfg: DictConfig) -> EnvFactory:
         from robobase.envs.humanoidbench import HumanoidBenchEnvFactory
 
         factory = HumanoidBenchEnvFactory()
-
     elif cfg.env.env_name == "locomujoco":
         from robobase.envs.locomujoco import LocoMujocoEnvFactory
 
@@ -291,7 +290,6 @@ class Workspace:
 
         # Create evaluation environment
         self.eval_env = self.env_factory.make_eval_env(cfg)
-
         if num_demos != 0:
             # Post-process demos using the information from environments
             self.env_factory.post_collect_or_fetch_demos(cfg)
@@ -994,15 +992,10 @@ class Workspace:
             #     metrics[f"env_info/{k}"] = v if eval_mode else v[0]
 
         if self.cfg.temporal_ensemble:
-            if "temporal_ensemble_action" in next_info:
-                # change action to be the output of the temporal ensemble
-                temporal_ensemble_action = next_info.pop("temporal_ensemble_action")
-                if not eval_mode:
-                    temporal_ensemble_action = np.stack(
-                        [elem for elem in temporal_ensemble_action], axis=0
-                    )
-                action = temporal_ensemble_action
-
+            if eval_mode:
+                action = env.last_modified_action
+            else:
+                action = np.stack([elem for elem in env.get_attr("last_modified_action")], axis=0)
         return action, (*env_step_tuple, next_info), metrics
 
     def _pretrain_on_demos(self):
