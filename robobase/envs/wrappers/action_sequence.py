@@ -129,7 +129,9 @@ class RecedingHorizonControl(ActionSequence):
         self, *, seed: int | None = None, options: Dict[str, Any] | None = None
     ) -> tuple[Any, dict[str, Any]]:
         self._init_action_history()
-        return super().reset(seed=seed, options=options)
+        obs, info = super().reset(seed=seed, options=options)
+        info["temporal_ensemble_action"] = np.zeros_like(self.action_space.low)
+        return obs, info
 
     @property
     def cur_step(self):
@@ -198,6 +200,14 @@ class RecedingHorizonControl(ActionSequence):
         # TODO not sure this is correct in the case of receding horizon control
         #      Currently, for every action_sequence, all actions that are not applied
         #      will be masked out!!
+        if (
+            self._temporal_ensemble
+            and not self._eval_mode
+            and self._total_step > self._num_explore_steps
+        ):
+            assert not np.all(action[:1] == new_action[:1])
+            assert np.all(action[1:] == new_action[1:])
+
         info["action_sequence_mask"] = (
             np.arange(self._sequence_length) < action_idx_reached
         ).astype(int)

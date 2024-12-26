@@ -325,6 +325,9 @@ class CQNSimple(ValueBased):
             batch["loss_coeff"],
         )
 
+        if self.logging:
+            metrics["batch_reward"] = batch["reward"].detach().mean()
+
         return metrics
 
     def update_target_critic(self, step: int):
