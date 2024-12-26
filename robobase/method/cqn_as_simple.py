@@ -1,7 +1,6 @@
 from copy import deepcopy
 from typing import Tuple, Iterator
 
-import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -346,13 +345,10 @@ class CQNASSimple(ValueBased):
                 + bootstrap.unsqueeze(-1) * discount.unsqueeze(-1) * target_v
             )
 
-        qs_a = self.critic(
-            low_dim_obs,
-            action,
-        )[1]
-
+        qs_a = self.critic(low_dim_obs, action)[1]
         q_critic_loss = F.mse_loss(qs_a, target_q)
         critic_loss = self.critic_lambda * (q_critic_loss * loss_coeff).mean()
+
         self.critic_opt.zero_grad(set_to_none=True)
         critic_loss.backward()
         self.critic_opt.step()
@@ -365,7 +361,7 @@ class CQNASSimple(ValueBased):
     def update(
         self,
         batch: TensorDict,
-    ) -> dict[str, np.ndarray]:
+    ) -> TensorDict:
         low_dim_obs, next_low_dim_obs = self.extract_low_dim_state(batch)
 
         with torch.no_grad():
@@ -384,8 +380,8 @@ class CQNASSimple(ValueBased):
             batch["loss_coeff"],
         )
 
-        if self.logging:
-            metrics["batch_reward"] = batch["reward"].detach().mean()
+        metrics["batch_reward"] = batch["reward"].mean().detach()
+        metrics["batch_discount"] = batch["discount"].mean().detach()
 
         return metrics
 
