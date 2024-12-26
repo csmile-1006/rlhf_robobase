@@ -133,6 +133,7 @@ class UniformReplayBuffer(ReplayBuffer):
         max_episode_number: int = 0,
         save_snapshot: bool = False,
         fill_action: str = "last_action",
+        restart_after_rlhf: bool = False,
     ):
         """Initializes OutOfGraphReplayBuffer.
 
@@ -269,6 +270,7 @@ class UniformReplayBuffer(ReplayBuffer):
         self._save_snapshot = save_snapshot
         self._fetch_force = False
 
+        self._is_first = True if not restart_after_rlhf else False
         logging.info(
             "Creating a %s replay memory with the following parameters:",
             self.__class__.__name__,
@@ -279,7 +281,12 @@ class UniformReplayBuffer(ReplayBuffer):
         logging.info("\t nstep: %d", self._nstep)
         logging.info("\t gamma: %f", self._gamma)
         logging.info("\t max_episode_number: %d", self._max_episode_number)
-        self._is_first = True
+        logging.info("\t restart_after_rlhf: %s", restart_after_rlhf)
+        if restart_after_rlhf:
+            logging.info(f"\t observation_elements: {self.observation_elements}")
+            logging.info(
+                f"\t Resetting replay buffer with {len(list(self._replay_dir.glob('*.npz')))} episodes."
+            )
 
     @property
     def frame_stack(self):
@@ -647,7 +654,7 @@ class UniformReplayBuffer(ReplayBuffer):
                 first_ep_ctime = self._episode_files[0].stat().st_ctime
                 if self._episode_ctimes[self._episode_files[0]] != first_ep_ctime:
                     # If the last episode is already loaded but has been modified, reload episodes.
-                    logging.info("reset buffer")
+                    logging.info(f"Reset buffer for worker {worker_id}")
                     self._reset_buffer()
         else:
             eps_fns = sorted(self._replay_dir.glob("*.npz"), reverse=True)

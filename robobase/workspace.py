@@ -77,9 +77,9 @@ def _create_default_replay_buffer(
     observation_space: gym.Space,
     action_space: gym.Space,
     save_dir: Path = None,
+    restart_after_rlhf: bool = False,
     demo_replay: bool = False,
     extra_replay_elements: dict[str, gym.Space] = None,
-    max_episode_number: int = 0,
 ) -> ReplayBuffer:
     if extra_replay_elements is None:
         extra_replay_elements = spaces.Dict({})
@@ -110,9 +110,9 @@ def _create_default_replay_buffer(
         extra_replay_elements=extra_replay_elements,
         num_workers=cfg.replay.num_workers,
         sequential=cfg.replay.sequential,
-        max_episode_number=max_episode_number,
         purge_replay_on_shutdown=True,
         save_snapshot=cfg.rlhf.use_rlhf,
+        restart_after_rlhf=restart_after_rlhf,
     )
 
 
@@ -331,6 +331,7 @@ class Workspace:
 
         self.use_rlhf = cfg.rlhf.use_rlhf
         if self.use_rlhf:
+            self.rlhf_reset_flag = False
             reward_space = self.eval_env.unwrapped.reward_space
             extra_replay_elements = reward_space
 
@@ -773,7 +774,6 @@ class Workspace:
                         for k, v in info.items()
                         if k in list(self.extra_replay_elements.keys())
                     }
-
                     self.replay_buffer.add(
                         obs, act, rew, term, trunc, **extra_replay_elements
                     )
@@ -1101,6 +1101,11 @@ class Workspace:
         agent_0_ep_len = agent_0_reward = 0
         agent_0_prev_ep_len = agent_0_prev_reward = None
         while train_until_frame(self.global_env_steps):
+            if self.use_rlhf and self.total_feedback >= self.cfg.rlhf.max_feedback:
+                if self.rlhf_reset_flag is False:
+                    observations, info = self.reset_after_rlhf()
+                    self.rlhf_reset_flag = True
+
             metrics = {}
 
             self.agent.logging = False
@@ -1168,7 +1173,6 @@ class Workspace:
                         self.global_env_steps - self.cfg.rlhf.num_pretrain_steps
                     )  # first start when pretrain step is finished, and then start when query replay buffer is filled
                     and not reward_until_frame(self.global_env_steps)
-                    and not seed_until_size(len(self.query_replay_buffer))
                 ):
                     self.reward_model.logging = True
                     logging.info(
@@ -1333,3 +1337,52 @@ class Workspace:
         self.reward_model.load_state_dict(payload.pop("reward_model"))
         for k, v in payload.items():
             self.__dict__[k] = v
+
+    def reset_after_rlhf(self):
+        from copy import deepcopy
+
+        new_cfg = deepcopy(self.cfg)
+        new_cfg.rlhf.use_rlhf = False
+
+        logging.info("Resetting training environments not to render videos again.")
+        self.train_envs.close()
+        self.train_envs = self.env_factory.make_train_env(new_cfg)
+        observations, info = self.train_envs.reset()
+        if self.train_envs:
+            self._episode_rollouts = [[] for _ in range(self.train_envs.num_envs)]
+        else:
+            self._episode_rollouts = []
+
+        logging.info("Resetting evaluation environment not to render videos again.")
+        self.eval_env.close()
+        self.eval_env = self.env_factory.make_eval_env(new_cfg)
+        logging.info("Resetting observation space: %s", self.eval_env.observation_space)
+
+        logging.info(
+            "Resetting replay buffer and replay loader not to save episodes in disk"
+        )
+        len_buffer = len(self.replay_buffer)
+        self.replay_buffer = _create_default_replay_buffer(
+            new_cfg,
+            self.eval_env.observation_space,
+            self.eval_env.action_space,
+            save_dir=self.work_dir,
+            extra_replay_elements=None,
+            restart_after_rlhf=True,
+        )
+        self.replay_buffer._add_count.value = len_buffer
+        # reset replay loader / replay iter as well
+        del self.replay_loader
+        self.replay_loader = DataLoader(
+            self.replay_buffer,
+            batch_size=self.replay_buffer.batch_size,
+            num_workers=self.cfg.replay.num_workers,
+            pin_memory=self.cfg.replay.pin_memory,
+            worker_init_fn=_worker_init_fn,
+        )
+        self._replay_iter = None
+
+        logging.info("Resetting extra replay elements to empty dict")
+        self.extra_replay_elements = spaces.Dict({})
+
+        return observations, info
