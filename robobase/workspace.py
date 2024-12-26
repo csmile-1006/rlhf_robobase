@@ -578,6 +578,18 @@ class Workspace:
             self.shutdown()
             raise e
 
+    def _setup_training_functions(self):
+        if self.cfg.use_compile:
+            self._update_fn = torch.compile(self.agent.update)
+            self._act_fn = torch.compile(self.agent.act)
+            torch.set_float32_matmul_precision("high")
+        else:
+            self._update_fn = self.agent.update
+            self._act_fn = self.agent.act
+
+        if self.cfg.use_cuda_graph:
+            self._update_fn = CudaGraphModule(self._update_fn, in_keys=[], out_keys=[])
+
     def _train(self):
         # Load Demo
         self._load_demos()
@@ -588,19 +600,7 @@ class Workspace:
         # if self.use_rlhf:
         #     self._pretrain_reward_model_on_demos()
 
-        if self.cfg.use_compile:
-            self._update_fn = torch.compile(self.agent.update)
-            self._act_fn = torch.compile(self.agent.act)
-            torch.set_float32_matmul_precision("high")
-            torch._dynamo.config.cache_size_limit = (
-                64  # need this to make torch.compile work
-            )
-        else:
-            self._update_fn = self.agent.update
-            self._act_fn = self.agent.act
-
-        if self.cfg.use_cuda_graph:
-            self._update_fn = CudaGraphModule(self._update_fn, in_keys=[], out_keys=[])
+        self._setup_training_functions()
 
         # Perform online rl with exploration.
         self._online_rl()
@@ -1221,11 +1221,15 @@ class Workspace:
 
                     if self.cfg.rlhf.initialize_agent_per_session:
                         if hasattr(self.agent, "reset_critic"):
+                            logging.info("Resetting critic")
                             self.agent.reset_critic()
                         if hasattr(self.agent, "reset_actor"):
+                            logging.info("Resetting actor")
                             self.agent.reset_actor()
                         if hasattr(self.agent, "reset_temperature"):
+                            logging.info("Resetting temperature")
                             self.agent.reset_temperature()
+                        self._setup_training_functions()
 
                 if (
                     self.total_feedback <= self.cfg.rlhf.max_feedback
