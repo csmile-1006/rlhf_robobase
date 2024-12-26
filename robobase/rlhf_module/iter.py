@@ -456,7 +456,7 @@ def get_rlhf_iter_fn(
                     subtasks=subtasks,
                     video_path=video_path,
                 )
-            elif cfg.env.env_name in ["dmc", "locomujoco"]:
+            elif cfg.env.env_name in ["dmc", "locomujoco", "humanoidbench"]:
                 return partial(
                     collect_gemini_locomotion_preferences,
                     num_queries=cfg.rlhf_replay.num_queries,
