@@ -104,15 +104,15 @@ class HumanoidBench(gym.Env):
                 )
         self.observation_space = spaces.Dict(_obs_space)
         self.action_space = self._hb_env.action_space
-        self.reward_space = self._hb_env.task.reward_space
+        self.original_reward_space = self._hb_env.task.reward_space
 
         if len(self._initial_terms) == 0:
-            self._initial_terms = [key for key in self.reward_space.keys()]
+            self._initial_terms = [key for key in self.original_reward_space.keys()]
         else:
-            self._initial_terms = [f"Reward/{key}" for key in self._initial_terms]
+            self._initial_terms = [key for key in self._initial_terms]
 
         if self._reward_term_type == "all":
-            self._reward_terms = [key for key in self.reward_space.keys()]
+            self._reward_terms = [key for key in self.original_reward_space.keys()]
         elif self._reward_term_type == "initial":
             self._reward_terms = self._initial_terms
         else:
@@ -122,17 +122,17 @@ class HumanoidBench(gym.Env):
 
         self.reward_space = spaces.Dict(
             {
-                k: gym.spaces.Box(
-                    low=self.reward_space[k].low,
-                    high=self.reward_space[k].high,
-                    shape=self.reward_space[k].shape,
+                f"Reward/{k}": gym.spaces.Box(
+                    low=self.original_reward_space[k].low,
+                    high=self.original_reward_space[k].high,
+                    shape=self.original_reward_space[k].shape,
                 )
                 for k in self._reward_terms
             }
         )
 
         self.initial_reward_scale = {
-            k: self.reward_space[k].high for k in self._initial_terms
+            k: self.original_reward_space[k].high for k in self._initial_terms
         }
 
     def _get_obs(self, observation):
