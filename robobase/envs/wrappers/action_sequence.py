@@ -137,72 +137,56 @@ class RecedingHorizonControl(ActionSequence):
         return self._last_modified_action
 
     def register_action_sequence(self, action_sequence):
-        self._action_history[self._cur_step, self._cur_step : self._cur_step + self._sequence_length] = action_sequence
+        self._action_history[
+            self._cur_step, self._cur_step : self._cur_step + self._sequence_length
+        ] = action_sequence
 
     def action(self, action):
         new_action = deepcopy(action)
-        action_idx_reached = 0
         self.register_action_sequence(action)
-        for i, sub_action in enumerate(action):
-            if self._temporal_ensemble and self._sequence_length > 1:
-                # Select all predicted actions for self._cur_step. This will cover the
-                # actions from [cur_step - sequence_length + 1, cur_step)
-                # Note that not all actions in this range will be valid as we might have
-                # execution_length > 1, which skips some of the intermediate steps.
-                cur_actions = self._action_history[:, self._cur_step]
-                indices = np.all(cur_actions != 0, axis=1)
-                cur_actions = cur_actions[indices]
-
-                # earlier predicted actions will have smaller weights.
-                exp_weights = np.exp(-self._gain * np.arange(len(cur_actions)))
-                exp_weights = (exp_weights / exp_weights.sum())[:, None]
-                sub_action = (cur_actions * exp_weights).sum(axis=0)
-                if not self._eval_mode:
-                    # add noise to the action in training mode.
-                    if self._total_step < self._num_explore_steps:
-                        sub_action = np.random.uniform(-1.0, 1.0, size=sub_action.shape).astype(sub_action.dtype)
-                    else:
-                        stddev = utils.schedule(self._stddev_schedule, self._total_step)
-                        sub_action = np.clip(
-                            sub_action + np.random.normal(0, stddev, size=sub_action.shape).astype(sub_action.dtype),
-                            -1.0,
-                            1.0,
-                        )
-            new_action[i] = sub_action
-            action_idx_reached += 1
-            self._total_step += 1
-            self._cur_step += 1
-            if not self.is_demo_env:
-                if action_idx_reached == self._execution_length:
-                    break
-
+        cur_actions = self._action_history[:, self._cur_step]
+        indices = np.all(cur_actions != 0, axis=1)
+        cur_actions = cur_actions[indices]
+        # earlier predicted actions will have smaller weights.
+        exp_weights = np.exp(-self._gain * np.arange(len(cur_actions)))
+        exp_weights = (exp_weights / exp_weights.sum())[:, None]
+        sub_action = (cur_actions * exp_weights).sum(axis=0)
+        if not self._eval_mode:
+            # add noise to the action in training mode.
+            if self._total_step < self._num_explore_steps:
+                sub_action = np.random.uniform(-1.0, 1.0, size=sub_action.shape).astype(
+                    sub_action.dtype
+                )
+            else:
+                stddev = utils.schedule(self._stddev_schedule, self._total_step)
+                sub_action = np.clip(
+                    sub_action
+                    + np.random.normal(0, stddev, size=sub_action.shape).astype(
+                        sub_action.dtype
+                    ),
+                    -1.0,
+                    1.0,
+                )
+        new_action[0] = sub_action
+        self._total_step += 1
+        self._cur_step += 1
         self._last_modified_action = new_action
         return new_action
 
     def _step_sequence(self, action):
         total_reward = np.array(0.0)
-        action_idx_reached = 0
         if self.is_demo_env:
             demo_actions = np.array(action)
 
-        for i, sub_action in enumerate(action):
-            observation, reward, termination, truncation, info = self.env.step(sub_action)
-            if self.is_demo_env:
-                demo_actions[i] = info.pop("demo_action")
-            total_reward += reward
-            action_idx_reached += 1
-            if termination or truncation:
-                break
-
-            if not self.is_demo_env:
-                if action_idx_reached == self._execution_length:
-                    break
-
-        assert action_idx_reached <= self._sequence_length
+        sub_action = action[0]
+        observation, reward, termination, truncation, info = self.env.step(sub_action)
+        total_reward += reward
         # TODO not sure this is correct in the case of receding horizon control
         #      Currently, for every action_sequence, all actions that are not applied
         #      will be masked out!!
-        info["action_sequence_mask"] = (np.arange(self._sequence_length) < action_idx_reached).astype(int)
+        info["action_sequence_mask"] = (
+            np.arange(self._sequence_length) < self._execution_length
+        ).astype(int)
         if self.is_demo_env:
             info["demo_action"] = np.array(demo_actions)
         return (
@@ -216,6 +200,7 @@ class RecedingHorizonControl(ActionSequence):
     def step(self, action):
         if action.shape != self.action_space.shape:
             raise ValueError(
-                f"Expected action to be of shape {self.action_space.shape}, " f"but got action of shape {action.shape}."
+                f"Expected action to be of shape {self.action_space.shape}, "
+                f"but got action of shape {action.shape}."
             )
         return self._step_sequence(self.action(action))

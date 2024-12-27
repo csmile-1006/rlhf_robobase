@@ -804,10 +804,8 @@ class UniformReplayBuffer(ReplayBuffer):
         # Get action sequence directly using array slicing instead of creating range/list
         action_seq = episode[ACTION][action_start_idx:action_end_idx]
         # Only pad if necessary
-        if action_end_idx - action_start_idx < self._action_seq_len:
-            num_action_to_pad = self._action_seq_len - (
-                action_end_idx - action_start_idx
-            )
+        if action_seq.shape[0] < self._action_seq_len:
+            num_action_to_pad = self._action_seq_len - action_seq.shape[0]
             if self._fill_action == "zero_action":
                 # Create padding array directly with correct shape
                 padding = np.zeros(
