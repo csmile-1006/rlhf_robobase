@@ -104,6 +104,7 @@ class QueryReplayBuffer(ReplayBuffer):
         transition_seq_len: int = 50,
         max_episode_number: int = 0,
         upload_gemini: bool = False,
+        save_snapshot: bool = False,
         verbose: bool = False,
     ):
         """Initializes OutOfGraphReplayBuffer.
@@ -226,7 +227,6 @@ class QueryReplayBuffer(ReplayBuffer):
         self._num_workers = num_workers
         self._fetch_every = fetch_every
         self._samples_since_last_fetch = self._fetch_every
-        save_snapshot = True
         self._save_snapshot = save_snapshot
 
         logging.info(
