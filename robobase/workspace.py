@@ -162,7 +162,7 @@ def _create_default_query_replay_buffer(
         max_episode_number=cfg.rlhf_replay.max_episode_number if not use_demo else 0,
         upload_gemini=cfg.rlhf.feedback_type == "gemini",
         purge_replay_on_shutdown=True,
-        save_snapshot=False,
+        save_snapshot=True,
     )
 
 
