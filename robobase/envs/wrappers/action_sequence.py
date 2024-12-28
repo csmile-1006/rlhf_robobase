@@ -12,10 +12,11 @@ from robobase import utils
 class ActionSequence(gym.ActionWrapper, gym.utils.RecordConstructorArgs):
     """Wrapper for allowing action sequences."""
 
-    def __init__(self, env: gym.Env, sequence_length: int):
+    def __init__(self, env: gym.Env, sequence_length: int, execution_length: int = 1):
         gym.utils.RecordConstructorArgs.__init__(self)
         gym.ActionWrapper.__init__(self, env)
         self._sequence_length = sequence_length
+        self._execution_length = execution_length
         self.is_vector_env = getattr(env, "is_vector_env", False)
         self.is_demo_env = getattr(env, "is_demo_env", False)
         if self.is_vector_env:
@@ -43,6 +44,8 @@ class ActionSequence(gym.ActionWrapper, gym.utils.RecordConstructorArgs):
             total_reward += reward
             action_idx_reached += 1
             if termination or truncation:
+                break
+            if action_idx_reached >= self._execution_length:
                 break
         assert action_idx_reached <= self._sequence_length
         info["action_sequence_mask"] = (
@@ -92,7 +95,7 @@ class RecedingHorizonControl(ActionSequence):
             temporal_ensemble: Whether to use temporal ensembling. Defaults to True.
             gain: Temporal ensembling gain. Defaults to 0.01.
         """
-        super().__init__(env, sequence_length)
+        super().__init__(env, sequence_length, execution_length)
         self._time_limit = time_limit
         self._execution_length = execution_length
         self._temporal_ensemble = temporal_ensemble

@@ -183,20 +183,22 @@ def random_action_if_within_delta(qs, delta=0.0001):
 
 def encode_action(
     continuous_action: torch.Tensor,
-    low: torch.Tensor,
-    high: torch.Tensor,
+    initial_low: torch.Tensor,
+    initial_high: torch.Tensor,
     levels: int,
     bins: int,
 ):
     """Encode continuous action to discrete action
 
     Args:
-        continuous_action (torch.Tensor): [..., D] shape tensor
+        continuous_action: [..., D] shape tensor
+        initial_low: [D] shape tensor consisting of -1
+        initial_high: [D] shape tensor consisting of 1
     Returns:
-        torch.Tensor: [..., L, D] shape tensor where L is the level
+        discrete_action: [..., L, D] shape tensor where L is the level
     """
-    low = low.repeat(*continuous_action.shape[:-1], 1)
-    high = high.repeat(*continuous_action.shape[:-1], 1)
+    low = initial_low.repeat(*continuous_action.shape[:-1], 1)
+    high = initial_high.repeat(*continuous_action.shape[:-1], 1)
 
     idxs = []
     for _ in range(levels):
@@ -219,20 +221,22 @@ def encode_action(
 
 def decode_action(
     discrete_action: torch.Tensor,
-    low: torch.Tensor,
-    high: torch.Tensor,
+    initial_low: torch.Tensor,
+    initial_high: torch.Tensor,
     levels: int,
     bins: int,
 ):
     """Decode discrete action to continuous action
 
     Args:
-        discrete_action (torch.Tensor): [..., L, D] shape tensor
+        discrete_action: [..., L, D] shape tensor
+        initial_low: [D] shape tensor consisting of -1
+        initial_high: [D] shape tensor consisting of 1
     Returns:
-        torch.Tensor: [..., D] shape continuous action tensor
+        continuous_action: [..., D] shape tensor
     """
-    low = low.repeat(*discrete_action.shape[:-2], 1)
-    high = high.repeat(*discrete_action.shape[:-2], 1)
+    low = initial_low.repeat(*discrete_action.shape[:-2], 1)
+    high = initial_high.repeat(*discrete_action.shape[:-2], 1)
     for i in range(levels):
         slice_range = (high - low) / bins
         continuous_action = low + slice_range * discrete_action[..., i, :]
@@ -290,7 +294,9 @@ class TemporalEnsembleControl:
         self._cur_step = 0
 
     def register_action_sequence(self, action_sequence):
-        self._action_history[self._cur_step, self._cur_step : self._cur_step + self._action_sequence] = action_sequence
+        self._action_history[
+            self._cur_step, self._cur_step : self._cur_step + self._action_sequence
+        ] = action_sequence
 
     def get_action(self):
         cur_actions = self._action_history[:, self._cur_step]
@@ -298,7 +304,9 @@ class TemporalEnsembleControl:
         cur_actions = cur_actions[indices]
 
         # earlier predicted actions will have smaller weights.
-        exp_weights = np.exp(-self._gain * np.arange(len(cur_actions), dtype=self._action_dtype))
+        exp_weights = np.exp(
+            -self._gain * np.arange(len(cur_actions), dtype=self._action_dtype)
+        )
         exp_weights = (exp_weights / exp_weights.sum())[:, None]
         action = (cur_actions * exp_weights).sum(axis=0)
         self._cur_step += 1
@@ -334,7 +342,9 @@ class TrainTemporalEnsembleControl(TemporalEnsembleControl):
         self._cur_step = 0
 
     def register_action_sequence(self, action_sequence):
-        self._action_history[self._cur_step, self._cur_step : self._cur_step + self._action_sequence] = action_sequence
+        self._action_history[
+            self._cur_step, self._cur_step : self._cur_step + self._action_sequence
+        ] = action_sequence
 
     def get_action(self):
         cur_actions = self._action_history[:, self._cur_step]
@@ -342,7 +352,9 @@ class TrainTemporalEnsembleControl(TemporalEnsembleControl):
         cur_actions = cur_actions[indices]
 
         # earlier predicted actions will have smaller weights.
-        exp_weights = np.exp(-self._gain * np.arange(len(cur_actions), dtype=self._action_dtype))
+        exp_weights = np.exp(
+            -self._gain * np.arange(len(cur_actions), dtype=self._action_dtype)
+        )
         exp_weights = (exp_weights / exp_weights.sum())[:, None]
         action = (cur_actions * exp_weights).sum(axis=0)
         self._cur_step += 1

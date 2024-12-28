@@ -21,6 +21,15 @@ from robobase.method.utils import (
 # from robobase.method.cqn_simple import C2FCriticNetwork as SingleC2FCriticNetwork
 
 
+class DetourRNN(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.gru = nn.Identity()
+
+    def forward(self, x: torch.Tensor):
+        return self.gru(x), None
+
+
 class C2FCriticNetwork(nn.Module):
     def __init__(
         self,
@@ -48,12 +57,15 @@ class C2FCriticNetwork(nn.Module):
             nn.LayerNorm(hidden_dim),
             nn.SiLU(),
         )
-        self.gru = nn.GRU(
-            hidden_dim,
-            hidden_dim,
-            num_layers=gru_layers,
-            batch_first=True,
-        )
+        if gru_layers > 0:
+            self.gru = nn.GRU(
+                hidden_dim,
+                hidden_dim,
+                num_layers=gru_layers,
+                batch_first=True,
+            )
+        else:
+            self.gru = DetourRNN()
         self.head = nn.Linear(
             hidden_dim,
             self._actor_dim * bins,
@@ -103,7 +115,7 @@ class C2FCriticNetwork(nn.Module):
         # Process through MLP for each action sequence step
         feats = self.net(x)
         # Process through GRU
-        feats, _ = self.gru(feats)
+        feats = self.gru(feats)[0]
         q_values = self.head(feats).view(-1, *self.output_shape)
 
         return q_values
