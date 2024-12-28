@@ -1,6 +1,5 @@
 """Wrapper for allowing action sequences."""
 
-from copy import deepcopy
 from typing import Any, Dict, Union
 
 import gymnasium as gym
@@ -141,9 +140,7 @@ class RecedingHorizonControl(ActionSequence):
             self._cur_step, self._cur_step : self._cur_step + self._sequence_length
         ] = action_sequence
 
-    def action(self, action):
-        new_action = deepcopy(action)
-        self.register_action_sequence(action)
+    def action(self):
         cur_actions = self._action_history[:, self._cur_step]
         indices = np.all(cur_actions != 0, axis=1)
         cur_actions = cur_actions[indices]
@@ -167,35 +164,12 @@ class RecedingHorizonControl(ActionSequence):
                     -1.0,
                     1.0,
                 )
-        new_action[0] = sub_action
         self._total_step += 1
         self._cur_step += 1
-        self._last_modified_action = new_action
-        return new_action
-
-    def _step_sequence(self, action):
-        total_reward = np.array(0.0)
-        if self.is_demo_env:
-            demo_actions = np.array(action)
-
-        sub_action = action[0]
-        observation, reward, termination, truncation, info = self.env.step(sub_action)
-        total_reward += reward
-        # TODO not sure this is correct in the case of receding horizon control
-        #      Currently, for every action_sequence, all actions that are not applied
-        #      will be masked out!!
-        info["action_sequence_mask"] = (
-            np.arange(self._sequence_length) < self._execution_length
-        ).astype(int)
-        if self.is_demo_env:
-            info["demo_action"] = np.array(demo_actions)
-        return (
-            observation,
-            total_reward,
-            termination,
-            truncation,
-            info,
+        self._last_modified_action = np.repeat(
+            sub_action[None, ...], self._sequence_length, axis=0
         )
+        return self._last_modified_action
 
     def step(self, action):
         if action.shape != self.action_space.shape:
@@ -203,4 +177,5 @@ class RecedingHorizonControl(ActionSequence):
                 f"Expected action to be of shape {self.action_space.shape}, "
                 f"but got action of shape {action.shape}."
             )
-        return self._step_sequence(self.action(action))
+        self.register_action_sequence(action)
+        return self._step_sequence(self.action())

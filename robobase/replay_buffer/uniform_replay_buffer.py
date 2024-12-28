@@ -798,11 +798,8 @@ class UniformReplayBuffer(ReplayBuffer):
             replay_sample[name] = obs[obs_idxs]
             replay_sample[name + "_tp1"] = obs[next_obs_idxs]
 
-        # Handle action sequences
-        action_start_idx = idx
-        action_end_idx = min(idx + self._action_seq_len, ep_len)
         # Get action sequence directly using array slicing instead of creating range/list
-        action_seq = episode[ACTION][action_start_idx:action_end_idx]
+        action_seq = episode[ACTION][idx : idx + self._action_seq_len]
         # Only pad if necessary
         if action_seq.shape[0] < self._action_seq_len:
             num_action_to_pad = self._action_seq_len - action_seq.shape[0]

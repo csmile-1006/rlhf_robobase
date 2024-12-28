@@ -18,6 +18,8 @@ from robobase.method.utils import (
     decode_action,
 )
 
+# from robobase.method.cqn_simple import C2FCriticNetwork as SingleC2FCriticNetwork
+
 
 class C2FCriticNetwork(nn.Module):
     def __init__(
@@ -179,6 +181,7 @@ class C2FCriticSimple(nn.Module):
             levels,
             bins,
         )
+        # self.network = SingleC2FCriticNetwork(low_dim, (actor_dim,), hidden_dim, levels, bins)
 
     def get_action(self, obs: torch.Tensor):
         low = self.initial_low.repeat(obs.shape[0], 1).detach()
@@ -189,7 +192,6 @@ class C2FCriticSimple(nn.Module):
             argmax_q = random_action_if_within_delta(qs)
             if argmax_q is None:
                 argmax_q = qs.max(-1)[1]  # [..., D]
-
             # Zoom-in
             low, high = zoom_in(low, high, argmax_q, self.bins)
         continuous_action = (high + low) / 2.0  # [..., D]
@@ -332,10 +334,9 @@ class CQNASSimple(ValueBased):
         discount,
         bootstrap,
         next_low_dim_obs,
-        next_action,
-        loss_coeff,
     ):
         with torch.no_grad():
+            next_action = self.critic.get_action(next_low_dim_obs)
             target_v = self.critic_target(
                 next_low_dim_obs,
                 next_action,
@@ -353,8 +354,6 @@ class CQNASSimple(ValueBased):
         self.critic_opt.step()
         return TensorDict(
             critic_loss=critic_loss.detach(),
-            loss_coeff=loss_coeff.detach().mean(),
-            # q_critic_loss=q_critic_loss.detach(),
         )
 
     def update(
@@ -363,11 +362,6 @@ class CQNASSimple(ValueBased):
     ) -> TensorDict:
         low_dim_obs, next_low_dim_obs = self.extract_low_dim_state(batch)
 
-        with torch.no_grad():
-            # NOTE: Pre-compute next_action here, outside update_critic to support
-            # using the same next_action for both critic/intr_critic updates
-            next_action = self.critic.get_action(next_low_dim_obs)
-
         metrics = self.update_critic(
             low_dim_obs,
             batch["action"],
@@ -375,8 +369,6 @@ class CQNASSimple(ValueBased):
             batch["discount"],
             batch["bootstrap"],
             next_low_dim_obs,
-            next_action,
-            batch["loss_coeff"],
         )
 
         metrics["batch_reward"] = batch["reward"].mean().detach()
