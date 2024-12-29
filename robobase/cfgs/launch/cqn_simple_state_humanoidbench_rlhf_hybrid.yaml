@@ -40,7 +40,6 @@ method:
     keys_to_bottleneck: []
   critic_target_interval: 1000
   critic_target_tau: 1.0
-  always_bootstrap: true
 
 rlhf:
   use_rlhf: true
@@ -48,8 +47,8 @@ rlhf:
   comparison_type: sequential
   query_type: random
   max_feedback: 500
-  update_every_steps: 200000
-  num_pretrain_steps: 1000000
+  update_every_steps: 500000
+  num_pretrain_steps: 500000
   num_train_frames: 500
   initialize_agent_per_session: true
   initialize_reward_model_per_session: true
@@ -57,6 +56,7 @@ rlhf:
   gemini:
     model_type: gemini-1.5-pro
     target_viewpoints: ${env.query_keys}
+  reset_after_rlhf: false
 
 rlhf_replay:
   size: 1000000 # too large for humanoidbench, handling recent episodes only.
@@ -64,7 +64,7 @@ rlhf_replay:
   num_labels: 1
   seq_len: 100
   feedback_batch_size: 128
-  max_episode_number: 500
+  max_episode_number: 0
 
 hydra:
   run:

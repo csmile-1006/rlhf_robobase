@@ -91,7 +91,7 @@ rlhf:
     compute_self_consistency: false
     self_consistency_temperature: 1.0
     n_self_consistency_samples: 5
-
+  reset_after_rlhf: false
 
 # Reward Model Replay buffer settings
 rlhf_replay:

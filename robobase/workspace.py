@@ -1112,7 +1112,7 @@ class Workspace:
         agent_0_prev_ep_len = agent_0_prev_reward = None
         while train_until_frame(self.global_env_steps):
             if self.use_rlhf and self.total_feedback >= self.cfg.rlhf.max_feedback:
-                if self.rlhf_reset_flag is False:
+                if self.rlhf_reset_flag is False and self.cfg.rlhf.reset_after_rlhf:
                     observations, info = self.reset_after_rlhf()
                     self.rlhf_reset_flag = True
 

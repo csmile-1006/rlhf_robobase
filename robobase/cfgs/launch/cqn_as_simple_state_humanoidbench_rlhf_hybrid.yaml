@@ -40,7 +40,6 @@ method:
     keys_to_bottleneck: []
   critic_target_interval: 1000
   critic_target_tau: 1.0
-  always_bootstrap: true
   gru_layers: 0
 
 rlhf:
@@ -58,6 +57,7 @@ rlhf:
   gemini:
     model_type: gemini-1.5-pro
     target_viewpoints: ${env.query_keys}
+  reset_after_rlhf: false
 
 rlhf_replay:
   size: 1000000 # too large for humanoidbench, handling recent episodes only.
@@ -65,7 +65,7 @@ rlhf_replay:
   num_labels: 1
   seq_len: 50
   feedback_batch_size: 128
-  max_episode_number: 200
+  max_episode_number: 0
 
 hydra:
   run:
