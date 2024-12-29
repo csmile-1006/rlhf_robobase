@@ -440,7 +440,7 @@ def get_rlhf_iter_fn(
                 comparison_fn != RootPairwiseComparisonFn
             ), "RootPairwiseComparisonFn is not supported for Gemini."
             gemini_model_config = cfg.rlhf.gemini
-            video_path = work_dir / "videos"
+            video_path = work_dir / "feedbacks" / "videos"
             video_path.mkdir(parents=True, exist_ok=True)
             if cfg.env.env_name == "agym":
                 general_criteria = env_factory.get_general_criteria(cfg)

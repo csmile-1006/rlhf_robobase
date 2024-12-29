@@ -161,6 +161,8 @@ def _create_default_query_replay_buffer(
         transition_seq_len=cfg.rlhf_replay.seq_len,
         max_episode_number=cfg.rlhf_replay.max_episode_number if not use_demo else 0,
         upload_gemini=cfg.rlhf.feedback_type == "gemini",
+        purge_replay_on_shutdown=True,
+        save_snapshot=True,
     )
 
 
@@ -183,7 +185,7 @@ def _create_default_feedback_replay_buffer(
         sequential=False,
         transition_seq_len=cfg.rlhf_replay.seq_len,
         num_labels=cfg.rlhf_replay.num_labels,
-        purge_replay_on_shutdown=False,
+        purge_replay_on_shutdown=True,
     )
 
 
@@ -295,7 +297,14 @@ class Workspace:
             self.env_factory.post_collect_or_fetch_demos(cfg)
 
         # Create the RL Agent
-        observation_space = self.eval_env.observation_space
+        full_observation_space = self.eval_env.observation_space
+        clean_observation_space = spaces.Dict(
+            {
+                k: v
+                for k, v in full_observation_space.items()
+                if "query_pixels_" not in k
+            }
+        )
         action_space = self.eval_env.action_space
 
         intrinsic_reward_module = None
@@ -303,14 +312,14 @@ class Workspace:
             intrinsic_reward_module = hydra.utils.instantiate(
                 cfg.intrinsic_reward_module,
                 device=self.device,
-                observation_space=observation_space,
+                observation_space=clean_observation_space,
                 action_space=action_space,
             )
 
         self.agent = hydra.utils.instantiate(
             cfg.method,
             device=self.device,
-            observation_space=observation_space,
+            observation_space=clean_observation_space,
             action_space=action_space,
             num_train_envs=cfg.num_train_envs,
             replay_alpha=cfg.replay.alpha,
@@ -336,23 +345,23 @@ class Workspace:
             self.reward_model = hydra.utils.instantiate(
                 cfg.reward_method,
                 device=self.device,
-                observation_space=observation_space,
+                observation_space=clean_observation_space,
                 action_space=action_space,
                 reward_space=reward_space,
             )
             self.reward_model.train(False)
             self.query_replay_buffer = _create_default_query_replay_buffer(
                 cfg,
-                observation_space,
-                action_space,
+                observation_space=full_observation_space,
+                action_space=action_space,
                 save_dir=self.work_dir,
                 extra_replay_elements=extra_replay_elements,
             )
 
             self.feedback_replay_buffer = _create_default_feedback_replay_buffer(
                 cfg,
-                observation_space,
-                action_space,
+                observation_space=clean_observation_space,
+                action_space=action_space,
                 save_dir=self.work_dir,
                 extra_replay_elements=extra_replay_elements,
             )
@@ -394,8 +403,8 @@ class Workspace:
 
         self.replay_buffer = create_replay_fn(
             cfg,
-            observation_space,
-            action_space,
+            observation_space=clean_observation_space,
+            action_space=action_space,
             save_dir=self.work_dir,
             extra_replay_elements=extra_replay_elements,
         )
@@ -420,8 +429,8 @@ class Workspace:
         if self.use_demo_replay:
             self.demo_replay_buffer = create_replay_fn(
                 cfg,
-                observation_space,
-                action_space,
+                observation_space=clean_observation_space,
+                action_space=action_space,
                 save_dir=self.work_dir,
                 demo_replay=True,
                 extra_replay_elements=extra_replay_elements,
@@ -436,8 +445,8 @@ class Workspace:
             if self.use_rlhf:
                 self.demo_query_replay_buffer = _create_default_query_replay_buffer(
                     cfg,
-                    observation_space,
-                    action_space,
+                    observation_space=full_observation_space,
+                    action_space=action_space,
                     save_dir=self.work_dir,
                     use_demo=True,
                     extra_replay_elements=extra_replay_elements,
@@ -757,6 +766,9 @@ class Workspace:
                     # Only keep the last frames regardless of frame stacks because
                     # replay buffer always store single-step transitions
                     obs = {k: v[-1] for k, v in obs.items()}
+                    clean_obs = {
+                        k: v for k, v in obs.items() if "query_pixels_" not in k
+                    }
 
                     # Strip out temporal dimension as action_sequence = 1
                     act = act[0]
@@ -773,11 +785,11 @@ class Workspace:
                         if k in list(self.extra_replay_elements.keys())
                     }
                     self.replay_buffer.add(
-                        obs, act, rew, term, trunc, **extra_replay_elements
+                        clean_obs, act, rew, term, trunc, **extra_replay_elements
                     )
                     if relabeling_as_demo:
                         self.demo_replay_buffer.add(
-                            obs, act, rew, term, trunc, **extra_replay_elements
+                            clean_obs, act, rew, term, trunc, **extra_replay_elements
                         )
                     if (
                         self.use_rlhf
@@ -799,9 +811,12 @@ class Workspace:
                 # Only keep the last frames regardless of frame stacks because
                 # replay buffer always store single-step transitions
                 final_obs = {k: v[-1] for k, v in final_obs.items()}
-                self.replay_buffer.add_final(final_obs)
+                final_clean_obs = {
+                    k: v for k, v in final_obs.items() if "query_pixels_" not in k
+                }
+                self.replay_buffer.add_final(final_clean_obs)
                 if relabeling_as_demo:
-                    self.demo_replay_buffer.add_final(final_obs)
+                    self.demo_replay_buffer.add_final(final_clean_obs)
                 if self.use_rlhf and self.total_feedback < self.cfg.rlhf.max_feedback:
                     self.query_replay_buffer.add_final(final_obs)
 
@@ -1378,6 +1393,11 @@ class Workspace:
             worker_init_fn=_worker_init_fn,
         )
         self._replay_iter = None
+
+        del self.query_replay_buffer
+        del self.query_replay_loader
+        del self.feedback_replay_buffer
+        del self.feedback_replay_loader
 
         logging.info("Resetting extra replay elements to empty dict")
         self.extra_replay_elements = spaces.Dict({})

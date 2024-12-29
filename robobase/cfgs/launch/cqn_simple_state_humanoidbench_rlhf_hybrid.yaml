@@ -26,6 +26,7 @@ replay_size_before_train: 10000
 
 reward_method:
   data_aug_ratio: 20
+  lambda_weight: 1.0
 
 method:
   critic_lr: 5e-5
@@ -47,7 +48,7 @@ rlhf:
   comparison_type: sequential
   query_type: random
   max_feedback: 500
-  update_every_steps: 250000
+  update_every_steps: 200000
   num_pretrain_steps: 1000000
   num_train_frames: 500
   initialize_agent_per_session: true
@@ -58,9 +59,10 @@ rlhf:
     target_viewpoints: ${env.query_keys}
 
 rlhf_replay:
+  size: 1000000 # too large for humanoidbench, handling recent episodes only.
   num_queries: 50
   num_labels: 1
-  seq_len: 50
+  seq_len: 100
   feedback_batch_size: 128
   max_episode_number: 500
 
