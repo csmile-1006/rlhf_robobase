@@ -1010,7 +1010,9 @@ class Workspace:
             if eval_mode:
                 action = env.last_modified_action
             else:
-                action = np.stack([elem for elem in env.get_attr("last_modified_action")], axis=0)
+                action = np.stack(
+                    [elem for elem in env.get_attr("last_modified_action")], axis=0
+                )
         return action, (*env_step_tuple, next_info), metrics
 
     def _pretrain_on_demos(self):
@@ -1379,7 +1381,7 @@ class Workspace:
             self.eval_env.observation_space,
             self.eval_env.action_space,
             save_dir=self.work_dir,
-            extra_replay_elements=None,
+            extra_replay_elements=self.extra_replay_elements,
             restart_after_rlhf=True,
         )
         self.replay_buffer._add_count.value = len_buffer
@@ -1394,12 +1396,15 @@ class Workspace:
         )
         self._replay_iter = None
 
+        self.query_replay_buffer.shutdown()
         del self.query_replay_buffer
         del self.query_replay_loader
+        if self.use_demo_replay:
+            self.demo_query_replay_buffer.shutdown()
+            del self.demo_query_replay_buffer
+            del self.demo_query_replay_loader
+        self.feedback_replay_buffer.shutdown()
         del self.feedback_replay_buffer
         del self.feedback_replay_loader
-
-        logging.info("Resetting extra replay elements to empty dict")
-        self.extra_replay_elements = spaces.Dict({})
 
         return observations, info

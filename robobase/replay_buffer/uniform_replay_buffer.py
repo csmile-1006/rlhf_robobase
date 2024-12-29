@@ -284,6 +284,7 @@ class UniformReplayBuffer(ReplayBuffer):
         logging.info("\t restart_after_rlhf: %s", restart_after_rlhf)
         if restart_after_rlhf:
             logging.info(f"\t observation_elements: {self.observation_elements}")
+            logging.info(f"\t extra_replay_elements: {self.extra_replay_elements}")
             logging.info(
                 f"\t Resetting replay buffer with {len(list(self._replay_dir.glob('*.npz')))} episodes."
             )
