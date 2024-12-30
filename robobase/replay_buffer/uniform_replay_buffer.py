@@ -823,7 +823,7 @@ class UniformReplayBuffer(ReplayBuffer):
         for i in range(self._nstep):
             step_reward = episode[REWARD][idx + i]
             reward += discount * step_reward
-            discount *= (1 - episode[TERMINAL][idx + i]) * self._discount
+            discount *= (1 - episode[TERMINAL][idx + i]) * self._gamma
         replay_sample[REWARD] = reward
         replay_sample[DISCOUNT] = discount
 
