@@ -158,7 +158,6 @@ class QueryReplayBuffer(ReplayBuffer):
         observation_elements = new_observation_elements
 
         # Now remove temporal aspect from action, as we won't be storing them.
-        action_seq_len = action_shape[0]
         new_action_shape = action_shape[1:]
 
         if not np.all(time_dims[0] == np.array(time_dims)):
@@ -170,11 +169,6 @@ class QueryReplayBuffer(ReplayBuffer):
         if sequential and replay_capacity < 1 + transition_seq_len:
             raise ValueError(
                 "There is not enough capacity to cover nstep and transition_seq_len."
-            )
-
-        if sequential and action_seq_len != 1:
-            raise ValueError(
-                "Sequential replay buffer does not support action sequence length != 1"
             )
 
         self._tmpdir = None
@@ -189,7 +183,6 @@ class QueryReplayBuffer(ReplayBuffer):
         self._action_shape = new_action_shape
         self._action_dtype = action_dtype
         self._frame_stacks = frame_stack
-        self._action_seq_len = action_seq_len
         self._transition_seq_len = transition_seq_len
         self._replay_capacity = replay_capacity
         self._batch_size = batch_size
@@ -241,10 +234,6 @@ class QueryReplayBuffer(ReplayBuffer):
     @property
     def frame_stack(self):
         return self._frame_stacks
-
-    @property
-    def action_seq(self):
-        return self._action_seq_len
 
     @property
     def invalid_range(self):
