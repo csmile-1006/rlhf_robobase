@@ -716,9 +716,9 @@ def convert_torch_to_numpy(tensor):
 
 def convert_numpy_to_torch(array, device="cuda"):
     if isinstance(array, np.ndarray):
-        return torch.from_numpy(array).to(device)
+        return torch.as_tensor(array, device=device)
     elif isinstance(array, torch.Tensor):
-        return array.to(device)
+        return torch.as_tensor(array, device=device)
     elif isinstance(array, list):
         return [convert_numpy_to_torch(value, device) for value in array]
     elif isinstance(array, dict):

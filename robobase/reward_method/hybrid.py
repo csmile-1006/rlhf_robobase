@@ -163,7 +163,9 @@ class HybridReward(RewardMethod):
 
     def build_reward_model(self):
         input_shapes = self.get_fully_connected_inputs()
-        input_shapes["actions"] = (np.prod(self.action_space.shape),)
+        input_shapes["actions"] = (
+            np.prod(self.action_space.shape[-1:]),
+        )  # we only need the last dimension of the action space
         reward_model = self.reward_model(input_shapes=input_shapes)
         weight_model = self.weight_model(
             input_shapes=input_shapes, output_shape=self.num_reward_terms
@@ -214,7 +216,9 @@ class HybridReward(RewardMethod):
 
     def initialize_reward_model(self):
         input_shapes = self.get_fully_connected_inputs()
-        input_shapes["actions"] = (np.prod(self.action_space.shape),)
+        input_shapes["actions"] = (
+            np.prod(self.action_space.shape[-1:]),
+        )  # we only need the last dimension of the action space
         reward_model = self.reward_model(input_shapes=input_shapes)
         self.markovian = MarkovianRewardModel(
             reward_model=reward_model,
@@ -281,8 +285,9 @@ class HybridReward(RewardMethod):
                 for key, val in reward_terms.items()
             }
             # reward_terms: (T, num_reward_terms)
-            if actions.ndim > 2 and actions.shape[-2] == 1:
-                actions = actions[..., -1, :]
+            if actions.ndim > 2:
+                # where action sequence is used, only use the first action
+                actions = actions[..., 0, :].float()
 
         elif isinstance(seq, dict):
             actions = utils.convert_numpy_to_torch(seq["action"], self.device)
