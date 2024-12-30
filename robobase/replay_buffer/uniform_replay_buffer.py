@@ -819,7 +819,7 @@ class UniformReplayBuffer(ReplayBuffer):
 
         replay_sample[ACTION] = action_seq
         reward = np.zeros_like(episode[REWARD][idx])
-        discount = np.ones_like(episode[TERMINAL][idx])
+        discount = np.ones_like(episode[REWARD][idx])
         for i in range(self._nstep):
             step_reward = episode[REWARD][idx + i]
             reward += discount * step_reward
