@@ -30,6 +30,7 @@ class HybridReward(RewardMethod):
     def __init__(
         self,
         reward_space: gym.spaces.Dict,
+        reward_operator: str,
         lr: float,
         adaptive_lr: bool,
         num_train_steps: int,
@@ -63,6 +64,7 @@ class HybridReward(RewardMethod):
         super().__init__(*args, **kwargs)
 
         self.reward_space = gym.spaces.Dict(sorted(reward_space.items()))
+        self.reward_operator = reward_operator
         self.num_reward_terms = len(self.reward_space.spaces)
         self.reward_lows = utils.convert_numpy_to_torch(
             np.stack([space.low for space in self.reward_space.spaces.values()]),
@@ -377,9 +379,19 @@ class HybridReward(RewardMethod):
                         _scaled_reward_weights = self.weight_tuner.transform_to_tanh(
                             _reward_weights
                         )
-                        _weighted_reward = (
-                            _scaled_reward_weights * reward_terms[_range]
-                        ).sum(dim=-1, keepdim=True)
+                        _weighted_reward = _scaled_reward_weights * reward_terms[_range]
+                        if self.reward_operator == "sum":
+                            _weighted_reward = _weighted_reward.sum(
+                                dim=-1, keepdim=True
+                            )
+                        elif self.reward_operator == "prod":
+                            _weighted_reward = _weighted_reward.prod(
+                                dim=-1, keepdim=True
+                            )
+                        else:
+                            raise ValueError(
+                                f"Invalid reward operator: {self.reward_operator}"
+                            )
                         _computed_reward = self.markovian(
                             qpos[_range] if qpos is not None else None,
                             fused_rgb_feats[_range]
@@ -532,9 +544,23 @@ class HybridReward(RewardMethod):
                 if self.data_aug_ratio > 0.0:
                     mask = self.get_cropping_mask(weighted_reward, self.data_aug_ratio)
                     weighted_reward = weighted_reward.repeat(self.data_aug_ratio, 1, 1)
-                    weighted_reward = (mask * weighted_reward).sum(axis=-2)
+                    if self.reward_operator == "sum":
+                        weighted_reward = (mask * weighted_reward).sum(axis=-2)
+                    elif self.reward_operator == "prod":
+                        weighted_reward = (mask * weighted_reward).prod(axis=-2)
+                    else:
+                        raise ValueError(
+                            f"Invalid reward operator: {self.reward_operator}"
+                        )
                 else:
-                    weighted_reward = weighted_reward.sum(axis=-2)
+                    if self.reward_operator == "sum":
+                        weighted_reward = weighted_reward.sum(axis=-2)
+                    elif self.reward_operator == "prod":
+                        weighted_reward = weighted_reward.prod(axis=-2)
+                    else:
+                        raise ValueError(
+                            f"Invalid reward operator: {self.reward_operator}"
+                        )
                 weighted_rewards.append(weighted_reward)
                 raw_weights.append(raw_weight)
                 normalized_weights.append(normalized_weight)

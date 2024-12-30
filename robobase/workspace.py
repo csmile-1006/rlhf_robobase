@@ -348,6 +348,7 @@ class Workspace:
                 observation_space=clean_observation_space,
                 action_space=action_space,
                 reward_space=reward_space,
+                reward_operator=cfg.env.get("reward_operator", "sum"),
             )
             self.reward_model.train(False)
             self.query_replay_buffer = _create_default_query_replay_buffer(

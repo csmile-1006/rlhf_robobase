@@ -40,7 +40,6 @@ method:
     keys_to_bottleneck: []
   critic_target_interval: 1000
   critic_target_tau: 1.0
-  always_bootstrap: true
 
 rlhf:
   use_rlhf: true
@@ -63,7 +62,7 @@ rlhf_replay:
   size: 1000000 # too large for humanoidbench, handling recent episodes only.
   num_queries: 50
   num_labels: 1
-  seq_len: 100
+  seq_len: 50
   feedback_batch_size: 128
   max_episode_number: 0
 

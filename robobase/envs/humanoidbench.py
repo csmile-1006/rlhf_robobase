@@ -42,6 +42,7 @@ class HumanoidBench(gym.Env):
         use_rlhf: bool = False,
         query_keys: list[str] = ["right"],
         reward_mode: str = "dense",
+        reward_operator: str = "sum",
         reward_term_type: str = "all",
         initial_terms: list[float] = [],
         blocked_hands: bool = False,
@@ -55,6 +56,7 @@ class HumanoidBench(gym.Env):
         self._i = 0
         self._render_mode = render_mode
         self._reward_mode = reward_mode
+        self._reward_operator = reward_operator
         self._reward_term_type = reward_term_type
         self._initial_terms = initial_terms
         self._pixels_key = "pixels"
@@ -155,7 +157,16 @@ class HumanoidBench(gym.Env):
             )
             info["task_reward"] += task_reward
             if self._reward_mode == "initial":
-                _reward = np.sum(
+                match self._reward_operator:
+                    case "sum":
+                        operator = np.sum
+                    case "prod":
+                        operator = np.prod
+                    case _:
+                        raise ValueError(
+                            f"Invalid reward operator: {self._reward_operator}"
+                        )
+                _reward = operator(
                     [
                         self.initial_reward_scale[key] * _info[key]
                         for key in self._initial_terms
@@ -234,6 +245,7 @@ class HumanoidBenchEnvFactory(EnvFactory):
                         use_rlhf=cfg.rlhf.use_rlhf,
                         query_keys=cfg.env.query_keys,
                         reward_mode=cfg.env.reward_mode,
+                        reward_operator=cfg.env.reward_operator,
                         reward_term_type=cfg.env.reward_term_type,
                         initial_terms=cfg.env.initial_terms,
                         blocked_hands=cfg.env.blocked_hands,
@@ -257,6 +269,7 @@ class HumanoidBenchEnvFactory(EnvFactory):
                 use_rlhf=cfg.rlhf.use_rlhf,
                 query_keys=cfg.env.query_keys,
                 reward_mode=cfg.env.reward_mode,
+                reward_operator=cfg.env.reward_operator,
                 reward_term_type=cfg.env.reward_term_type,
                 initial_terms=cfg.env.initial_terms,
                 blocked_hands=cfg.env.blocked_hands,

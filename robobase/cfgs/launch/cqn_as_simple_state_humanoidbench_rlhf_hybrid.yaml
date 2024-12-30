@@ -43,7 +43,6 @@ method:
   critic_target_interval: 1000
   critic_target_tau: 1.0
   gru_layers: 0
-  always_bootstrap: true
 
 rlhf:
   use_rlhf: true

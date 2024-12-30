@@ -4,6 +4,7 @@ env:
   env_name: humanoidbench
   episode_length: 1000  # This is the default for HumanoidBench.
   reward_mode: dense
+  reward_operator: prod
   reward_term_type: all
   initial_terms: []
   query_keys: ["pixels"]
