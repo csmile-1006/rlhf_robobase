@@ -40,6 +40,7 @@ method:
     keys_to_bottleneck: []
   critic_target_interval: 1000
   critic_target_tau: 1.0
+  always_bootstrap: true
 
 rlhf:
   use_rlhf: true
@@ -50,7 +51,7 @@ rlhf:
   update_every_steps: 500000
   num_pretrain_steps: 500000
   num_train_frames: 500
-  initialize_agent_per_session: true
+  initialize_agent_per_session: false
   initialize_reward_model_per_session: true
   snapshot_every_n: ${rlhf.update_every_steps}
   gemini:
