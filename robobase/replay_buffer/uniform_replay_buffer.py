@@ -818,18 +818,21 @@ class UniformReplayBuffer(ReplayBuffer):
                 raise ValueError(f"Invalid fill_action: {self._fill_action}")
 
         replay_sample[ACTION] = action_seq
+        reward = np.zeros_like(episode[REWARD][idx])
+        discount = np.ones_like(episode[DISCOUNT][idx])
+        for i in range(self._nstep):
+            step_reward = episode[REWARD][idx + i]
+            reward += discount * step_reward
+            discount *= (1 - episode[TERMINAL][idx + i]) * self._discount
+        replay_sample[REWARD] = reward
+        replay_sample[DISCOUNT] = discount
+
         # Add the rest
-        discount_slice_len = next_idx - idx
         replay_sample.update(
             {
-                REWARD: np.sum(
-                    episode[REWARD][idx:next_idx]
-                    * self._cumulative_discount_vector[:discount_slice_len]
-                ),
-                TERMINAL: episode[TERMINAL][next_idx - 1],
-                TRUNCATED: episode[TRUNCATED][next_idx - 1],
+                TERMINAL: episode[TERMINAL][idx + self._nstep - 1],
+                TRUNCATED: episode[TRUNCATED][idx + self._nstep - 1],
                 INDICES: global_index,
-                DISCOUNT: self._gamma**discount_slice_len,  # effective discount
             }
         )
         # Add remaining (extra) items
