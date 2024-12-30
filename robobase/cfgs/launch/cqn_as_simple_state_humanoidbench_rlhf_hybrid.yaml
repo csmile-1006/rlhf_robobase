@@ -11,6 +11,8 @@ env:
 pixels: false
 frame_stack: 1
 action_repeat: 1
+action_sequence: 4
+temporal_ensemble: true
 
 batch_size: 128
 update_every_steps: 1
