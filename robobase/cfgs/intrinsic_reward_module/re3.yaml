@@ -2,6 +2,6 @@
 
 intrinsic_reward_module:
   _target_: robobase.intrinsic_reward_module.RE3
-  beta: 0.05
+  beta: 0.005
   kappa: 0.000025
   knn_k: 3

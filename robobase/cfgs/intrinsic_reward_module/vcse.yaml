@@ -2,5 +2,5 @@
 
 intrinsic_reward_module:
   _target_: robobase.intrinsic_reward_module.VCSE
-  beta: 0.1
+  beta: 0.005
   knn_k: 12

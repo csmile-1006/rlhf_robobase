@@ -132,7 +132,11 @@ class CQNSimple(ValueBased):
             # using the same next_action for both critic/intr_critic updates
             next_action = self.critic.get_action(next_low_dim_obs)
             intr_action = self.critic.get_action(low_dim_obs)
-            Q = self.critic(low_dim_obs, intr_action)[1].mean(dim=-1, keepdim=True)
+            Q = (
+                self.critic(low_dim_obs, intr_action)[1]
+                .mean(dim=[-2, -1])
+                .reshape(-1, 1)
+            )
             Q = F.layer_norm(Q, normalized_shape=(1,))
             intrinsic_rewards = self.intrinsic_reward_module.compute_irs(batch, Q)
 
