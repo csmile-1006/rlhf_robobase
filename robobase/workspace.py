@@ -714,7 +714,10 @@ class Workspace:
         )
         if self.use_rlhf:
             metrics.update(
-                {key: val / episode for key, val in reward_term_dict.items()}
+                {
+                    f"return_{key.split('/')[-1]}": val / episode
+                    for key, val in reward_term_dict.items()
+                }
             )
         if successes is not None:
             metrics["episode_success"] = successes / episode
@@ -1026,9 +1029,9 @@ class Workspace:
             metrics["env_steps_per_second"] = (
                 self.train_envs.num_envs / execution_time_for_env_step
             )
-            # for k, v in next_info.items():
-            #     # if train env, then will be vectorised, so get first elem
-            #     metrics[f"env_info/{k}"] = v if eval_mode else v[0]
+            for k, v in next_info.items():
+                # if train env, then will be vectorised, so get first elem
+                metrics[f"env_info/{k}"] = v if eval_mode else v[0]
 
         if self.cfg.temporal_ensemble:
             if eval_mode:
