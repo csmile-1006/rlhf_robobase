@@ -43,6 +43,7 @@ method:
   critic_target_interval: 1000
   critic_target_tau: 1.0
   gru_layers: 0
+  always_bootstrap: true
 
 rlhf:
   use_rlhf: true
@@ -51,9 +52,9 @@ rlhf:
   query_type: random
   max_feedback: 500
   update_every_steps: 500000
-  num_pretrain_frames: 100000
+  num_pretrain_frames: 500000
   num_train_frames: 500
-  initialize_agent_per_session: false
+  initialize_agent_per_session: true
   initialize_reward_model_per_session: true
   snapshot_every_n: ${rlhf.update_every_steps}
   gemini:

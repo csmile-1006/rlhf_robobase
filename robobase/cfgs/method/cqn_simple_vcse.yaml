@@ -1,7 +1,7 @@
 # @package _global_
 
 method:
-  _target_: robobase.method.cqn_simple_intrinsic.CQNSimple
+  _target_: robobase.method.cqn_simple_vcse.CQNSimple
   num_explore_steps: ${num_explore_steps}
   is_rl: true
   critic_lr: 1e-4
