@@ -29,7 +29,8 @@ COMMON_TRAIN_FORMAT = [
     ("env_steps", "S", "int"),
     ("env_episodes", "E", "int"),
     ("buffer_size", "BS", "int"),
-    ("buffer_sample_time", "BST", "float"),
+    ("episode_reward", "R", "float"),
+    ("episode_length", "L", "int"),
     ("env_steps_per_second", "Env FPS", "float"),
     ("agent_batched_updates_per_second", "Batched Update FPS", "float"),
     ("total_time", "T", "time"),
@@ -41,12 +42,12 @@ COMMON_UNSUP_TRAIN_FORMAT = [
     ("env_steps", "S", "int"),
     ("env_episodes", "E", "int"),
     ("buffer_size", "BS", "int"),
-    ("buffer_sample_time", "BST", "float"),
+    ("episode_reward", "R", "float"),
+    ("episode_length", "L", "int"),
     ("env_steps_per_second", "Env FPS", "float"),
     ("agent_batched_updates_per_second", "Batched Update FPS", "float"),
     ("total_time", "T", "time"),
 ]
-
 
 COMMON_REWARD_TRAIN_FORMAT = [
     ("iteration", "Iter", "int"),
@@ -55,7 +56,6 @@ COMMON_REWARD_TRAIN_FORMAT = [
     ("reward_loss", "Loss", "float"),
     ("total_time", "T", "time"),
 ]
-
 
 COMMON_EVAL_FORMAT = [
     ("iteration", "Iter", "int"),
@@ -285,6 +285,8 @@ class Logger(object):
         if torch.is_tensor(value):
             # If used has logged tensor, convert to numpy
             value = value.detach().cpu().numpy()
+            if value.shape == ():
+                value = value.item()
         # If plot is in the key, it is not a video.
         is_plot = (
             any(["plot" in str(key) for key in value.keys()])

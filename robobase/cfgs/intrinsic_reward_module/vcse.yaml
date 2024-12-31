@@ -1,0 +1,6 @@
+# @package _global_
+
+intrinsic_reward_module:
+  _target_: robobase.intrinsic_reward_module.VCSE
+  beta: 0.1
+  knn_k: 12

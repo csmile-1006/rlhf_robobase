@@ -392,6 +392,8 @@ class Workspace:
             )
             self._query_fn = get_query_fn(cfg.rlhf.query_type)
 
+            self._unsup_update_step = 0
+
             if cfg.rlhf.feedback_type == "gemini":
                 configure_gemini()
                 import asyncio
@@ -503,6 +505,10 @@ class Workspace:
         return self._update_step
 
     @property
+    def unsup_update_steps(self):
+        return self._unsup_update_step
+
+    @property
     def total_feedback(self):
         return self._total_feedback
 
@@ -591,9 +597,15 @@ class Workspace:
             self._update_fn = torch.compile(self.agent.update)
             self._act_fn = torch.compile(self.agent.act)
             torch.set_float32_matmul_precision("high")
+            if self.cfg.rlhf.use_rlhf:
+                self._update_unsupervised_fn = torch.compile(
+                    self.agent.update_unsupervised
+                )
         else:
             self._update_fn = self.agent.update
             self._act_fn = self.agent.act
+            if self.cfg.rlhf.use_rlhf:
+                self._update_unsupervised_fn = self.agent.update_unsupervised
 
         if self.cfg.use_cuda_graph:
             self._update_fn = CudaGraphModule(self._update_fn, in_keys=[], out_keys=[])
@@ -863,7 +875,8 @@ class Workspace:
                     "Please make sure that this is an intended behavior."
                 )
 
-    def _perform_updates(self) -> dict[str, Any]:
+    def _perform_updates(self, unsup_train: bool = False) -> dict[str, Any]:
+        update_fn = self._update_fn if not unsup_train else self._update_unsupervised_fn
         if self.agent.logging:
             start_time = time.time()
         metrics = {}
@@ -877,9 +890,13 @@ class Workspace:
             )
             for _ in range(num_update_steps):
                 batch = self.agent.extract_batch(self.replay_iter)
-                metrics.update(self._update_fn(batch))
-                self._update_step += 1
-                self.agent.update_target_critic(self.update_steps)
+                metrics.update(update_fn(batch))
+                if not unsup_train:
+                    self._update_step += 1
+                    self.agent.update_target_critic(self._update_step)
+                else:
+                    self._unsup_update_step += 1
+                    self.agent.update_target_critic(self._unsup_update_step)
         self.agent.train(False)
         if self.agent.logging:
             execution_time_for_update = time.time() - start_time
@@ -1123,7 +1140,10 @@ class Workspace:
             if should_log(self.main_loop_iterations):
                 self.agent.logging = True
             if not seed_until_size(len(self.replay_buffer)):
-                update_metrics = self._perform_updates()
+                update_metrics = self._perform_updates(
+                    unsup_train=self.use_rlhf
+                    and self.unsup_update_steps <= self.cfg.rlhf.num_unsup_train_frames
+                )
                 metrics.update(update_metrics)
 
             (
@@ -1165,7 +1185,17 @@ class Workspace:
                             * self.cfg.action_repeat,
                         }
                     )
-                self.logger.log_metrics(metrics, self.global_env_steps, prefix="train")
+                self.logger.log_metrics(
+                    metrics,
+                    self.global_env_steps,
+                    prefix="train"
+                    if not (
+                        self.use_rlhf
+                        and self.unsup_update_steps
+                        <= self.cfg.rlhf.num_unsup_train_frames
+                    )
+                    else "unsup_train",
+                )
 
             if should_eval(self.main_loop_iterations):
                 eval_metrics = self._eval(eval_record_all_episode=True)
@@ -1179,10 +1209,21 @@ class Workspace:
 
             if self.use_rlhf:
                 if (
+                    self.unsup_update_steps == self.cfg.rlhf.num_unsup_train_frames
+                    and not self.reward_model.activated
+                ):
+                    if hasattr(self.agent, "reset_critic"):
+                        logging.info("Resetting critic after unsup train")
+                        self.agent.reset_critic()
+                    self._setup_training_functions()
+
+                if (
                     self.total_feedback < self.cfg.rlhf.max_feedback
                     and should_update_reward_model(
                         self.global_env_steps - self.cfg.rlhf.num_pretrain_steps
                     )  # first start when pretrain step is finished, and then start when query replay buffer is filled
+                    and not self.unsup_update_steps
+                    <= self.cfg.rlhf.num_unsup_train_frames
                     and not reward_until_frame(self.global_env_steps)
                 ):
                     self.reward_model.logging = True
@@ -1220,9 +1261,6 @@ class Workspace:
                         if reward_update_metrics["pref_acc_label_0"] > 0.97:
                             break
 
-                    if not self.reward_model.activated:
-                        self.reward_model.set_activated(True)
-
                     relabel_with_predictor(self.reward_model, self.replay_buffer)
                     if self.use_demo_replay:
                         relabel_with_predictor(
@@ -1230,17 +1268,28 @@ class Workspace:
                         )
                     metrics = {}
 
+                    # agent reset can be occurred in two cases.
+                    # 1. initialize_agent_per_session is True
                     if self.cfg.rlhf.initialize_agent_per_session:
                         if hasattr(self.agent, "reset_critic"):
-                            logging.info("Resetting critic")
+                            logging.info(
+                                f"Resetting critic after feedback session {self.feedback_iter}"
+                            )
                             self.agent.reset_critic()
                         if hasattr(self.agent, "reset_actor"):
-                            logging.info("Resetting actor")
+                            logging.info(
+                                f"Resetting actor after feedback session {self.feedback_iter}"
+                            )
                             self.agent.reset_actor()
                         if hasattr(self.agent, "reset_temperature"):
-                            logging.info("Resetting temperature")
+                            logging.info(
+                                f"Resetting temperature after feedback session {self.feedback_iter}"
+                            )
                             self.agent.reset_temperature()
                         self._setup_training_functions()
+
+                    if not self.reward_model.activated:
+                        self.reward_model.set_activated(True)
 
                 if (
                     self.total_feedback <= self.cfg.rlhf.max_feedback

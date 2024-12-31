@@ -748,7 +748,7 @@ def compute_state_entropy(obs, full_obs, k):
 
 
 class TorchRunningMeanStd:
-    def __init__(self, epsilon=1e-4, shape=(), device=None):
+    def __init__(self, epsilon=0, shape=(), device=None):
         self.mean = torch.zeros(shape, device=device)
         self.var = torch.ones(shape, device=device)
         self.count = epsilon

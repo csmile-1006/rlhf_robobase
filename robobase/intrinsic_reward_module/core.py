@@ -44,6 +44,21 @@ class IntrinsicRewardModule(ABC):
         self.use_pixels = len(self.rgb_spaces) > 0
 
     @abstractmethod
+    def compute_unsup_irs(
+        self, batch: dict[str, torch.Tensor], step: int = 0
+    ) -> torch.Tensor:
+        """Compute the intrinsic rewards for unsupervised pre-training.
+           No weight decay is applied.
+
+        Args:
+            batch: Batch of data.
+            step: The global training step.
+
+        Returns:
+            The intrinsic rewards.
+        """
+
+    @abstractmethod
     def compute_irs(
         self, batch: dict[str, torch.Tensor], step: int = 0
     ) -> torch.Tensor:
