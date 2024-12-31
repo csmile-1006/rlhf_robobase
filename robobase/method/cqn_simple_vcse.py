@@ -106,7 +106,6 @@ class CQNSimple(ValueBased):
         next_low_dim_obs,
         loss_coeff,
     ):
-        # first update critic
         critic, critic_target, critic_opt = (
             self.critic,
             self.critic_target,
@@ -261,8 +260,7 @@ class CQNSimple(ValueBased):
         eval_mode: bool,
     ):
         low_dim_obs = self._act_extract_low_dim_state(observations)
-        critic = self.critic
-        action = critic.get_action(low_dim_obs)
+        action = self.critic.get_action(low_dim_obs)
         std = torch.ones_like(action) * self.get_std(step)
         dist = utils.TruncatedNormal(action, std)
         if eval_mode:

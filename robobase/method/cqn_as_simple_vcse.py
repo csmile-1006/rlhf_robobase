@@ -32,6 +32,19 @@ class CQNASSimple(ValueBased):
         self.hidden_dim = hidden_dim
         self.gru_layers = gru_layers
         super().__init__(*args, **kwargs)
+        (
+            self.extr_critic,
+            self.extr_critic_target,
+            self.extr_critic_opt,
+        ) = self.build_critic()
+
+    def reset_critic(self):
+        self.critic, self.critic_target, self.critic_opt = self.build_critic()
+        (
+            self.extr_critic,
+            self.extr_critic_target,
+            self.extr_critic_opt,
+        ) = self.build_critic()
 
     def build_critic(self):
         critic_cls = C2FCriticSimple
@@ -112,6 +125,43 @@ class CQNASSimple(ValueBased):
             critic_loss=critic_loss.detach(),
         )
 
+    def update_extr_critic(
+        self,
+        low_dim_obs,
+        action,
+        reward,
+        discount,
+        bootstrap,
+        next_low_dim_obs,
+        loss_coeff,
+    ):
+        critic, critic_target, critic_opt = (
+            self.extr_critic,
+            self.extr_critic_target,
+            self.extr_critic_opt,
+        )
+        with torch.no_grad():
+            next_action = critic.get_action(next_low_dim_obs)
+            target_v = critic_target(
+                next_low_dim_obs,
+                next_action,
+            )[1]
+            target_q = (
+                reward.unsqueeze(-1)
+                + bootstrap.unsqueeze(-1) * discount.unsqueeze(-1) * target_v
+            )
+
+        qs_a = critic(
+            low_dim_obs,
+            action,
+        )[1]
+
+        q_critic_loss = F.mse_loss(qs_a, target_q)
+        extr_critic_loss = self.critic_lambda * (q_critic_loss * loss_coeff).mean()
+        critic_opt.zero_grad(set_to_none=True)
+        extr_critic_loss.backward()
+        critic_opt.step()
+
     def update(
         self,
         batch: TensorDict,
@@ -123,9 +173,9 @@ class CQNASSimple(ValueBased):
         with torch.no_grad():
             # NOTE: Pre-compute next_action here, outside update_critic to support
             # using the same next_action for both critic/intr_critic updates
-            intr_action = self.critic.get_action(low_dim_obs)
+            intr_action = self.extr_critic.get_action(low_dim_obs)
             Q = (
-                self.critic(low_dim_obs, intr_action)[1]
+                self.extr_critic(low_dim_obs, intr_action)[1]
                 .mean(dim=[-2, -1])
                 .reshape(-1, 1)
             )
@@ -139,6 +189,17 @@ class CQNASSimple(ValueBased):
             batch["discount"],
             batch["bootstrap"],
             next_low_dim_obs,
+        )
+        metrics.update(
+            self.update_extr_critic(
+                low_dim_obs,
+                batch["action"],
+                batch["reward"],
+                batch["discount"],
+                batch["bootstrap"],
+                next_low_dim_obs,
+                batch["loss_coeff"],
+            )
         )
 
         metrics["batch_reward"] = batch["reward"].mean().detach()
