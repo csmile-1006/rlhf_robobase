@@ -759,12 +759,12 @@ class IsaacLabWorkspace:
                 self._pretrain_step += 1
 
     def _pretrain_reward_model_on_demos(self):
-        if self.cfg.rlhf.num_pretrain_steps > 0:
-            pre_train_until_step = utils.Until(self.cfg.rlhf.num_pretrain_steps)
+        if self.cfg.rlhf.num_pretrain_frames > 0:
+            pre_train_until_step = utils.Until(self.cfg.rlhf.num_pretrain_frames)
             should_pretrain_log = utils.Every(self.cfg.log_pretrain_every)
             if self.cfg.log_pretrain_every > 0:
                 assert (
-                    self.cfg.rlhf.num_pretrain_steps % self.cfg.log_pretrain_every == 0
+                    self.cfg.rlhf.num_pretrain_frames % self.cfg.log_pretrain_every == 0
                 )
             self.collect_feedback()
             if len(self.feedback_replay_buffer) <= 0:

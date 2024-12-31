@@ -338,6 +338,10 @@ class Workspace:
 
         self.use_rlhf = cfg.rlhf.use_rlhf
         if self.use_rlhf:
+            assert (
+                self.cfg.rlhf.num_pretrain_frames == 0
+                or self.cfg.rlhf.num_unsup_train_frames == 0
+            ), "Either num_pretrain_frames or num_unsup_train_frames must be 0."
             self.rlhf_reset_flag = False
             reward_space = self.eval_env.unwrapped.reward_space
             extra_replay_elements = reward_space
@@ -1069,12 +1073,12 @@ class Workspace:
                 self._pretrain_step += 1
 
     def _pretrain_reward_model_on_demos(self):
-        if self.cfg.rlhf.num_pretrain_steps > 0:
-            pre_train_until_step = utils.Until(self.cfg.rlhf.num_pretrain_steps)
+        if self.cfg.rlhf.num_pretrain_frames > 0:
+            pre_train_until_step = utils.Until(self.cfg.rlhf.num_pretrain_frames)
             should_pretrain_log = utils.Every(self.cfg.log_pretrain_every)
             if self.cfg.log_pretrain_every > 0:
                 assert (
-                    self.cfg.rlhf.num_pretrain_steps % self.cfg.log_pretrain_every == 0
+                    self.cfg.rlhf.num_pretrain_frames % self.cfg.log_pretrain_every == 0
                 )
             self.collect_feedback()
             if len(self.feedback_replay_buffer) <= 0:
@@ -1209,7 +1213,10 @@ class Workspace:
             if self.use_rlhf:
                 if (
                     self.cfg.rlhf.num_unsup_train_frames > 0
-                    and self.unsup_update_steps == self.cfg.rlhf.num_unsup_train_frames
+                    and self.global_env_steps
+                    - self.cfg.rlhf.num_pretrain_frames
+                    - self.cfg.replay_size_before_train
+                    == 0
                     and not self.reward_model.activated
                 ):
                     if hasattr(self.agent, "reset_critic"):
@@ -1220,10 +1227,13 @@ class Workspace:
                 if (
                     self.total_feedback < self.cfg.rlhf.max_feedback
                     and (
-                        self.unsup_update_steps >= self.cfg.rlhf.num_unsup_train_frames
-                        or self.update_steps >= self.cfg.rlhf.num_pretrain_steps
+                        self.global_env_steps
+                        - max(
+                            self.cfg.rlhf.num_pretrain_frames,
+                            self.cfg.rlhf.num_unsup_train_frames,
+                        )
+                        - self.cfg.replay_size_before_train
                     )
-                    and (self.global_env_steps - self.cfg.rlhf.num_pretrain_steps)
                     % self.cfg.rlhf.update_every_steps
                     == 0
                 ):
