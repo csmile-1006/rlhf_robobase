@@ -1209,7 +1209,8 @@ class Workspace:
 
             if self.use_rlhf:
                 if (
-                    self.unsup_update_steps == self.cfg.rlhf.num_unsup_train_frames
+                    self.cfg.rlhf.num_unsup_train_frames > 0
+                    and self.unsup_update_steps == self.cfg.rlhf.num_unsup_train_frames
                     and not self.reward_model.activated
                 ):
                     if hasattr(self.agent, "reset_critic"):
