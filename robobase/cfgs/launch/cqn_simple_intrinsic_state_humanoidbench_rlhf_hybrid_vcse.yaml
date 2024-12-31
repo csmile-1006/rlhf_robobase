@@ -48,9 +48,9 @@ rlhf:
   comparison_type: sequential
   query_type: random
   max_feedback: 500
-  num_unsup_train_frames: 50000
+  num_unsup_train_frames: 20000
   update_every_steps: 500000
-  num_pretrain_steps: 50000
+  num_pretrain_steps: 20000
   num_train_frames: 500
   initialize_agent_per_session: false
   initialize_reward_model_per_session: true

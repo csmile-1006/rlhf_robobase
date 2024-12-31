@@ -1115,7 +1115,6 @@ class Workspace:
         should_save_snapshot = utils.Every(snapshot_every_n)
         if self.use_rlhf:
             should_reward_log = utils.Every(self.cfg.rlhf.log_every)
-            reward_until_frame = utils.Until(self.cfg.rlhf.num_pretrain_steps)
             should_update_reward_model = utils.Every(self.cfg.rlhf.update_every_steps)
             snapshot_reward_model_every_n = (
                 self.cfg.rlhf.snapshot_every_n if self.cfg.save_snapshot else 0
@@ -1223,9 +1222,8 @@ class Workspace:
                     and should_update_reward_model(
                         self.global_env_steps - self.cfg.rlhf.num_pretrain_steps
                     )  # first start when pretrain step is finished, and then start when query replay buffer is filled
-                    and not self.unsup_update_steps
-                    <= self.cfg.rlhf.num_unsup_train_frames
-                    and not reward_until_frame(self.global_env_steps)
+                    and self.unsup_update_steps >= self.cfg.rlhf.num_unsup_train_frames
+                    and self.update_steps >= self.cfg.rlhf.num_unsup_train_frames
                 ):
                     self.reward_model.logging = True
                     logging.info(
