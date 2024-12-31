@@ -390,6 +390,31 @@ class CQNASSimple(ValueBased):
 
         return metrics
 
+    def update_unsupervised(self, batch: TensorDict):
+        low_dim_obs, next_low_dim_obs = self.extract_low_dim_state(batch)
+        assert self.intrinsic_reward_module is not None
+        self.intrinsic_reward_module.update(batch)
+
+        with torch.no_grad():
+            # NOTE: Pre-compute next_action here, outside update_critic to support
+            # using the same next_action for both critic/intr_critic updates
+            next_action = self.critic.get_action(next_low_dim_obs)
+            intrinsic_rewards = self.intrinsic_reward_module.compute_unsup_irs(batch)
+
+        metrics = self.update_critic(
+            low_dim_obs,
+            batch["action"],
+            intrinsic_rewards,
+            batch["discount"],
+            batch["bootstrap"],
+            next_low_dim_obs,
+            next_action,
+            batch["loss_coeff"],
+        )
+        metrics["unsup_critic_loss"] = metrics["critic_loss"]
+        metrics["batch_intrinsic_rewards"] = intrinsic_rewards.mean().detach()
+        return metrics
+
     def update_target_critic(self, step: int):
         # update critic target
         if step % self.critic_target_interval == 0:
