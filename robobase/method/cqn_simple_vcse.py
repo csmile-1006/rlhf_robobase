@@ -144,7 +144,6 @@ class CQNSimple(ValueBased):
         discount,
         bootstrap,
         next_low_dim_obs,
-        next_action,
         loss_coeff,
     ):
         critic, critic_target, critic_opt = (
