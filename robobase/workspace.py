@@ -645,7 +645,7 @@ class Workspace:
     def _eval(self, eval_record_all_episode: bool = False) -> dict[str, Any]:
         # TODO: In future, this func could do with a further refactor
         self.agent.set_eval_env_running(True)
-        step, episode, total_reward, successes = 0, 0, 0, 0
+        step, episode, total_learned_reward, total_reward, successes = 0, 0, 0, 0, 0
         if self.use_rlhf:
             reward_term_dict = {key: 0 for key in self.extra_replay_elements}
         eval_until_episode = utils.Until(self.cfg.num_eval_episodes)
@@ -684,6 +684,7 @@ class Workspace:
                         self.eval_env.give_agent_info(env_metrics["agent_act_info"])
                 self.eval_video_recorder.record(self.eval_env)
                 total_reward += info.get("task_reward", reward)
+                total_learned_reward += reward
                 if self.use_rlhf:
                     for key in info.keys():
                         if key.startswith("Reward/"):
@@ -707,6 +708,7 @@ class Workspace:
         metrics.update(
             {
                 "episode_reward": total_reward / episode,
+                "episode_learned_reward": total_learned_reward / episode,
                 "episode_length": step * self.cfg.action_repeat / episode,
             }
         )
@@ -1129,8 +1131,8 @@ class Workspace:
 
         observations, info = self.train_envs.reset()
         #  We use agent 0 to accumulate stats about how the training agents are doing
-        agent_0_ep_len = agent_0_reward = 0
-        agent_0_prev_ep_len = agent_0_prev_reward = None
+        agent_0_ep_len = agent_0_reward = agent_0_learned_reward = 0
+        agent_0_prev_ep_len = agent_0_prev_reward = agent_0_prev_learned_reward = None
         while train_until_frame(self.global_env_steps):
             if self.use_rlhf and self.total_feedback >= self.cfg.rlhf.max_feedback:
                 if self.rlhf_reset_flag is False and self.cfg.rlhf.reset_after_rlhf:
@@ -1159,12 +1161,14 @@ class Workspace:
                 False,
             )
 
+            agent_0_learned_reward += rewards[0]
             agent_0_reward += next_info.get("task_reward", rewards)[0]
             agent_0_ep_len += 1
             if terminations[0] or truncations[0]:
                 agent_0_prev_ep_len = agent_0_ep_len
                 agent_0_prev_reward = agent_0_reward
-                agent_0_ep_len = agent_0_reward = 0
+                agent_0_prev_learned_reward = agent_0_learned_reward
+                agent_0_ep_len = agent_0_reward = agent_0_learned_reward = 0
 
             metrics.update(env_metrics)
             self._add_to_replay(
@@ -1184,6 +1188,7 @@ class Workspace:
                     metrics.update(
                         {
                             "episode_reward": agent_0_prev_reward,
+                            "episode_learned_reward": agent_0_prev_learned_reward,
                             "episode_length": agent_0_prev_ep_len
                             * self.cfg.action_repeat,
                         }

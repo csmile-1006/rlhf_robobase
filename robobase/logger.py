@@ -30,6 +30,7 @@ COMMON_TRAIN_FORMAT = [
     ("env_episodes", "E", "int"),
     ("buffer_size", "BS", "int"),
     ("episode_reward", "R", "float"),
+    ("episode_learned_reward", "LR", "float"),
     ("episode_length", "L", "int"),
     ("env_steps_per_second", "Env FPS", "float"),
     ("agent_batched_updates_per_second", "Batched Update FPS", "float"),
@@ -43,6 +44,7 @@ COMMON_UNSUP_TRAIN_FORMAT = [
     ("env_episodes", "E", "int"),
     ("buffer_size", "BS", "int"),
     ("episode_reward", "R", "float"),
+    ("episode_learned_reward", "LR", "float"),
     ("episode_length", "L", "int"),
     ("env_steps_per_second", "Env FPS", "float"),
     ("agent_batched_updates_per_second", "Batched Update FPS", "float"),
@@ -63,6 +65,7 @@ COMMON_EVAL_FORMAT = [
     ("env_episodes", "E", "int"),
     ("episode_length", "L", "int"),
     ("episode_reward", "R", "float"),
+    ("episode_learned_reward", "LR", "float"),
     ("total_time", "T", "time"),
 ]
 
