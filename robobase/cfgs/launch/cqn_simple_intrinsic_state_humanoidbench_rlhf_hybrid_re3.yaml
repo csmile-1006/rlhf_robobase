@@ -41,6 +41,7 @@ method:
     keys_to_bottleneck: []
   critic_target_interval: 1000
   critic_target_tau: 1.0
+  always_bootstrap: true
 
 rlhf:
   use_rlhf: true
