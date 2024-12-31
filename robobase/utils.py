@@ -134,7 +134,7 @@ class Every:
         if self._every is None or self._every == 0:
             return False
         every = self._every // self._action_repeat
-        if step % every == 0:
+        if step >= 0 and step % every == 0:
             return True
         return False
 
