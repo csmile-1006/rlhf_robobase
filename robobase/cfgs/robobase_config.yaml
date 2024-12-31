@@ -71,7 +71,7 @@ rlhf:
   query_type: random
   max_feedback: 1000
   update_every_steps: 1
-  num_pretrain_steps: 0
+  num_pretrain_frames: 0
   num_unsup_train_frames: 0
   num_train_frames: 100
   snapshot_every_n: 1000
