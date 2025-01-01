@@ -206,6 +206,27 @@ class CQNASSimple(ValueBased):
         )
 
         metrics["batch_reward"] = batch["reward"].mean().detach()
+        metrics["batch_intrinsic_rewards"] = intrinsic_rewards.mean().detach()
+        metrics["batch_discount"] = (
+            (batch["bootstrap"] * batch["discount"]).mean().detach()
+        )
+        return metrics
+
+    def update_only_critic(
+        self,
+        batch: TensorDict,
+    ) -> TensorDict:
+        low_dim_obs, next_low_dim_obs = self.extract_low_dim_state(batch)
+        metrics = self.update_critic(
+            low_dim_obs,
+            batch["action"],
+            batch["reward"],
+            batch["discount"],
+            batch["bootstrap"],
+            next_low_dim_obs,
+        )
+
+        metrics["batch_reward"] = batch["reward"].mean().detach()
         metrics["batch_discount"] = (
             (batch["bootstrap"] * batch["discount"]).mean().detach()
         )

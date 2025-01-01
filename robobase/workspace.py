@@ -605,11 +605,15 @@ class Workspace:
                 self._update_unsupervised_fn = torch.compile(
                     self.agent.update_unsupervised
                 )
+                self._update_only_critic_fn = torch.compile(
+                    self.agent.update_only_critic
+                )
         else:
             self._update_fn = self.agent.update
             self._act_fn = self.agent.act
             if self.cfg.rlhf.use_rlhf:
                 self._update_unsupervised_fn = self.agent.update_unsupervised
+                self._update_only_critic_fn = self.agent.update_only_critic
 
         if self.cfg.use_cuda_graph:
             self._update_fn = CudaGraphModule(self._update_fn, in_keys=[], out_keys=[])
@@ -885,7 +889,21 @@ class Workspace:
                 )
 
     def _perform_updates(self, unsup_train: bool = False) -> dict[str, Any]:
-        update_fn = self._update_fn if not unsup_train else self._update_unsupervised_fn
+        def choose_update_fn():
+            if unsup_train:
+                return self._update_unsupervised_fn
+            elif (
+                self.feedback_iter % 2 == 1
+                or self.total_feedback >= self.cfg.rlhf.max_feedback
+            ):
+                # in the odd round or after finishing RLHF feedback sessions,
+                # the agent is trained only on the critic for better exploitation.
+                return self.agent.update_only_critic
+            else:
+                # in the even round, the agent is trained on both critic and intrinsic critic for better exploration.
+                return self._update_fn
+
+        update_fn = choose_update_fn()
         if self.agent.logging:
             start_time = time.time()
         metrics = {}

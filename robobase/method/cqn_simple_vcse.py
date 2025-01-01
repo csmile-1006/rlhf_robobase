@@ -218,6 +218,24 @@ class CQNSimple(ValueBased):
         metrics["batch_intrinsic_rewards"] = intrinsic_rewards.mean().detach()
         return metrics
 
+    def update_only_critic(
+        self,
+        batch: TensorDict,
+    ) -> dict[str, np.ndarray]:
+        low_dim_obs, next_low_dim_obs = self.extract_low_dim_state(batch)
+
+        metrics = self.update_critic(
+            low_dim_obs,
+            batch["action"],
+            batch["reward"],
+            batch["discount"],
+            batch["bootstrap"],
+            next_low_dim_obs,
+            batch["loss_coeff"],
+        )
+        metrics["batch_reward"] = batch["reward"].mean().detach()
+        return metrics
+
     def update_unsupervised(self, batch: TensorDict):
         low_dim_obs, next_low_dim_obs = self.extract_low_dim_state(batch)
         assert self.intrinsic_reward_module is not None

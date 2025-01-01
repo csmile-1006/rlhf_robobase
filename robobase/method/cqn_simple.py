@@ -380,3 +380,6 @@ class CQNSimple(ValueBased):
         action = self.critic.encode_decode_action(action)
         action = action.view(*action.shape[:-1], *self.action_space.shape)
         return action
+
+    def update_only_critic(self, batch: TensorDict):
+        return self.update(batch)
