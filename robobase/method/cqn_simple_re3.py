@@ -206,3 +206,21 @@ class CQNSimple(ValueBased):
         action = self.critic.encode_decode_action(action)
         action = action.view(*action.shape[:-1], *self.action_space.shape)
         return action
+
+    def update_only_critic(
+        self,
+        batch: TensorDict,
+    ) -> dict[str, np.ndarray]:
+        low_dim_obs, next_low_dim_obs = self.extract_low_dim_state(batch)
+
+        metrics = self.update_critic(
+            low_dim_obs,
+            batch["action"],
+            batch["reward"],
+            batch["discount"],
+            batch["bootstrap"],
+            next_low_dim_obs,
+            batch["loss_coeff"],
+        )
+        metrics["batch_reward"] = batch["reward"].mean().detach()
+        return metrics
