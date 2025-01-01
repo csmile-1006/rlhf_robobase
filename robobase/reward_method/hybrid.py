@@ -379,14 +379,20 @@ class HybridReward(RewardMethod):
                         _scaled_reward_weights = self.weight_tuner.transform_to_tanh(
                             _reward_weights
                         )
-                        _weighted_reward = _scaled_reward_weights * reward_terms[_range]
                         if self.reward_operator == "sum":
-                            _weighted_reward = _weighted_reward.sum(
-                                dim=-1, keepdim=True
-                            )
+                            _weighted_reward = (
+                                _scaled_reward_weights * reward_terms[_range]
+                            ).sum(dim=-1, keepdim=True)
                         elif self.reward_operator == "prod":
-                            _weighted_reward = _weighted_reward.prod(
-                                dim=-1, keepdim=True
+                            # Compute log product using sum of logs, then exp once at the end
+                            # Avoid redundant log/exp operations on individual terms
+                            _weighted_reward = (
+                                (
+                                    _scaled_reward_weights
+                                    * torch.log(reward_terms[_range])
+                                )
+                                .sum(dim=-1, keepdim=True)
+                                .exp()
                             )
                         else:
                             raise ValueError(
@@ -419,9 +425,16 @@ class HybridReward(RewardMethod):
                     scaled_reward_weights = self.weight_tuner.transform_to_tanh(
                         _reward_weights
                     )
-                    weighted_reward = (
-                        scaled_reward_weights * reward_terms[_range]
-                    ).sum(dim=-1)
+                    if self.reward_operator == "sum":
+                        weighted_reward = (
+                            scaled_reward_weights * reward_terms[_range]
+                        ).sum(dim=-1)
+                    elif self.reward_operator == "prod":
+                        weighted_reward = (
+                            (scaled_reward_weights * torch.log(reward_terms[_range]))
+                            .sum(dim=-1)
+                            .exp()
+                        )
                     computed_reward = self.markovian(
                         qpos[_range] if qpos is not None else None,
                         fused_rgb_feats[_range]
@@ -540,27 +553,22 @@ class HybridReward(RewardMethod):
                 )
                 normalized_weight = self.weight_tuner.transform_to_tanh(raw_weight)
                 # weighted_reward: (bs, seq, num_reward_terms) -> (bs, seq, 1) -> (bs, 1)
-                weighted_reward = (raw_weight * reward_terms).sum(dim=-1, keepdim=True)
+                if self.reward_operator == "sum":
+                    weighted_reward = (normalized_weight * reward_terms).sum(
+                        dim=-1, keepdim=True
+                    )
+                elif self.reward_operator == "prod":
+                    weighted_reward = (
+                        (normalized_weight * torch.log(reward_terms))
+                        .sum(dim=-1, keepdim=True)
+                        .exp()
+                    )
                 if self.data_aug_ratio > 0.0:
                     mask = self.get_cropping_mask(weighted_reward, self.data_aug_ratio)
                     weighted_reward = weighted_reward.repeat(self.data_aug_ratio, 1, 1)
-                    if self.reward_operator == "sum":
-                        weighted_reward = (mask * weighted_reward).sum(axis=-2)
-                    elif self.reward_operator == "prod":
-                        weighted_reward = (mask * weighted_reward).prod(axis=-2)
-                    else:
-                        raise ValueError(
-                            f"Invalid reward operator: {self.reward_operator}"
-                        )
+                    weighted_reward = (mask * weighted_reward).sum(axis=-2)
                 else:
-                    if self.reward_operator == "sum":
-                        weighted_reward = weighted_reward.sum(axis=-2)
-                    elif self.reward_operator == "prod":
-                        weighted_reward = weighted_reward.prod(axis=-2)
-                    else:
-                        raise ValueError(
-                            f"Invalid reward operator: {self.reward_operator}"
-                        )
+                    weighted_reward = weighted_reward.sum(axis=-2)
                 weighted_rewards.append(weighted_reward)
                 raw_weights.append(raw_weight)
                 normalized_weights.append(normalized_weight)

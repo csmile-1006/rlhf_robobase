@@ -617,6 +617,13 @@ class Workspace:
 
         if self.cfg.use_cuda_graph:
             self._update_fn = CudaGraphModule(self._update_fn, in_keys=[], out_keys=[])
+            if self.cfg.rlhf.use_rlhf:
+                self._update_unsupervised_fn = CudaGraphModule(
+                    self._update_unsupervised_fn, in_keys=[], out_keys=[]
+                )
+                self._update_only_critic_fn = CudaGraphModule(
+                    self._update_only_critic_fn, in_keys=[], out_keys=[]
+                )
 
     def _train(self):
         # Load Demo
@@ -898,7 +905,7 @@ class Workspace:
             ):
                 # in the odd round or after finishing RLHF feedback sessions,
                 # the agent is trained only on the critic for better exploitation.
-                return self.agent.update_only_critic
+                return self._update_only_critic_fn
             else:
                 # in the even round, the agent is trained on both critic and intrinsic critic for better exploration.
                 return self._update_fn

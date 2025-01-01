@@ -134,7 +134,9 @@ class HumanoidBench(gym.Env):
         )
 
         self.initial_reward_scale = {
-            k: self.original_reward_space[k].high for k in self._initial_terms
+            # k: self.original_reward_space[k].high for k in self._initial_terms
+            k: 1.0
+            for k in self._initial_terms
         }
 
     def _get_obs(self, observation):

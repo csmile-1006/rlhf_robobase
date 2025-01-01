@@ -24,8 +24,8 @@ num_train_frames: 7001000
 save_snapshot: true
 eval_every_steps: 20000
 snapshot_every_n: 250000
-num_explore_steps: 10000
-replay_size_before_train: 10000
+num_explore_steps: 1000
+replay_size_before_train: 1000
 
 reward_method:
   data_aug_ratio: 20
