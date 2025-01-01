@@ -384,16 +384,9 @@ class HybridReward(RewardMethod):
                                 _scaled_reward_weights * reward_terms[_range]
                             ).sum(dim=-1, keepdim=True)
                         elif self.reward_operator == "prod":
-                            # Compute log product using sum of logs, then exp once at the end
-                            # Avoid redundant log/exp operations on individual terms
                             _weighted_reward = (
-                                (
-                                    _scaled_reward_weights
-                                    * torch.log(reward_terms[_range])
-                                )
-                                .sum(dim=-1, keepdim=True)
-                                .exp()
-                            )
+                                _scaled_reward_weights ** reward_terms[_range]
+                            ).prod(dim=-1, keepdim=True)
                         else:
                             raise ValueError(
                                 f"Invalid reward operator: {self.reward_operator}"
@@ -431,10 +424,8 @@ class HybridReward(RewardMethod):
                         ).sum(dim=-1)
                     elif self.reward_operator == "prod":
                         weighted_reward = (
-                            (scaled_reward_weights * torch.log(reward_terms[_range]))
-                            .sum(dim=-1)
-                            .exp()
-                        )
+                            scaled_reward_weights ** reward_terms[_range]
+                        ).prod(dim=-1)
                     computed_reward = self.markovian(
                         qpos[_range] if qpos is not None else None,
                         fused_rgb_feats[_range]
@@ -558,10 +549,8 @@ class HybridReward(RewardMethod):
                         dim=-1, keepdim=True
                     )
                 elif self.reward_operator == "prod":
-                    weighted_reward = (
-                        (normalized_weight * torch.log(reward_terms))
-                        .sum(dim=-1, keepdim=True)
-                        .exp()
+                    weighted_reward = (normalized_weight**reward_terms).prod(
+                        dim=-1, keepdim=True
                     )
                 if self.data_aug_ratio > 0.0:
                     mask = self.get_cropping_mask(weighted_reward, self.data_aug_ratio)
