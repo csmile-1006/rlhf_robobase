@@ -161,6 +161,9 @@ class CQNASSimple(ValueBased):
         critic_opt.zero_grad(set_to_none=True)
         extr_critic_loss.backward()
         critic_opt.step()
+        return TensorDict(
+            extr_critic_loss=extr_critic_loss.detach(),
+        )
 
     def update(
         self,
