@@ -4,6 +4,7 @@ defaults:
   - ../env: null  # Please specify environment to use in command line
   - ../method: cqn_as_simple_vcse
   - ../reward_method: hybrid
+  - ../intrinsic_reward_method: vcse
 
 env:
   reward_mode: initial
