@@ -1,9 +1,8 @@
-import numpy as np
 import torch
 
 from robobase import utils
 from robobase.intrinsic_reward_module.core import IntrinsicRewardModule
-from robobase.intrinsic_reward_module.re3 import PBE, Encoder
+from robobase.intrinsic_reward_module.re3 import PBE
 
 
 class VCSEModel(object):
@@ -88,26 +87,11 @@ class VCSE(IntrinsicRewardModule):
             lr: The learning rate.
         """
         super().__init__(*args, **kwargs)
-        if self.use_pixels:
-            obs_shapes = [v.shape for v in self.rgb_spaces.values()]
-            # Fuse num views and time into channel axis
-            obs_shape = (len(obs_shapes) * np.prod(obs_shapes[0][:2]),) + obs_shapes[0][
-                2:
-            ]
-        else:
-            obs_shape = self.low_dim_space.shape[-1:]
-        self.target = Encoder(
-            obs_shape=obs_shape,
-            latent_dim=latent_dim,
-        ).to(self.device)
+        assert not self.use_pixels, "VCSE does not support pixels"
         self.se = PBE(knn_k=knn_k)
         self.state_ent_stats = utils.TorchRunningMeanStd(shape=(1,), device=self.device)
         self.vcse = VCSEModel(knn_k=knn_k)
         self._step = 0
-
-        # freeze the network parameters
-        for p in self.target.parameters():
-            p.requires_grad = False
 
     def compute_irs(
         self, batch: dict[str, torch.Tensor], value: torch.Tensor, *args, **kwargs
@@ -116,8 +100,7 @@ class VCSE(IntrinsicRewardModule):
         # compute the weighting coefficient of timestep t
         beta_t = self.beta
         obs = self._extract_obs(batch, r"rgb.*" if self.use_pixels else "low_dim_state")
-        with torch.no_grad():
-            feats = self.target(obs)
+        feats = obs
         intrinsic_rewards = self.vcse(feats, value)[0].reshape(-1, 1)
         self.state_ent_stats.update(intrinsic_rewards)
         return intrinsic_rewards * beta_t
@@ -125,8 +108,7 @@ class VCSE(IntrinsicRewardModule):
     def compute_unsup_irs(self, batch: dict[str, torch.Tensor]) -> torch.Tensor:
         """In unsup training, we don't have value, so we use the state entropy directly."""
         obs = self._extract_obs(batch, r"rgb.*" if self.use_pixels else "low_dim_state")
-        with torch.no_grad():
-            feats = self.target(obs)
+        feats = obs
         intrinsic_rewards = self.se(feats).reshape(-1, 1)
         self.state_ent_stats.update(intrinsic_rewards)
         intrinsic_rewards = intrinsic_rewards / self.state_ent_stats.mean

@@ -143,7 +143,7 @@ class CQNSimple(ValueBased):
         metrics = self.update_critic(
             low_dim_obs,
             batch["action"],
-            batch["reward"] + intrinsic_rewards,
+            batch["reward"] + intrinsic_rewards.detach(),
             batch["discount"],
             batch["bootstrap"],
             next_low_dim_obs,
@@ -213,6 +213,10 @@ class CQNSimple(ValueBased):
     ) -> dict[str, np.ndarray]:
         low_dim_obs, next_low_dim_obs = self.extract_low_dim_state(batch)
 
+        with torch.no_grad():
+            # NOTE: Pre-compute next_action here, outside update_critic to support
+            next_action = self.critic.get_action(next_low_dim_obs)
+
         metrics = self.update_critic(
             low_dim_obs,
             batch["action"],
@@ -220,6 +224,7 @@ class CQNSimple(ValueBased):
             batch["discount"],
             batch["bootstrap"],
             next_low_dim_obs,
+            next_action,
             batch["loss_coeff"],
         )
         metrics["batch_reward"] = batch["reward"].mean().detach()

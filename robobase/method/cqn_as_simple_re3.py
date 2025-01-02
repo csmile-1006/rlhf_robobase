@@ -126,7 +126,7 @@ class CQNASSimple(ValueBased):
         metrics = self.update_critic(
             low_dim_obs,
             batch["action"],
-            batch["reward"] + intrinsic_rewards,
+            batch["reward"] + intrinsic_rewards.detach(),
             batch["discount"],
             batch["bootstrap"],
             next_low_dim_obs,

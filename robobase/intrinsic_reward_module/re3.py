@@ -1,4 +1,3 @@
-import numpy as np
 import torch
 from torch import nn
 
@@ -112,25 +111,10 @@ class RE3(IntrinsicRewardModule):
         super().__init__(*args, **kwargs)
         self.beta = beta
         self.kappa = kappa
-        if self.use_pixels:
-            obs_shapes = [v.shape for v in self.rgb_spaces.values()]
-            # Fuse num views and time into channel axis
-            obs_shape = (len(obs_shapes) * np.prod(obs_shapes[0][:2]),) + obs_shapes[0][
-                2:
-            ]
-        else:
-            obs_shape = self.low_dim_space.shape[-1:]
-        self.target = Encoder(
-            obs_shape=obs_shape,
-            latent_dim=latent_dim,
-        ).to(self.device)
+        assert not self.use_pixels, "RE3 does not support pixels"
         self.se = PBE(knn_k=knn_k)
         self.state_ent_stats = utils.TorchRunningMeanStd(shape=(1,), device=self.device)
         self._step = 0
-
-        # freeze the network parameters
-        for p in self.target.parameters():
-            p.requires_grad = False
 
     def compute_irs(
         self, batch: dict[str, torch.Tensor], *args, **kwargs
@@ -139,8 +123,7 @@ class RE3(IntrinsicRewardModule):
         # compute the weighting coefficient of timestep t
         beta_t = self.beta * (1.0 - self.kappa) ** self._step
         obs = self._extract_obs(batch, r"rgb.*" if self.use_pixels else "low_dim_state")
-        with torch.no_grad():
-            feats = self.target(obs)
+        feats = obs
         intrinsic_rewards = self.se(feats).reshape(-1, 1)
         self.state_ent_stats.update(intrinsic_rewards)
         intrinsic_rewards = intrinsic_rewards / self.state_ent_stats.mean
@@ -149,8 +132,7 @@ class RE3(IntrinsicRewardModule):
     def compute_unsup_irs(self, batch: dict[str, torch.Tensor]) -> torch.Tensor:
         """See Base."""
         obs = self._extract_obs(batch, r"rgb.*" if self.use_pixels else "low_dim_state")
-        with torch.no_grad():
-            feats = self.target(obs)
+        feats = obs
         intrinsic_rewards = self.se(feats).reshape(-1, 1)
         self.state_ent_stats.update(intrinsic_rewards)
         intrinsic_rewards = intrinsic_rewards / self.state_ent_stats.mean
