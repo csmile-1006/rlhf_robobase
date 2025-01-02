@@ -92,6 +92,7 @@ class VCSE(IntrinsicRewardModule):
         self.state_ent_stats = utils.TorchRunningMeanStd(shape=(1,), device=self.device)
         self.vcse = VCSEModel(knn_k=knn_k)
         self._step = 0
+        self.beta = beta
 
     def compute_irs(
         self, batch: dict[str, torch.Tensor], value: torch.Tensor, *args, **kwargs
