@@ -1,0 +1,46 @@
+# @package _global_
+reward_method:
+  _target_: robobase.reward_method.semi_hybrid.SemiHybridReward
+  device: ${device}
+  lr: 1e-4
+  weight_decay: 1e-4
+  lambda_weight: 0.1
+  num_train_steps: ${num_pretrain_steps}
+  adaptive_lr: false
+  # This would expect language embeddings using openai-clip
+  # TODO: add an environment wrapper for an extra observation with language embeddings
+  # But this would be environment-specific
+  use_lang_cond: False
+  num_labels: 1
+  num_reward_models: 3
+  compute_batch_size: 1024
+  seq_len: ${rlhf_replay.seq_len}
+  use_augmentation: true
+  reg_weight: 0.0
+  apply_final_layer_tanh: false
+  data_aug_ratio: 0
+
+  encoder_model:
+    _target_: robobase.models.encoder.DINOv2Encoder
+    _partial_: true
+    input_shape: ???
+
+  view_fusion_model:
+    _target_: robobase.models.FusionMultiCamFeature
+    _partial_: true
+    input_shape: ???
+    mode: flatten
+
+  reward_model:
+    _target_: robobase.models.MLPWithBottleneckFeatures
+    _partial_: true
+    input_shapes: ???
+    output_shape: 1
+    num_envs: 1
+    num_rnn_layers: 1
+    rnn_hidden_size: 128
+    keys_to_bottleneck: []
+    bottleneck_size: 50
+    norm_after_bottleneck: false
+    tanh_after_bottleneck: false
+    mlp_nodes: [128, 128]

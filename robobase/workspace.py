@@ -899,18 +899,6 @@ class Workspace:
         def choose_update_fn():
             if unsup_train:
                 return self._update_unsupervised_fn
-            elif self.cfg.rlhf.use_rlhf:
-                if (
-                    self.feedback_iter % 2 == 1
-                    or self.total_feedback >= self.cfg.rlhf.max_feedback
-                ):
-                    # in the odd round or after finishing RLHF feedback sessions,
-                    # the agent is trained only on the critic for better exploitation.
-                    return self._update_only_critic_fn
-                else:
-                    # in the even round, the agent is trained on both critic
-                    # and intrinsic critic for better exploration.
-                    return self._update_fn
             else:
                 return self._update_fn
 
