@@ -107,6 +107,7 @@ class HumanoidBench(gym.Env):
         self.observation_space = spaces.Dict(_obs_space)
         self.action_space = self._hb_env.action_space
         self.original_reward_space = self._hb_env.task.reward_space
+        self.default_reward_weights = self._hb_env.task.default_reward_weights
 
         if len(self._initial_terms) == 0:
             self._initial_terms = [key for key in self.original_reward_space.keys()]
@@ -134,7 +135,7 @@ class HumanoidBench(gym.Env):
         )
 
         self.initial_reward_scale = {
-            k: self.original_reward_space[k].high for k in self._initial_terms
+            k: self.default_reward_weights[k] for k in self._initial_terms
         }
         self._last_reward = None
 

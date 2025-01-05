@@ -621,6 +621,12 @@ class HybridReward(RewardMethod):
         if self.logging:
             metrics["weighted_reward_loss"] = weighted_loss_dict["loss"].item()
             metrics["computed_reward_loss"] = computed_loss_dict["loss"].item()
+            metrics["batch_weighted_reward"] = (
+                weighted_rewards[0].mean().item() / self.seq_len
+            )
+            metrics["batch_computed_reward"] = (
+                markovian_rewards[0].mean().item() / self.seq_len
+            )
             metrics["reward_loss"] = (
                 weighted_loss_dict["loss"] + computed_loss_dict["loss"]
             ).item()

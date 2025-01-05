@@ -2,7 +2,7 @@
 
 defaults:
   - ../env: null  # Please specify environment to use in command line
-  - ../method: cqn_simple_intrinsic
+  - ../method: cqn_simple_vcse
   - ../reward_method: hybrid
   - ../intrinsic_reward_module: vcse
 
@@ -25,13 +25,8 @@ snapshot_every_n: 250000
 num_explore_steps: 1000
 replay_size_before_train: 1000
 
-intrinsic_reward_module:
-  beta: 0.1
-  kappa: 0.000025
-
 reward_method:
   data_aug_ratio: 20
-  lambda_weight: 1.0
 
 method:
   critic_lr: 5e-5
@@ -48,7 +43,7 @@ method:
 
 rlhf:
   use_rlhf: true
-  feedback_type: gemini
+  feedback_type: script
   comparison_type: sequential
   query_type: random
   max_feedback: 500
@@ -66,7 +61,7 @@ rlhf:
 
 rlhf_replay:
   size: 1000000 # too large for humanoidbench, handling recent episodes only.
-  num_queries: 2
+  num_queries: 10
   num_labels: 1
   seq_len: 50
   feedback_batch_size: 128
