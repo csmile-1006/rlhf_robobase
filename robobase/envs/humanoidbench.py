@@ -136,6 +136,11 @@ class HumanoidBench(gym.Env):
         self.initial_reward_scale = {
             k: self.original_reward_space[k].high for k in self._initial_terms
         }
+        self._last_reward = None
+
+    @property
+    def last_reward(self):
+        return self._last_reward
 
     def _get_obs(self, observation):
         ret_obs = {}
@@ -150,6 +155,7 @@ class HumanoidBench(gym.Env):
 
     def step(self, action):
         reward = 0
+        last_reward = {f"Reward/{k}": 0.0 for k in self._reward_terms}
         info = {"task_reward": 0.0, **{f"Reward/{k}": 0.0 for k in self._reward_terms}}
         for _ in range(self._action_repeat):
             next_obs, task_reward, terminated, truncated, _info = self._hb_env.step(
@@ -178,6 +184,8 @@ class HumanoidBench(gym.Env):
             reward += _reward
             for key in self._reward_terms:
                 info[f"Reward/{key}"] += _info[key]
+                last_reward[f"Reward/{key}"] = _info[key]
+                last_reward["task_reward"] = task_reward
             if terminated or truncated:
                 break
         # See https://github.com/google-deepmind/dm_control/blob/f2f0e2333d8bd82c0b6ba83628fe44c2bcc94ef5/dm_control/rl/control.py#L115C18-L115C29
@@ -186,6 +194,7 @@ class HumanoidBench(gym.Env):
             terminated and truncated
         ), "Can't be both terminal and truncated."
         self._i += 1
+        self._last_reward = last_reward
         return self._get_obs(next_obs), reward, terminated, truncated, info
 
     def reset(self, seed=None, options=None):

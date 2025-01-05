@@ -337,14 +337,18 @@ class Workspace:
             logging.warning("Train env is not created. Training will not be supported ")
 
         self.use_rlhf = cfg.rlhf.use_rlhf
+        if self.cfg.env.env_name in ["humanoidbench", "dmc"]:
+            reward_space = self.eval_env.unwrapped.reward_space
+            extra_replay_elements = reward_space
+        else:
+            extra_replay_elements = None
+
         if self.use_rlhf:
             assert (
                 self.cfg.rlhf.num_pretrain_frames == 0
                 or self.cfg.rlhf.num_unsup_train_frames == 0
             ), "Either num_pretrain_frames or num_unsup_train_frames must be 0."
             self.rlhf_reset_flag = False
-            reward_space = self.eval_env.unwrapped.reward_space
-            extra_replay_elements = reward_space
 
             self.reward_model = hydra.utils.instantiate(
                 cfg.reward_method,
@@ -404,9 +408,6 @@ class Workspace:
 
                 self._loop = asyncio.get_event_loop()
                 asyncio.set_event_loop(self._loop)
-
-        else:
-            extra_replay_elements = None
 
         self.replay_buffer = create_replay_fn(
             cfg,
@@ -657,7 +658,7 @@ class Workspace:
         # TODO: In future, this func could do with a further refactor
         self.agent.set_eval_env_running(True)
         step, episode, total_learned_reward, total_reward, successes = 0, 0, 0, 0, 0
-        if self.use_rlhf:
+        if len(self.extra_replay_elements) > 0:
             reward_term_dict = {key: 0 for key in self.extra_replay_elements}
         eval_until_episode = utils.Until(self.cfg.num_eval_episodes)
         first_rollout = []
@@ -696,7 +697,7 @@ class Workspace:
                 self.eval_video_recorder.record(self.eval_env)
                 total_reward += info.get("task_reward", reward)
                 total_learned_reward += reward
-                if self.use_rlhf:
+                if len(self.extra_replay_elements) > 0:
                     for key in info.keys():
                         if key.startswith("Reward/"):
                             reward_term_dict[key] += info[key]
@@ -723,7 +724,7 @@ class Workspace:
                 "episode_length": step * self.cfg.action_repeat / episode,
             }
         )
-        if self.use_rlhf:
+        if len(self.extra_replay_elements) > 0:
             metrics.update(
                 {
                     f"return_{key.split('/')[-1]}": val / episode
@@ -1057,6 +1058,18 @@ class Workspace:
                 action = np.stack(
                     [elem for elem in env.get_attr("last_modified_action")], axis=0
                 )
+
+        if eval_mode:
+            next_info.update(env.last_reward)
+        else:
+            _rewards = env.get_attr("last_reward")
+            next_info.update(
+                {
+                    k: np.stack([elem[k] for elem in _rewards], axis=0)
+                    for k in _rewards[0].keys()
+                }
+            )
+
         return action, (*env_step_tuple, next_info), metrics
 
     def _pretrain_on_demos(self):
