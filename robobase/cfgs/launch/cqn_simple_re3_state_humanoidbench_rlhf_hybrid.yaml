@@ -16,9 +16,9 @@ action_repeat: 1
 batch_size: 128
 update_every_steps: 1
 replay:
-  size: 10000000
+  size: 7000000
   nstep: 3  # Use 1 for walker_walk
-num_train_frames: 10001000
+num_train_frames: 7001000
 save_snapshot: true
 eval_every_steps: 20000
 snapshot_every_n: 250000
@@ -41,7 +41,6 @@ method:
     keys_to_bottleneck: []
   critic_target_interval: 1000
   critic_target_tau: 1.0
-  always_bootstrap: true
 
 rlhf:
   use_rlhf: true
@@ -50,7 +49,7 @@ rlhf:
   query_type: random
   max_feedback: 500
   num_unsup_train_frames: 0
-  update_every_steps: 500000
+  update_every_steps: 200000
   num_pretrain_frames: 500000
   num_train_frames: 500
   initialize_agent_per_session: true
@@ -62,7 +61,7 @@ rlhf:
   reset_after_rlhf: false
 
 rlhf_replay:
-  size: 1000000 # too large for humanoidbench, handling recent episodes only.
+  size: 700000 # too large for humanoidbench, handling recent episodes only.
   num_queries: 50
   num_labels: 1
   seq_len: 50
