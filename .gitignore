@@ -39,3 +39,4 @@ eval_video/
 events.out.*
 .DS_Store
 .env
+*exp*/
