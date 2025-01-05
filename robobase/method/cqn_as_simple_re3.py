@@ -33,6 +33,10 @@ class CQNASSimple(ValueBased):
         self.gru_layers = gru_layers
         super().__init__(*args, **kwargs)
 
+    def reset_critic(self):
+        self.critic, self.critic_target, self.critic_opt = self.build_critic()
+        # do not reset intrinsic reward module
+
     def build_critic(self):
         critic_cls = C2FCriticSimple
         input_shapes = self.get_fully_connected_inputs()
