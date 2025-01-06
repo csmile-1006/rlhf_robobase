@@ -91,7 +91,6 @@ class VCSE(IntrinsicRewardModule):
         self.se = PBE(knn_k=knn_k)
         self.state_ent_stats = utils.TorchRunningMeanStd(shape=(1,), device=self.device)
         self.vcse = VCSEModel(knn_k=knn_k)
-        self._step = 0
         self.beta = beta
 
     def compute_irs(
@@ -117,4 +116,4 @@ class VCSE(IntrinsicRewardModule):
 
     def update(self, batch: dict[str, torch.Tensor]) -> None:
         # there's no need for update, since the target is frozen.
-        self._step += 1
+        pass

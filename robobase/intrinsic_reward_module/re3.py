@@ -94,13 +94,7 @@ class RE3(IntrinsicRewardModule):
     """
 
     def __init__(
-        self,
-        latent_dim: int = 50,
-        knn_k: int = 3,
-        beta=0.1,
-        kappa=0.000025,
-        *args,
-        **kwargs
+        self, latent_dim: int = 50, knn_k: int = 3, beta=0.1, *args, **kwargs
     ) -> None:
         """Init.
 
@@ -110,18 +104,16 @@ class RE3(IntrinsicRewardModule):
         """
         super().__init__(*args, **kwargs)
         self.beta = beta
-        self.kappa = kappa
         assert not self.use_pixels, "RE3 does not support pixels"
         self.se = PBE(knn_k=knn_k)
         self.state_ent_stats = utils.TorchRunningMeanStd(shape=(1,), device=self.device)
-        self._step = 0
 
     def compute_irs(
         self, batch: dict[str, torch.Tensor], *args, **kwargs
     ) -> torch.Tensor:
         """See Base."""
         # compute the weighting coefficient of timestep t
-        beta_t = self.beta * (1.0 - self.kappa) ** self._step
+        beta_t = self.beta
         obs = self._extract_obs(batch, r"rgb.*" if self.use_pixels else "low_dim_state")
         feats = obs
         intrinsic_rewards = self.se(feats).reshape(-1, 1)
@@ -129,7 +121,9 @@ class RE3(IntrinsicRewardModule):
         intrinsic_rewards = intrinsic_rewards / self.state_ent_stats.mean
         return intrinsic_rewards * beta_t
 
-    def compute_unsup_irs(self, batch: dict[str, torch.Tensor]) -> torch.Tensor:
+    def compute_unsup_irs(
+        self, batch: dict[str, torch.Tensor], *args, **kwargs
+    ) -> torch.Tensor:
         """See Base."""
         obs = self._extract_obs(batch, r"rgb.*" if self.use_pixels else "low_dim_state")
         feats = obs
@@ -140,4 +134,4 @@ class RE3(IntrinsicRewardModule):
 
     def update(self, batch: dict[str, torch.Tensor]) -> None:
         # there's no need for update, since the target is frozen.
-        self._step += 1
+        pass

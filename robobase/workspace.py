@@ -920,10 +920,10 @@ class Workspace:
                 metrics.update(update_fn(batch))
                 if not unsup_train:
                     self._update_step += 1
-                    self.agent.update_target_critic(self._update_step)
+                    self.agent.update_target_critic(self.update_step)
                 else:
                     self._unsup_update_step += 1
-                    self.agent.update_target_critic(self._unsup_update_step)
+                    self.agent.update_target_critic(self.unsup_update_step)
         self.agent.train(False)
         if self.agent.logging:
             execution_time_for_update = time.time() - start_time
