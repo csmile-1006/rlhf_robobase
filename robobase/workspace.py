@@ -1305,7 +1305,7 @@ class Workspace:
                                 self.global_env_steps,
                                 prefix="train_reward",
                             )
-                        if reward_update_metrics["pref_acc_label_0"] > 0.97:
+                        if reward_update_metrics["pref_acc_label_0"] > 0.95:
                             break
 
                     relabel_with_predictor(self.reward_model, self.replay_buffer)
