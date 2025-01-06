@@ -181,9 +181,6 @@ class HybridReward(RewardMethod):
             reg_weight=self.reg_weight,
         )
         self.weight_tuner.to(self.device)
-        self.weight_tuner_opt = torch.optim.Adam(
-            self.weight_tuner.parameters(), lr=self.lr
-        )
 
         self.markovian = MarkovianRewardModel(
             reward_model=reward_model,
@@ -191,7 +188,10 @@ class HybridReward(RewardMethod):
             apply_final_layer_tanh=self.apply_final_layer_tanh,
         )
         self.markovian.to(self.device)
-        self.markovian_opt = torch.optim.Adam(self.markovian.parameters(), lr=self.lr)
+        self.reward_opt = torch.optim.Adam(
+            list(self.markovian.parameters()) + list(self.weight_tuner.parameters()),
+            lr=self.lr,
+        )
 
     def encode_rgb_feats(self, rgb, train=False):
         # (bs * seq *v, ch, h , w)
@@ -496,8 +496,7 @@ class HybridReward(RewardMethod):
         """
 
         metrics = dict()
-        weighted_loss_dict = defaultdict(float)
-        computed_loss_dict = defaultdict(float)
+        total_loss_dict = defaultdict(float)
         for mem in range(self.num_reward_models):
             batch = next(replay_iter)
             batch = {k: v.to(self.device) for k, v in batch.items()}
@@ -505,6 +504,7 @@ class HybridReward(RewardMethod):
             raw_weights = []
             normalized_weights = []
             markovian_rewards = []
+            total_rewards = []
             for i in range(2):
                 actions = batch[f"seg{i}_action"]
                 if self.low_dim_size > 0:
@@ -577,26 +577,35 @@ class HybridReward(RewardMethod):
                 else:
                     markovian_reward = markovian_reward.sum(axis=-2)
                 markovian_rewards.append(markovian_reward)
+                total_rewards.append(
+                    weighted_reward + self.lambda_weight * markovian_reward
+                )
 
             labels = batch["label"]
             if self.data_aug_ratio > 0:
                 labels = labels.repeat(self.data_aug_ratio, 1)
 
-            _weighted_loss_dict = self.weight_tuner.calculate_loss(
-                weighted_rewards, labels, raw_weights
+            _loss_dict = self.weight_tuner.calculate_loss(
+                total_rewards, labels, raw_weights
             )
-            for k, v in _weighted_loss_dict.items():
-                weighted_loss_dict[k] += v
+            for k, v in _loss_dict.items():
+                total_loss_dict[k] += v
 
-            _computed_loss_dict = self.markovian.calculate_loss(
-                markovian_rewards, labels
-            )
-            for k, v in _computed_loss_dict.items():
-                computed_loss_dict[k] += v
+        #     _weighted_loss_dict = self.weight_tuner.calculate_loss(
+        #         weighted_rewards, labels, raw_weights
+        #     )
+        #     for k, v in _weighted_loss_dict.items():
+        #         weighted_loss_dict[k] += v
 
-        for i in range(self.num_labels):
-            weighted_loss_dict[f"pref_acc_label_{i}"] /= self.num_reward_models
-            computed_loss_dict[f"pref_acc_label_{i}"] /= self.num_reward_models
+        #     _computed_loss_dict = self.markovian.calculate_loss(
+        #         markovian_rewards, labels
+        #     )
+        #     for k, v in _computed_loss_dict.items():
+        #         computed_loss_dict[k] += v
+
+        # for i in range(self.num_labels):
+        #     weighted_loss_dict[f"pref_acc_label_{i}"] /= self.num_reward_models
+        #     computed_loss_dict[f"pref_acc_label_{i}"] /= self.num_reward_models
 
         # calculate gradient
         if self.use_pixels and self.encoder_opt is not None:
@@ -604,14 +613,12 @@ class HybridReward(RewardMethod):
             if self.use_multicam_fusion and self.view_fusion_opt is not None:
                 self.view_fusion_opt.zero_grad(set_to_none=True)
 
-        self.weight_tuner_opt.zero_grad(set_to_none=True)
-        self.markovian_opt.zero_grad(set_to_none=True)
-        weighted_loss_dict["loss"].backward()
-        computed_loss_dict["loss"].backward()
+        self.reward_opt.zero_grad(set_to_none=True)
+
+        total_loss_dict["loss"].backward()
 
         # step optimizer
-        self.weight_tuner_opt.step()
-        self.markovian_opt.step()
+        self.reward_opt.step()
 
         # step lr scheduler every batch
         # this is different from standard pytorch behavior
@@ -619,17 +626,16 @@ class HybridReward(RewardMethod):
             self.lr_scheduler.step()
 
         if self.logging:
-            metrics["weighted_reward_loss"] = weighted_loss_dict["loss"].item()
-            metrics["computed_reward_loss"] = computed_loss_dict["loss"].item()
             metrics["batch_weighted_reward"] = (
                 weighted_rewards[0].mean().item() / self.seq_len
             )
             metrics["batch_computed_reward"] = (
                 markovian_rewards[0].mean().item() / self.seq_len
             )
-            metrics["reward_loss"] = (
-                weighted_loss_dict["loss"] + computed_loss_dict["loss"]
-            ).item()
+            metrics["batch_total_reward"] = (
+                total_rewards[0].mean().item() / self.seq_len
+            )
+            metrics["reward_loss"] = total_loss_dict["loss"].item()
             raw_weights = torch.cat(raw_weights, dim=0)
             normalized_weights = torch.cat(normalized_weights, dim=0)
             for idx, term in enumerate(self.reward_space):
@@ -637,16 +643,9 @@ class HybridReward(RewardMethod):
                     normalized_weights[..., idx].mean().item()
                 )
             for label in range(self.num_labels):
-                metrics[f"weighted_pref_acc_label_{label}"] = weighted_loss_dict[
+                metrics[f"pref_acc_label_{label}"] = total_loss_dict[
                     f"pref_acc_label_{label}"
                 ].item()
-                metrics[f"computed_pref_acc_label_{label}"] = computed_loss_dict[
-                    f"pref_acc_label_{label}"
-                ].item()
-                metrics[f"pref_acc_label_{label}"] = (
-                    metrics[f"weighted_pref_acc_label_{label}"]
-                    + metrics[f"computed_pref_acc_label_{label}"]
-                ) / 2
 
         return metrics
 
