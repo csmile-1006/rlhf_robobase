@@ -52,7 +52,7 @@ rlhf:
   max_feedback: 500
   update_every_steps: 500000
   num_pretrain_frames: 200000
-  num_train_frames: 500
+  num_train_frames: 2000
   initialize_agent_per_session: true
   initialize_reward_model_per_session: true
   snapshot_every_n: ${rlhf.update_every_steps}
