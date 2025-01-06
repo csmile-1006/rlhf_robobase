@@ -28,7 +28,7 @@ method:
   view_fusion_lr: 5e-5
   encoder_lr: 5e-5
   use_dueling: false
-  stddev_schedule: 0.05
+  stddev_schedule: 0.01
   advantage_model:
     keys_to_bottleneck: []
   value_model:
