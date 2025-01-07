@@ -603,9 +603,10 @@ class HybridReward(RewardMethod):
         #     for k, v in _computed_loss_dict.items():
         #         computed_loss_dict[k] += v
 
-        # for i in range(self.num_labels):
-        #     weighted_loss_dict[f"pref_acc_label_{i}"] /= self.num_reward_models
-        #     computed_loss_dict[f"pref_acc_label_{i}"] /= self.num_reward_models
+        for i in range(self.num_labels):
+            # weighted_loss_dict[f"pref_acc_label_{i}"] /= self.num_reward_models
+            # computed_loss_dict[f"pref_acc_label_{i}"] /= self.num_reward_models
+            total_loss_dict[f"pref_acc_label_{i}"] /= self.num_reward_models
 
         # calculate gradient
         if self.use_pixels and self.encoder_opt is not None:

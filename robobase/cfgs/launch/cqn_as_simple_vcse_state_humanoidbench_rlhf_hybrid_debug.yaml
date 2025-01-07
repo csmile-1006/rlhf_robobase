@@ -29,6 +29,7 @@ replay_size_before_train: 1000
 
 reward_method:
   data_aug_ratio: 20
+  lambda_weight: 0.1
 
 method:
   critic_lr: 5e-5
@@ -51,9 +52,9 @@ rlhf:
   comparison_type: sequential
   query_type: random
   max_feedback: 500
-  update_every_steps: 5000
-  num_pretrain_frames: 5000
-  num_train_frames: 20
+  update_every_steps: 10000
+  num_pretrain_frames: 10000
+  num_train_frames: 200
   initialize_agent_per_session: true
   initialize_reward_model_per_session: true
   snapshot_every_n: ${rlhf.update_every_steps}
