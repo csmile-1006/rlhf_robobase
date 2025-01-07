@@ -181,8 +181,8 @@ class HybridReward(RewardMethod):
             reg_weight=self.reg_weight,
         )
         self.weight_tuner.to(self.device)
-        self.weight_tuner_opt = torch.optim.Adam(
-            self.weight_tuner.parameters(), lr=self.lr
+        self.weight_tuner_opt = torch.optim.SGD(
+            self.weight_tuner.parameters(), lr=self.lr, momentum=0.1
         )
 
         self.markovian = MarkovianRewardModel(
@@ -191,7 +191,9 @@ class HybridReward(RewardMethod):
             apply_final_layer_tanh=self.apply_final_layer_tanh,
         )
         self.markovian.to(self.device)
-        self.markovian_opt = torch.optim.Adam(self.markovian.parameters(), lr=self.lr)
+        self.markovian_opt = torch.optim.AdamW(
+            self.markovian.parameters(), lr=self.lr, weight_decay=self.weight_decay
+        )
 
     def encode_rgb_feats(self, rgb, train=False):
         # (bs * seq *v, ch, h , w)

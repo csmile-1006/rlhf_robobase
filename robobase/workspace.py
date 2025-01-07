@@ -1282,6 +1282,9 @@ class Workspace:
                     # reward model reset must be after feedback collection,
                     # as reward model is used for disagreement-based query selection
                     if self.cfg.rlhf.initialize_reward_model_per_session:
+                        logging.info(
+                            f"Resetting reward model in feedback session {self.feedback_iter}"
+                        )
                         self.reward_model.build_reward_model()
 
                     for it in range(self.cfg.rlhf.num_train_frames):
@@ -1306,6 +1309,9 @@ class Workspace:
                                 prefix="train_reward",
                             )
                         if reward_update_metrics["pref_acc_label_0"] > 0.95:
+                            logging.info(
+                                f"Reward model training finished after {it} steps with accuracy {reward_update_metrics['pref_acc_label_0'] * 100:.2f} %."  # noqa
+                            )
                             break
 
                     relabel_with_predictor(self.reward_model, self.replay_buffer)

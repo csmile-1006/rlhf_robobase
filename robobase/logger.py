@@ -56,6 +56,9 @@ COMMON_REWARD_TRAIN_FORMAT = [
     ("pref_acc_label_0", "ACC", "float"),
     ("buffer_size", "BS", "int"),
     ("reward_loss", "Loss", "float"),
+    ("batch_weighted_reward", "WR", "float"),
+    ("batch_computed_reward", "CR", "float"),
+    ("batch_total_reward", "TR", "float"),
     ("total_time", "T", "time"),
 ]
 
