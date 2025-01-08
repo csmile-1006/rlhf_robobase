@@ -181,8 +181,8 @@ class HybridReward(RewardMethod):
             reg_weight=self.reg_weight,
         )
         self.weight_tuner.to(self.device)
-        self.weight_tuner_opt = torch.optim.SGD(
-            self.weight_tuner.parameters(), lr=self.lr, momentum=0.1
+        self.weight_tuner_opt = torch.optim.AdamW(
+            self.weight_tuner.parameters(), lr=self.lr, weight_decay=self.weight_decay
         )
 
         self.markovian = MarkovianRewardModel(
@@ -629,6 +629,10 @@ class HybridReward(RewardMethod):
             metrics["batch_computed_reward"] = (
                 markovian_rewards[0].mean().item() / self.seq_len
             )
+            metrics["batch_total_reward"] = (
+                metrics["batch_weighted_reward"]
+                + self.lambda_weight * metrics["batch_computed_reward"]
+            )
             metrics["reward_loss"] = (
                 weighted_loss_dict["loss"] + computed_loss_dict["loss"]
             ).item()
@@ -654,3 +658,8 @@ class HybridReward(RewardMethod):
 
     def reset(self, step: int, agents_to_reset: list[int]):
         pass  # TODO: Implement LSTM support.
+
+    def early_stopping_criteria(self, metrics: dict) -> bool:
+        computed_pref_acc = metrics["computed_pref_acc_label_0"]
+        weighted_pref_acc = metrics["weighted_pref_acc_label_0"]
+        return computed_pref_acc > 0.8 and weighted_pref_acc > 0.95
