@@ -49,7 +49,6 @@ rlhf:
   use_rlhf: true
   feedback_type: gemini
   comparison_type: sequential
-  query_type: random
   max_feedback: 500
   update_every_steps: 500000
   num_pretrain_frames: 200000

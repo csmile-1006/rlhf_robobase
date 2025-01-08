@@ -35,7 +35,6 @@ from robobase.replay_buffer.uniform_replay_buffer import (
     save_episode,
 )
 from robobase.rlhf_module.iter import get_rlhf_iter_fn
-from robobase.rlhf_module.query import get_query_fn
 from robobase.rlhf_module.third_party.gemini import configure_gemini
 
 torch.backends.cudnn.benchmark = True
@@ -137,16 +136,15 @@ def _create_default_query_replay_buffer(
                 else cfg.rlhf_replay.num_queries // 2
             )
             if "pairwise" in cfg.rlhf.comparison_type
-            else cfg.rlhf_replay.num_queries * 10
+            else cfg.rlhf_replay.num_queries * cfg.rlhf_replay.larger_batch_ratio
         )
     else:
         if "pairwise" in cfg.rlhf.comparison_type:
             batch_size = cfg.rlhf_replay.num_queries + 1
         else:
-            if cfg.env.env_name == "agym":
-                batch_size = cfg.rlhf_replay.num_queries * 4
-            else:
-                batch_size = cfg.rlhf_replay.num_queries * 20
+            batch_size = (
+                cfg.rlhf_replay.num_queries * cfg.rlhf_replay.larger_batch_ratio
+            )
 
     return QueryReplayBuffer(
         save_dir=save_dir / "queries" if not use_demo else save_dir / "demo_queries",
@@ -398,7 +396,6 @@ class Workspace:
             self._rlhf_iter_fn = get_rlhf_iter_fn(
                 self.work_dir, cfg, env_factory, self.reward_model
             )
-            self._query_fn = get_query_fn(cfg.rlhf.query_type)
 
             self._unsup_update_step = 0
 
@@ -936,7 +933,7 @@ class Workspace:
         return metrics
 
     def collect_feedback(self):
-        query_batch = self._query_fn(next(self.query_replay_iter))
+        query_batch = next(self.query_replay_iter)
         if self.cfg.rlhf.feedback_type == "gemini":
             if not hasattr(self, "_loop"):
                 self._loop = asyncio.get_event_loop()

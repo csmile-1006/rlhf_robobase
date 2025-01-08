@@ -68,7 +68,7 @@ rlhf:
   use_rlhf: false
   feedback_type: random
   comparison_type: root_pairwise
-  query_type: random
+  major_column: speed_reward
   max_feedback: 1000
   update_every_steps: 1
   num_pretrain_frames: 0
@@ -104,6 +104,7 @@ rlhf_replay:
   seq_len: 50
   feedback_batch_size: 128
   max_episode_number: 0
+  larger_batch_ratio: 20
   upload_gemini: false
   verbose: false
 

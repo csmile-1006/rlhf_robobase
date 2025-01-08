@@ -45,7 +45,6 @@ rlhf:
   use_rlhf: true
   feedback_type: script
   comparison_type: sequential
-  query_type: random
   max_feedback: 500
   num_unsup_train_frames: 2000
   update_every_steps: 10000

@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 import logging
 
 import numpy as np
-
+from omegaconf import DictConfig
 from robobase.reward_method.core import RewardMethod
 
 """
@@ -89,7 +89,31 @@ class DisagreementComparisonFn(ComparisonFn):
         return self.indices[self.top_k_index[self._i]]
 
 
-def get_comparison_fn(comparison_type, reward_model: RewardMethod):
+class MajorColumnComparisonFn(ComparisonFn):
+    def __init__(self, major_column: str):
+        self.major_column = major_column
+
+    def initialize(self, segments):
+        major_column_returns = segments[f"Reward/{self.major_column}"].sum(axis=-1)
+        # Sort indices by major_column_returns
+        sorted_indices = np.argsort(major_column_returns)
+        # remove bottom 30% with particulary smaller major_column_returns
+        sorted_indices = sorted_indices[: int(len(sorted_indices) * 0.7)]
+
+        # make pairs with similar major_column_returns
+        self.indices = []
+        for i in range(len(sorted_indices) - 1):
+            self.indices.append((sorted_indices[i], sorted_indices[i + 1]))
+
+        # shuffle self.indices not to be biased to larger major_column_returns
+        np.random.shuffle(self.indices)
+
+    def __call__(self):
+        return self.indices[self._i]
+
+
+def get_comparison_fn(cfg: DictConfig, reward_model: RewardMethod):
+    comparison_type = cfg.rlhf.comparison_type
     match comparison_type:
         case "sequential":
             return SequentialComparisonFn()
@@ -99,8 +123,11 @@ def get_comparison_fn(comparison_type, reward_model: RewardMethod):
             return RootPairwiseComparisonFn()
         case "disagreement":
             return DisagreementComparisonFn(reward_model)
+        case "major_column":
+            major_column = cfg.rlhf.major_column
+            return MajorColumnComparisonFn(major_column)
         case _:
             raise ValueError(
                 f"Unknown comparison type: {comparison_type}, please choose between 'sequential',"
-                "'sequential_pairwise', 'root_pairwise', 'disagreement'."
+                "'sequential_pairwise', 'root_pairwise', 'disagreement', 'major_column'."
             )

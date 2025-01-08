@@ -429,7 +429,7 @@ async def collect_gemini_locomotion_preferences(
 def get_rlhf_iter_fn(
     work_dir: Path, cfg: DictConfig, env_factory: EnvFactory, reward_model: RewardMethod
 ):
-    comparison_fn = get_comparison_fn(cfg.rlhf.comparison_type, reward_model)
+    comparison_fn = get_comparison_fn(cfg, reward_model)
     feedback_fn = get_feedback_fn(cfg.env.env_name, cfg.rlhf.feedback_type)
 
     match cfg.rlhf.feedback_type:
