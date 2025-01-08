@@ -54,6 +54,8 @@ COMMON_UNSUP_TRAIN_FORMAT = [
 COMMON_REWARD_TRAIN_FORMAT = [
     ("iteration", "Iter", "int"),
     ("pref_acc_label_0", "ACC", "float"),
+    ("weighted_pref_acc_label_0", "WACC", "float"),
+    ("computed_pref_acc_label_0", "CACC", "float"),
     ("buffer_size", "BS", "int"),
     ("reward_loss", "Loss", "float"),
     ("batch_weighted_reward", "WR", "float"),

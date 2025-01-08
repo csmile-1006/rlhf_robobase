@@ -210,6 +210,7 @@ class FeedbackReplayBuffer(ReplayBuffer):
         self._purge_replay_on_shutdown = purge_replay_on_shutdown
         logging.info("\t saving to disk: %s", self._replay_dir)
         os.makedirs(save_dir, exist_ok=True)
+        os.makedirs(self._replay_dir / "metadata", exist_ok=True)
 
         self._action_shape = new_action_shape
         self._action_dtype = action_dtype
@@ -404,7 +405,9 @@ class FeedbackReplayBuffer(ReplayBuffer):
 
         if metadata is not None:
             metadata_fn = (
-                self._replay_dir / f"{ts}_{eps_idx}_{eps_len}_{global_idx}.metadata"
+                self._replay_dir
+                / "metadata"
+                / f"{ts}_{eps_idx}_{eps_len}_{global_idx}.metadata"
             )
             save_metadata(metadata, metadata_fn)
 

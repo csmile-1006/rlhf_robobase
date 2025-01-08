@@ -655,6 +655,7 @@ class QueryReplayBuffer(ReplayBuffer):
                 replay_sample[name] = episode[name][transition_idxs]
 
         replay_sample["episode_number"] = eps_fn.stem.split("_")[1]
+        replay_sample["global_steps"] = global_index
 
         return replay_sample
 

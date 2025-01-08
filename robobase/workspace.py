@@ -1308,7 +1308,9 @@ class Workspace:
                                 self.global_env_steps,
                                 prefix="train_reward",
                             )
-                        if reward_update_metrics["pref_acc_label_0"] > 0.95:
+                        if self.reward_model.early_stopping_criteria(
+                            reward_update_metrics
+                        ):
                             logging.info(
                                 f"Reward model training finished after {it} steps with accuracy {reward_update_metrics['pref_acc_label_0'] * 100:.2f} %."  # noqa
                             )
