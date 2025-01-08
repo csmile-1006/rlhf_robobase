@@ -163,6 +163,22 @@ class HybridReward(RewardMethod):
             self.view_fusion = lambda x: x[:, 0]
             self.rgb_latent_size = self.encoder.output_shape[-1]
 
+    def get_fully_connected_inputs(self):
+        """Get input_sizes for FullyConnectedModules"""
+        input_sizes = {}
+        if self.rgb_latent_size > 0:
+            input_sizes["fused_view_feats"] = (self.rgb_latent_size,)
+            input_sizes["fused_view_feats_tp1"] = (self.rgb_latent_size,)
+        if self.low_dim_size > 0:
+            input_sizes["low_dim_obs"] = (self.low_dim_size,)
+            input_sizes["low_dim_obs_tp1"] = (self.low_dim_size,)
+        if self.time_obs_size > 0:
+            input_sizes["time_obs"] = (self.time_obs_size,)
+        if self.time_dim > 0:
+            for k, v in input_sizes.items():
+                input_sizes[k] = (self.time_dim,) + v
+        return input_sizes
+
     def build_reward_model(self):
         input_shapes = self.get_fully_connected_inputs()
         input_shapes["actions"] = (
@@ -324,11 +340,6 @@ class HybridReward(RewardMethod):
                 },
                 self.device,
             )
-            # obs = {
-            #     key: utils.convert_numpy_to_torch(val[start_idx:, -1], self.device)
-            #     for key, val in seq.items()
-            #     if key in self.observation_space.spaces
-            # }
             if actions.ndim > 2 and actions.shape[-2] == 1:
                 actions = actions[..., -1, :]
             reward_terms = {
@@ -388,12 +399,12 @@ class HybridReward(RewardMethod):
         if time_obs is not None:
             time_obs = time_obs.reshape(-1, *time_obs.shape[-1:])
         if actions.ndim > 2:
+            seq_len = actions.shape[1]
             actions = actions.reshape(-1, *actions.shape[-1:])
         if reward_terms.ndim > 2:
-            seq_len = reward_terms.shape[1]
             reward_terms = reward_terms.reshape(-1, *reward_terms.shape[-1:])
 
-        T = actions.shape[0] - start_idx
+        T = actions.shape[0] - start_idx - 1  # b/c last timestep is not used
         weighted_rewards = []
         computed_rewards = []
         for i in trange(
@@ -504,11 +515,11 @@ class HybridReward(RewardMethod):
 
         total_rewards = total_rewards.cpu().numpy()
         if isinstance(seq, list):
-            for idx in range(len(seq)):
+            for idx in range(len(seq) - 1):
                 seq[idx][2] = total_rewards[idx]
 
         elif isinstance(seq, dict):
-            seq["reward"] = total_rewards
+            seq["reward"][:-1] = total_rewards
 
         return seq
 

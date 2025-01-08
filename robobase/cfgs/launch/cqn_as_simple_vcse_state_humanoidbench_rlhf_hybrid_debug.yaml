@@ -2,9 +2,9 @@
 
 defaults:
   - ../env: null  # Please specify environment to use in command line
-  - ../method: cqn_as_simple_vcse
+  - ../method: cqn_as_simple_re3
   - ../reward_method: hybrid
-  - ../intrinsic_reward_module: vcse
+  - ../intrinsic_reward_module: re3
 
 env:
   reward_mode: initial
@@ -20,6 +20,7 @@ update_every_steps: 1
 replay:
   size: 7000000
   nstep: 3  # Use 1 for walker_walk
+  num_workers: 2
 num_train_frames: 7001000
 save_snapshot: true
 eval_every_steps: 20000
@@ -48,10 +49,11 @@ method:
 rlhf:
   use_rlhf: true
   feedback_type: script
-  comparison_type: sequential
+  comparison_type: major_column
+  major_column: speed_reward
   max_feedback: 500
-  update_every_steps: 5000
-  num_pretrain_frames: 5000
+  update_every_steps: 10000
+  num_pretrain_frames: 10000
   num_train_frames: 20
   initialize_agent_per_session: true
   initialize_reward_model_per_session: true

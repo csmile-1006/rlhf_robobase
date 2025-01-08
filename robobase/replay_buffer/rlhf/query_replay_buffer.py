@@ -628,13 +628,23 @@ class QueryReplayBuffer(ReplayBuffer):
         ep_len = episode_len(episode)
 
         # For sequential replay buffer, retrieve [idx - frame_stacks : idx+1]
-        start_idx = (idx - self._transition_seq_len) + 1
+        min_idx, max_idx = 0, np.maximum(
+            episode_len(episode) - self._transition_seq_len + 1, 1
+        )
+        idx = np.random.randint(min_idx, max_idx)
+        next_idx = idx + 1
         # - Turn all negative idxs to 0
         transition_idxs = list(
-            map(lambda x: np.clip(x, 0, ep_len), range(start_idx, idx + 1))
+            map(
+                lambda x: np.clip(x, 0, ep_len),
+                range(idx, idx + self._transition_seq_len),
+            )
         )
         next_transition_idxs = list(
-            map(lambda x: np.clip(x, 0, ep_len), range(start_idx + 1, idx + 2))
+            map(
+                lambda x: np.clip(x, 0, ep_len),
+                range(next_idx, next_idx + self._transition_seq_len),
+            )
         )
 
         # Construct replay sample

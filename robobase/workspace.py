@@ -784,7 +784,7 @@ class Workspace:
 
                 # Re-labeling demonstrations with reward model
                 if self.use_rlhf:
-                    ep = self.reward_model.compute_reward(ep)
+                    ep = self.reward_model.compute_reward(ep, final_obs=final_obs)
 
                 # Re-labeling successful demonstrations as success, following CQN
                 relabeling_as_demo = (
@@ -1302,7 +1302,7 @@ class Workspace:
                         if should_reward_log(it):
                             self.logger.log_metrics(
                                 reward_update_metrics,
-                                self.global_env_steps,
+                                self.global_env_steps + it,
                                 prefix="train_reward",
                             )
                         if self.reward_model.early_stopping_criteria(
@@ -1312,13 +1312,6 @@ class Workspace:
                                 f"Reward model training finished after {it} steps with accuracy {reward_update_metrics['pref_acc_label_0'] * 100:.2f} %."  # noqa
                             )
                             break
-
-                    relabel_with_predictor(self.reward_model, self.replay_buffer)
-                    if self.use_demo_replay:
-                        relabel_with_predictor(
-                            self.reward_model, self.demo_replay_buffer
-                        )
-                    metrics = {}
 
                     # agent reset can be occurred in two cases.
                     # 1. initialize_agent_per_session is True
@@ -1342,6 +1335,12 @@ class Workspace:
 
                     if not self.reward_model.activated:
                         self.reward_model.set_activated(True)
+
+                    relabel_with_predictor(self.reward_model, self.replay_buffer)
+                    if self.use_demo_replay:
+                        relabel_with_predictor(
+                            self.reward_model, self.demo_replay_buffer
+                        )
 
                 if (
                     self.total_feedback <= self.cfg.rlhf.max_feedback

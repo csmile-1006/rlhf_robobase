@@ -316,6 +316,10 @@ class FeedbackReplayBuffer(ReplayBuffer):
                 obs_elements[f"seg{i}_{obs_name}"] = ReplayElement(
                     f"seg{i}_{obs_name}", space.shape, space.dtype
                 )
+                obs_elements[f"seg{i}_{obs_name}_tp1"] = ReplayElement(
+                    f"seg{i}_{obs_name}_tp1", space.shape, space.dtype
+                )
+
             storage_elements.update(obs_elements)
 
             for element_name, space in self.extra_replay_elements.items():
