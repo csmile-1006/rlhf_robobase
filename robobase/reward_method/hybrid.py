@@ -731,4 +731,4 @@ class HybridReward(RewardMethod):
     def early_stopping_criteria(self, metrics: dict) -> bool:
         computed_pref_acc = metrics["computed_pref_acc_label_0"]
         weighted_pref_acc = metrics["weighted_pref_acc_label_0"]
-        return computed_pref_acc > 0.9 and weighted_pref_acc > 0.95
+        return computed_pref_acc > 0.95 and weighted_pref_acc > 0.85

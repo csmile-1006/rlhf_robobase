@@ -58,6 +58,8 @@ COMMON_REWARD_TRAIN_FORMAT = [
     ("computed_pref_acc_label_0", "CACC", "float"),
     ("buffer_size", "BS", "int"),
     ("reward_loss", "Loss", "float"),
+    ("weighted_reward_loss", "WL", "float"),
+    ("computed_reward_loss", "CL", "float"),
     ("batch_weighted_reward", "WR", "float"),
     ("batch_computed_reward", "CR", "float"),
     ("batch_total_reward", "TR", "float"),
@@ -157,7 +159,7 @@ class MetersGroup(object):
             value = int(value)
             return f"{key}: {value}"
         elif ty == "float":
-            return f"{key}: {value:.04f}"
+            return f"{key}: {value:.03f}"
         elif ty == "time":
             value = str(datetime.timedelta(seconds=int(value)))
             return f"{key}: {value}"

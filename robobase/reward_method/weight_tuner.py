@@ -45,7 +45,8 @@ class WeightRewardModel(nn.Module):
         self.ws = nn.ModuleList(
             [deepcopy(reward_model) for _ in range(num_reward_models)]
         )
-        self.apply(utils.weight_init)
+        for w in self.ws:
+            w.initialize_output_layer(utils.uniform_weight_init(0.0))
         if reward_lows is None:
             reward_lows = torch.full(num_reward_terms, -np.inf)
         if reward_highs is None:

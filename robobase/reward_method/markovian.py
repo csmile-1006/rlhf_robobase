@@ -43,7 +43,8 @@ class MarkovianRewardModel(nn.Module):
         self.rs = nn.ModuleList(
             [deepcopy(reward_model) for _ in range(num_reward_models)]
         )
-        self.apply(utils.weight_init)
+        for r in self.rs:
+            r.initialize_output_layer(utils.uniform_weight_init(0.0))
         self.apply_final_layer_tanh = apply_final_layer_tanh
         self.label_margin = 0.0
         self.label_target = 1.0 - 2 * self.label_margin
