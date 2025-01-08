@@ -1235,14 +1235,14 @@ class Workspace:
                     else "unsup_train",
                 )
 
-            if should_eval(self.main_loop_iterations):
+            if should_eval(self.global_env_steps):
                 eval_metrics = self._eval(eval_record_all_episode=True)
                 eval_metrics.update(self._get_common_metrics())
                 self.logger.log_metrics(
                     eval_metrics, self.global_env_steps, prefix="eval"
                 )
 
-            if should_save_snapshot(self.main_loop_iterations):
+            if should_save_snapshot(self.global_env_steps):
                 self.save_snapshot()
 
             if self.use_rlhf:
@@ -1295,7 +1295,7 @@ class Workspace:
                         reward_update_metrics.update(
                             {
                                 "total_time": total_time,
-                                "iteration": self.main_loop_iterations + it,
+                                "iteration": self.global_env_steps + it,
                                 "buffer_size": len(self.feedback_replay_buffer),
                             }
                         )
@@ -1344,7 +1344,7 @@ class Workspace:
 
                 if (
                     self.total_feedback <= self.cfg.rlhf.max_feedback
-                    and should_save_reward_model_snapshot(self.main_loop_iterations)
+                    and should_save_reward_model_snapshot(self.global_env_steps)
                 ):
                     self.save_reward_model_snapshot()
 

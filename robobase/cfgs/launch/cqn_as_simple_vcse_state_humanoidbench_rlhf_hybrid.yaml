@@ -48,12 +48,13 @@ method:
 rlhf:
   use_rlhf: true
   feedback_type: gemini
-  comparison_type: sequential
+  comparison_type: major_column
+  major_column: speed_reward
   max_feedback: 500
-  update_every_steps: 500000
+  update_every_steps: 200000
   num_pretrain_frames: 200000
-  num_train_frames: 2000
-  initialize_agent_per_session: true
+  num_train_frames: 1000
+  initialize_agent_per_session: false
   initialize_reward_model_per_session: true
   snapshot_every_n: ${rlhf.update_every_steps}
   gemini:
@@ -62,7 +63,7 @@ rlhf:
   reset_after_rlhf: false
 
 rlhf_replay:
-  size: 700000 # too large for humanoidbench, handling recent episodes only.
+  size: 100000 # too large for humanoidbench, handling recent episodes only.
   num_queries: 50
   num_labels: 1
   seq_len: 50
@@ -71,4 +72,4 @@ rlhf_replay:
 
 hydra:
   run:
-    dir: ./hbench_exp/state_cqn_as_simple_vcse_rlhf_alternative/humanoidbench_${env.task_name}/rlhf_hybrid_${rlhf.feedback_type}_numf${rlhf.max_feedback}_numq${rlhf_replay.num_queries}_update${rlhf.update_every_steps}_pretrain${rlhf.num_pretrain_frames}_comp-${rlhf.comparison_type}_reward-reset-${rlhf.initialize_reward_model_per_session}_agent-reset-${rlhf.initialize_agent_per_session}_lambda${reward_method.lambda_weight}_sc-${rlhf.gemini.compute_self_consistency}_sc-temp${rlhf.gemini.self_consistency_temperature}_sc-n${rlhf.gemini.n_self_consistency_samples}_seed${seed}_${now:%Y%m%d%H%M%S}
+    dir: ./hbench_exp_sas/state_cqn_as_simple_vcse_rlhf_alternative/humanoidbench_${env.task_name}/rlhf_hybrid_${rlhf.feedback_type}_numf${rlhf.max_feedback}_numq${rlhf_replay.num_queries}_update${rlhf.update_every_steps}_pretrain${rlhf.num_pretrain_frames}_comp-${rlhf.comparison_type}_reward-reset-${rlhf.initialize_reward_model_per_session}_agent-reset-${rlhf.initialize_agent_per_session}_lambda${reward_method.lambda_weight}_sc-${rlhf.gemini.compute_self_consistency}_sc-temp${rlhf.gemini.self_consistency_temperature}_sc-n${rlhf.gemini.n_self_consistency_samples}_seed${seed}_${now:%Y%m%d%H%M%S}
