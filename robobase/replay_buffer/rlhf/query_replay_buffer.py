@@ -633,6 +633,9 @@ class QueryReplayBuffer(ReplayBuffer):
         transition_idxs = list(
             map(lambda x: np.clip(x, 0, ep_len), range(start_idx, idx + 1))
         )
+        next_transition_idxs = list(
+            map(lambda x: np.clip(x, 0, ep_len), range(start_idx + 1, idx + 2))
+        )
 
         # Construct replay sample
         replay_sample = {
@@ -648,6 +651,7 @@ class QueryReplayBuffer(ReplayBuffer):
         # Add observations
         for name in self._obs_signature.keys():
             replay_sample[name] = episode[name][transition_idxs]
+            replay_sample[name + "_tp1"] = episode[name][next_transition_idxs]
 
         # Add remaining (extra) items
         for name in self._storage_signature.keys():

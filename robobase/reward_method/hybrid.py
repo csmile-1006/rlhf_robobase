@@ -236,6 +236,7 @@ class HybridReward(RewardMethod):
     def compute_reward(
         self,
         seq: Sequence,
+        final_obs: dict = None,
         member: int = -1,
         return_reward: bool = False,
     ) -> torch.Tensor:
@@ -258,6 +259,7 @@ class HybridReward(RewardMethod):
         start_idx = 0
 
         if isinstance(seq, list):
+            # Case with online episodes
             # seq: list of (action, obs, reward, term, trunc, info, next_info)
             actions = utils.convert_numpy_to_torch(
                 np.stack([elem[0] for elem in seq]), self.device
@@ -266,15 +268,25 @@ class HybridReward(RewardMethod):
                 list_of_obs_dicts = [
                     {k: v[-1] for k, v in elem[1].items()} for elem in seq
                 ]
+                list_of_next_obs_dicts = list_of_obs_dicts[1:] + [
+                    {k: v[-1] for k, v in final_obs.items()}
+                ]
             else:
                 list_of_obs_dicts = [elem[1] for elem in seq]
-
+                list_of_next_obs_dicts = list_of_obs_dicts[1:] + [final_obs]
             obs = {key: [] for key in list_of_obs_dicts[0].keys()}
             for obs_dict in list_of_obs_dicts:
                 for key, val in obs_dict.items():
                     obs[key].append(val)
             obs = utils.convert_numpy_to_torch(
                 {key: np.stack(val) for key, val in obs.items()}, self.device
+            )
+            next_obs = {key: [] for key in list_of_next_obs_dicts[0].keys()}
+            for next_obs_dict in list_of_next_obs_dicts:
+                for key, val in next_obs_dict.items():
+                    next_obs[key].append(val)
+            next_obs = utils.convert_numpy_to_torch(
+                {key: np.stack(val) for key, val in next_obs.items()}, self.device
             )
             # obs: (T, elem_shape) for elem in obs
             # actions: (T, action_shape)
@@ -294,10 +306,19 @@ class HybridReward(RewardMethod):
                 actions = actions[..., 0, :].float()
 
         elif isinstance(seq, dict):
+            # case with relabel_predictor --> already saved as episode file
             actions = utils.convert_numpy_to_torch(seq["action"], self.device)
             obs = utils.convert_numpy_to_torch(
                 {
                     key: val[start_idx:]
+                    for key, val in seq.items()
+                    if key in self.observation_space.spaces
+                },
+                self.device,
+            )
+            next_obs = utils.convert_numpy_to_torch(
+                {
+                    key: val[start_idx + 1 :]
                     for key, val in seq.items()
                     if key in self.observation_space.spaces
                 },
@@ -324,10 +345,26 @@ class HybridReward(RewardMethod):
                 .to(self.device)
             )
             fused_rgb_feats = self.encode_rgb_feats(rgbs, train=False).squeeze(1)
+            next_rgbs = (
+                stack_tensor_dictionary(
+                    extract_many_from_batch(next_obs, r"rgb(?!.*?tp1)"), 1
+                )
+                .unsqueeze(1)
+                .to(self.device)
+            )
+            next_fused_rgb_feats = self.encode_rgb_feats(
+                next_rgbs, train=False
+            ).squeeze(1)
         else:
             fused_rgb_feats = None
+            next_fused_rgb_feats = None
         qpos = (
             extract_from_batch(obs, "low_dim_state").to(self.device)
+            if self.low_dim_size > 0
+            else None
+        )
+        next_qpos = (
+            extract_from_batch(next_obs, "low_dim_state").to(self.device)
             if self.low_dim_size > 0
             else None
         )
@@ -342,8 +379,12 @@ class HybridReward(RewardMethod):
         seq_len = None
         if qpos is not None and qpos.ndim > 2:
             qpos = qpos.reshape(-1, *qpos.shape[-1:])
+            next_qpos = next_qpos.reshape(-1, *next_qpos.shape[-1:])
         if fused_rgb_feats is not None:
             fused_rgb_feats = fused_rgb_feats.reshape(-1, *fused_rgb_feats.shape[-1:])
+            next_fused_rgb_feats = next_fused_rgb_feats.reshape(
+                -1, *next_fused_rgb_feats.shape[-1:]
+            )
         if time_obs is not None:
             time_obs = time_obs.reshape(-1, *time_obs.shape[-1:])
         if actions.ndim > 2:
@@ -369,13 +410,20 @@ class HybridReward(RewardMethod):
                     _weighted_rewards = []
                     _computed_rewards = []
                     for mem in range(self.num_reward_models):
-                        _reward_weights = self.weight_tuner(
+                        args = (
                             qpos[_range] if qpos is not None else None,
+                            next_qpos[_range] if next_qpos is not None else None,
                             fused_rgb_feats[_range]
                             if fused_rgb_feats is not None
                             else None,
+                            next_fused_rgb_feats[_range]
+                            if next_fused_rgb_feats is not None
+                            else None,
                             actions[_range],
                             time_obs[_range] if time_obs is not None else None,
+                        )
+                        _reward_weights = self.weight_tuner(
+                            *args,
                             member=mem,
                         )
                         _scaled_reward_weights = self.weight_tuner.transform_to_tanh(
@@ -394,12 +442,7 @@ class HybridReward(RewardMethod):
                                 f"Invalid reward operator: {self.reward_operator}"
                             )
                         _computed_reward = self.markovian(
-                            qpos[_range] if qpos is not None else None,
-                            fused_rgb_feats[_range]
-                            if fused_rgb_feats is not None
-                            else None,
-                            actions[_range],
-                            time_obs[_range] if time_obs is not None else None,
+                            *args,
                             member=mem,
                         )
                         _weighted_rewards.append(_weighted_reward)
@@ -408,13 +451,20 @@ class HybridReward(RewardMethod):
                     weighted_reward = torch.cat(_weighted_rewards, dim=1).mean(dim=1)
                     computed_reward = torch.cat(_computed_rewards, dim=1).mean(dim=1)
                 else:
-                    _reward_weights = self.weight_tuner(
+                    args = (
                         qpos[_range] if qpos is not None else None,
+                        next_qpos[_range] if next_qpos is not None else None,
                         fused_rgb_feats[_range]
                         if fused_rgb_feats is not None
                         else None,
+                        next_fused_rgb_feats[_range]
+                        if next_fused_rgb_feats is not None
+                        else None,
                         actions[_range],
                         time_obs[_range] if time_obs is not None else None,
+                    )
+                    _reward_weights = self.weight_tuner(
+                        *args,
                         member=member,
                     )
                     scaled_reward_weights = self.weight_tuner.transform_to_tanh(
@@ -429,12 +479,7 @@ class HybridReward(RewardMethod):
                             scaled_reward_weights ** reward_terms[_range]
                         ).prod(dim=-1)
                     computed_reward = self.markovian(
-                        qpos[_range] if qpos is not None else None,
-                        fused_rgb_feats[_range]
-                        if fused_rgb_feats is not None
-                        else None,
-                        actions[_range],
-                        time_obs[_range] if time_obs is not None else None,
+                        *args,
                         member=member,
                     ).squeeze(-1)
 
@@ -512,6 +557,9 @@ class HybridReward(RewardMethod):
                 if self.low_dim_size > 0:
                     # (bs, seq, low_dim)
                     qpos = extract_from_batch(batch, f"seg{i}_low_dim_state").detach()
+                    next_qpos = extract_from_batch(
+                        batch, f"seg{i}_low_dim_state_tp1"
+                    ).detach()
 
                 if self.use_pixels:
                     # (bs, seq, v, ch, h, w)
@@ -519,8 +567,14 @@ class HybridReward(RewardMethod):
                         extract_many_from_batch(batch, rf"seg{i}_rgb(?!.*?tp1)"), 2
                     )
                     fused_rgb_feats = self.encode_rgb_feats(rgb, train=True)
+
+                    next_rgb = stack_tensor_dictionary(
+                        extract_many_from_batch(batch, rf"seg{i}_rgb(?!.*?tp1)"), 2
+                    )
+                    next_fused_rgb_feats = self.encode_rgb_feats(next_rgb, train=True)
                 else:
                     fused_rgb_feats = None
+                    next_fused_rgb_feats = None
 
                 time_obs = extract_from_batch(batch, "time", missing_ok=True)
 
@@ -533,8 +587,12 @@ class HybridReward(RewardMethod):
                 # raw_weight: (bs * seq, num_reward_terms) -> (bs, seq, num_reward_terms)
                 args = (
                     qpos.reshape(-1, *qpos.shape[2:]),
+                    next_qpos.reshape(-1, *next_qpos.shape[2:]),
                     fused_rgb_feats.reshape(-1, *fused_rgb_feats.shape[2:])
                     if fused_rgb_feats is not None
+                    else None,
+                    next_fused_rgb_feats.reshape(-1, *next_fused_rgb_feats.shape[2:])
+                    if next_fused_rgb_feats is not None
                     else None,
                     actions.reshape(-1, *actions.shape[2:]),
                     time_obs.reshape(-1, *time_obs.shape[2:])
@@ -662,4 +720,4 @@ class HybridReward(RewardMethod):
     def early_stopping_criteria(self, metrics: dict) -> bool:
         computed_pref_acc = metrics["computed_pref_acc_label_0"]
         weighted_pref_acc = metrics["weighted_pref_acc_label_0"]
-        return computed_pref_acc > 0.8 and weighted_pref_acc > 0.95
+        return computed_pref_acc > 0.9 and weighted_pref_acc > 0.95
