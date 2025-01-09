@@ -105,3 +105,9 @@ def check_valid_pair(segments, pair):
         segments["episode_number"][pair[1]],
     )
     return index_1 != index_2 or ep_num_1 != ep_num_2
+
+
+def get_normal_video_ids(segments, idx, feedback_iter, i, j):
+    index = segments["indices"][idx]
+    metadata = f"query-feedback_iter{feedback_iter}-pair{i}_{j}-idx{segments['global_steps'][idx]}-ep{segments['episode_number'][idx]}-timestep_{index}_{index + segments['action'].shape[1]}"  # noqa
+    return metadata

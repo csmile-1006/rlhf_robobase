@@ -27,7 +27,7 @@ from robobase.rlhf_module.third_party.gemini import (
     load_gemini_model,
     postprocess_gemini_response,
 )
-from robobase.rlhf_module.utils.utils import check_valid_pair
+from robobase.rlhf_module.utils.utils import check_valid_pair, get_normal_video_ids
 
 """
 General function to collect preferences (LLM vs non-LLM)
@@ -46,6 +46,7 @@ def collect_basic_preferences(
     comparison_fn.initialize(segments)
 
     feedbacks = []
+    metadata = []
     for i in tot_queries:
         pair = comparison_fn()
         while not check_valid_pair(segments, pair):
@@ -54,6 +55,15 @@ def collect_basic_preferences(
         label = feedback_fn(segments, pair, index=i, len_tot_queries=len(tot_queries))
         comparison_fn.update(pair, label)
         comparison_fn.increment()
+
+        video_id_1 = get_normal_video_ids(segments, pair[0], feedback_iter, i, 0)
+        video_id_2 = get_normal_video_ids(segments, pair[1], feedback_iter, i, 1)
+        metadata.append(
+            dict(
+                video_id_1=video_id_1,
+                video_id_2=video_id_2,
+            )
+        )
 
         pref_dict = {
             "segment_0": {
@@ -67,7 +77,7 @@ def collect_basic_preferences(
         feedbacks.append(pref_dict)
     logging.info("FINISH!")
 
-    return feedbacks, None
+    return feedbacks, metadata
 
 
 # 1. evaluate videos.

@@ -40,6 +40,7 @@ class HumanoidBench(gym.Env):
         visual_observation_shape: tuple[int, int] = (84, 84),
         render_mode: str = "rgb_array",
         use_rlhf: bool = False,
+        use_gemini: bool = False,
         query_keys: list[str] = ["right"],
         reward_mode: str = "dense",
         reward_operator: str = "sum",
@@ -96,7 +97,8 @@ class HumanoidBench(gym.Env):
             )
 
         self._use_rlhf = use_rlhf
-        if use_rlhf:
+        self._use_gemini = use_gemini
+        if use_rlhf and use_gemini:
             for key in self._query_keys:
                 _obs_space[f"query_pixels_{key}"] = spaces.Box(
                     low=0,
@@ -150,8 +152,9 @@ class HumanoidBench(gym.Env):
         else:
             ret_obs["low_dim_state"] = observation.astype(np.float32)
 
-        if self._use_rlhf:
-            ret_obs[f"query_pixels_{self._query_keys[0]}"] = self.render().copy()
+        if self._use_rlhf and self._use_gemini:
+            for key in self._query_keys:
+                ret_obs[f"query_pixels_{key}"] = self.render().copy()
         return ret_obs
 
     def step(self, action):
@@ -253,6 +256,7 @@ class HumanoidBenchEnvFactory(EnvFactory):
                         visual_observation_shape=cfg.visual_observation_shape,
                         render_mode="rgb_array",
                         use_rlhf=cfg.rlhf.use_rlhf,
+                        use_gemini=cfg.rlhf.feedback_type == "gemini",
                         query_keys=cfg.env.query_keys,
                         reward_mode=cfg.env.reward_mode,
                         reward_operator=cfg.env.reward_operator,
@@ -277,6 +281,7 @@ class HumanoidBenchEnvFactory(EnvFactory):
                 visual_observation_shape=cfg.visual_observation_shape,
                 render_mode="rgb_array",
                 use_rlhf=cfg.rlhf.use_rlhf,
+                use_gemini=cfg.rlhf.feedback_type == "gemini",
                 query_keys=cfg.env.query_keys,
                 reward_mode=cfg.env.reward_mode,
                 reward_operator=cfg.env.reward_operator,
