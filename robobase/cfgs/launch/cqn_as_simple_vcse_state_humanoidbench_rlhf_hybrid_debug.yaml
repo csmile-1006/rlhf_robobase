@@ -25,8 +25,8 @@ num_train_frames: 7001000
 save_snapshot: true
 eval_every_steps: 20000
 snapshot_every_n: 250000
-num_explore_steps: 1000
-replay_size_before_train: 1000
+num_explore_steps: 10000
+replay_size_before_train: 10000
 
 reward_method:
   data_aug_ratio: 20
@@ -51,11 +51,11 @@ rlhf:
   feedback_type: script
   comparison_type: major_column
   major_column: speed_reward
-  max_feedback: 500
-  update_every_steps: 10000
-  num_pretrain_frames: 10000
+  max_feedback: 20
+  update_every_steps: 30000
+  num_pretrain_frames: 30000
   num_train_frames: 20
-  initialize_agent_per_session: true
+  initialize_agent_per_session: false
   initialize_reward_model_per_session: true
   snapshot_every_n: ${rlhf.update_every_steps}
   gemini:
@@ -64,7 +64,7 @@ rlhf:
   reset_after_rlhf: false
 
 rlhf_replay:
-  size: 1000000 # too large for humanoidbench, handling recent episodes only.
+  size: 25000 # too large for humanoidbench, handling recent episodes only.
   num_queries: 10
   num_labels: 1
   seq_len: 50

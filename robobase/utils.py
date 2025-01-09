@@ -650,6 +650,45 @@ def convert_demo_to_episode_rollouts(wrapped_env: DemoEnv):
     return ep
 
 
+def merge_replay_iter(replay_iter_1, replay_iter_2):
+    return iter(MergedReplayIterator(replay_iter_1, replay_iter_2))
+
+
+class MergedReplayIterator:
+    def __init__(self, replay_iter_1, replay_iter_2):
+        self.replay_iter_1 = replay_iter_1
+        self.replay_iter_2 = replay_iter_2
+        self._is_safe = False
+
+    def __iter__(self):
+        return self
+
+    def _check_keys(self, batch_1, batch_2):
+        assert set(batch_1.keys()) == set(
+            batch_2.keys()
+        ), f"Keys in demo batch are different: {batch_1.keys()}, {batch_2.keys()}"
+
+    def __next__(self):
+        batch_1 = next(self.replay_iter_1)
+        batch_2 = next(self.replay_iter_2)
+        if not self._is_safe:
+            self._check_keys(batch_1, batch_2)
+            self._is_safe = True
+
+        merged = {}
+        for k in batch_1.keys():
+            # Create new tensor with combined size
+            merged[k] = torch.empty(
+                (batch_1[k].size(0) + batch_2[k].size(0), *batch_1[k].shape[1:]),
+                dtype=batch_1[k].dtype,
+                device=batch_1[k].device,
+            )
+            # Copy data from both batches
+            merged[k][: batch_1[k].size(0)] = batch_1[k]
+            merged[k][batch_1[k].size(0) :] = batch_2[k]
+        return merged
+
+
 def merge_replay_demo_iter(replay_iter, demo_replay_iter):
     return iter(DemoMergedIterator(replay_iter, demo_replay_iter))
 
