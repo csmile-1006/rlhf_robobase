@@ -3,7 +3,7 @@
 defaults:
   - ../env: null  # Please specify environment to use in command line
   - ../method: cqn_as_simple_re3
-  - ../reward_method: hybrid
+  - ../reward_method: hybrid_integrate
   - ../intrinsic_reward_module: re3
 
 env:
@@ -52,9 +52,9 @@ rlhf:
   comparison_type: major_column
   major_column: speed_reward
   max_feedback: 20
-  update_every_steps: 30000
-  num_pretrain_frames: 30000
-  num_train_frames: 20
+  update_every_steps: 10000
+  num_pretrain_frames: 10000
+  num_train_frames: 100
   initialize_agent_per_session: false
   initialize_reward_model_per_session: true
   snapshot_every_n: ${rlhf.update_every_steps}

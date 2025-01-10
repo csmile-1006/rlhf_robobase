@@ -14,7 +14,7 @@ action_repeat: 1
 action_sequence: 4
 temporal_ensemble: true
 
-batch_size: 128
+batch_size: 64 # In the code, batch_size is multiplied by 2 when using rlhf
 update_every_steps: 1
 replay:
   size: 7000000
@@ -49,9 +49,9 @@ rlhf:
   feedback_type: gemini
   comparison_type: sequential
   max_feedback: 500
-  update_every_steps: 500000
+  update_every_steps: 200000
   num_pretrain_frames: 200000
-  num_train_frames: 2000
+  num_train_frames: 1000
   initialize_agent_per_session: true
   initialize_reward_model_per_session: true
   snapshot_every_n: ${rlhf.update_every_steps}
@@ -61,10 +61,10 @@ rlhf:
   reset_after_rlhf: false
 
 rlhf_replay:
-  size: 700000 # too large for humanoidbench, handling recent episodes only.
+  size: 100000 # too large for humanoidbench, handling recent episodes only.
   num_queries: 50
   num_labels: 1
-  seq_len: 50
+  seq_len: 100
   feedback_batch_size: 128
   max_episode_number: 0
 
