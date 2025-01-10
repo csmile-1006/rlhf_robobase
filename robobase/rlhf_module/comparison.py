@@ -99,7 +99,7 @@ class MajorColumnComparisonFn(ComparisonFn):
         # Sort indices by major_column_returns
         sorted_indices = np.argsort(major_column_returns)
         # remove bottom 20% with particulary smaller major_column_returns
-        sorted_indices = sorted_indices[: int(len(sorted_indices) * 0.8)]
+        sorted_indices = sorted_indices[: int(len(sorted_indices) * 0.7)]
 
         # make pairs with similar major_column_returns
         self.indices = []
