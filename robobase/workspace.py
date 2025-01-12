@@ -22,6 +22,7 @@ from tensordict.nn import CudaGraphModule
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
+import robobase
 from robobase import utils
 from robobase.envs.env import EnvFactory
 from robobase.logger import Logger
@@ -524,6 +525,10 @@ class Workspace:
             self.eval_env = None
 
         self._shutting_down = False
+        # store code state for checking diffs
+        utils.store_code_state(
+            self.work_dir, [robobase.__file__, self.env_factory.env_class.__file__]
+        )
 
     @property
     def pretrain_steps(self):

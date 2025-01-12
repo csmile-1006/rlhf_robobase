@@ -214,6 +214,9 @@ class HumanoidBench(gym.Env):
 
 
 class HumanoidBenchEnvFactory(EnvFactory):
+    def __init__(self):
+        self.env_class = humanoid_bench
+
     def _wrap_env(self, env, cfg, eval_mode: bool = False):
         env = RescaleFromTanh(env)
         if cfg.env.episode_length != 1000:
