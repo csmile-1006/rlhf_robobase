@@ -63,10 +63,10 @@ rlhf:
   reset_after_rlhf: false
 
 rlhf_replay:
-  size: 100000 # too large for humanoidbench, handling recent episodes only.
+  size: 200000 # too large for humanoidbench, handling recent episodes only.
   num_queries: 50
   num_labels: 1
-  seq_len: 100
+  seq_len: 50
   feedback_batch_size: 128
   max_episode_number: 0
 

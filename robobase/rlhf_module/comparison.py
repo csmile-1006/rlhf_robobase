@@ -98,14 +98,18 @@ class MajorColumnComparisonFn(ComparisonFn):
         major_column_returns = segments[f"Reward/{self.major_column}"].sum(axis=-1)
         # Sort indices by major_column_returns
         sorted_indices = np.argsort(major_column_returns)
-        # remove bottom 20% with particulary smaller major_column_returns
+        # remove bottom 30% with particulary smaller major_column_returns
         sorted_indices = sorted_indices[: int(len(sorted_indices) * 0.7)]
 
-        # make pairs with similar major_column_returns
+        # make pairs with similar major_column_returns by randomly selecting from 10 nearest neighbors
         self.indices = []
+        window_size = 10  # Compare with one of 10 nearest neighbors
         for i in range(len(sorted_indices) - 1):
-            self.indices.append((sorted_indices[i], sorted_indices[i + 1]))
-
+            # Determine valid window range (don't go past array bounds)
+            max_window = min(window_size, len(sorted_indices) - i - 1)
+            # Randomly select one index from the window to pair with
+            j = i + 1 + np.random.randint(max_window)
+            self.indices.append((sorted_indices[i], sorted_indices[j]))
         # shuffle self.indices not to be biased to larger major_column_returns
         np.random.shuffle(self.indices)
 
