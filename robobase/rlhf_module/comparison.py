@@ -103,11 +103,10 @@ class MajorColumnComparisonFn(ComparisonFn):
 
         # make a set of random pairs
         np.random.shuffle(sorted_indices)
+        half_size = len(sorted_indices) // 2
         self.indices = []
-        for i in range(len(sorted_indices) - 1):
-            j = i + 1 + np.random.randint(10)
-            self.indices.append((sorted_indices[i], sorted_indices[j]))
-        np.random.shuffle(self.indices)
+        for i in range(half_size):
+            self.indices.append((sorted_indices[i], sorted_indices[i + half_size]))
 
         # make pairs with similar major_column_returns by randomly selecting from 10 nearest neighbors
         # window_size = 10  # Compare with one of 10 nearest neighbors
