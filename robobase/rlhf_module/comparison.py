@@ -101,17 +101,24 @@ class MajorColumnComparisonFn(ComparisonFn):
         # remove bottom 30% with particulary smaller major_column_returns
         sorted_indices = sorted_indices[: int(len(sorted_indices) * 0.7)]
 
-        # make pairs with similar major_column_returns by randomly selecting from 10 nearest neighbors
+        # make a set of random pairs
+        np.random.shuffle(sorted_indices)
         self.indices = []
-        window_size = 10  # Compare with one of 10 nearest neighbors
         for i in range(len(sorted_indices) - 1):
-            # Determine valid window range (don't go past array bounds)
-            max_window = min(window_size, len(sorted_indices) - i - 1)
-            # Randomly select one index from the window to pair with
-            j = i + 1 + np.random.randint(max_window)
+            j = i + 1 + np.random.randint(10)
             self.indices.append((sorted_indices[i], sorted_indices[j]))
-        # shuffle self.indices not to be biased to larger major_column_returns
         np.random.shuffle(self.indices)
+
+        # make pairs with similar major_column_returns by randomly selecting from 10 nearest neighbors
+        # window_size = 10  # Compare with one of 10 nearest neighbors
+        # for i in range(len(sorted_indices) - 1):
+        #     # Determine valid window range (don't go past array bounds)
+        #     max_window = min(window_size, len(sorted_indices) - i - 1)
+        #     # Randomly select one index from the window to pair with
+        #     j = i + 1 + np.random.randint(max_window)
+        #     self.indices.append((sorted_indices[i], sorted_indices[j]))
+        # # shuffle self.indices not to be biased to larger major_column_returns
+        # np.random.shuffle(self.indices)
 
     def __call__(self):
         return self.indices[self._i]
