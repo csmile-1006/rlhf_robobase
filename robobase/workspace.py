@@ -745,7 +745,10 @@ class Workspace:
                 if len(self.extra_replay_elements) > 0:
                     for key in info.keys():
                         if key.startswith("Reward/"):
-                            reward_term_dict[key] += info[key]
+                            reward_term_dict[key] += (
+                                info[key]
+                                * self.eval_env.initial_reward_scale[key.split("/")[-1]]
+                            )
                 step += 1
                 episode_pbar.update(1)
             if episode == 0:
