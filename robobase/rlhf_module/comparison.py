@@ -95,7 +95,9 @@ class MajorColumnComparisonFn(ComparisonFn):
 
     def initialize(self, segments):
         super(MajorColumnComparisonFn, self).initialize(segments)
-        major_column_returns = segments[f"Reward/{self.major_column}"].sum(axis=-1)
+        major_column_returns = (
+            segments[f"Reward/{self.major_column}"].sum(axis=-1).detach().cpu().numpy()
+        )
         # Sort indices by major_column_returns
         sorted_indices = np.argsort(major_column_returns)
         # remove bottom 30% with particulary smaller major_column_returns

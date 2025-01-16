@@ -1,14 +1,14 @@
 from abc import ABC, abstractmethod
-from typing import Dict, Iterator, Sequence, TypeAlias
+from typing import Dict, Sequence, TypeAlias
 
 import numpy as np
 import torch
 import torch.nn as nn
 from gymnasium import spaces
 from torch.nn import functional as F
+from tensordict import TensorDict
 
 from robobase.method.utils import extract_from_spec
-from robobase.replay_buffer.replay_buffer import ReplayBuffer
 
 Metrics: TypeAlias = dict[str, np.ndarray]
 
@@ -40,9 +40,7 @@ class RewardMethod(nn.Module, ABC):
     @abstractmethod
     def update(
         self,
-        replay_iter: Iterator[dict[str, torch.Tensor]],
-        step: int,
-        replay_buffer: ReplayBuffer = None,
+        batches: TensorDict,
     ) -> Metrics:
         pass
 

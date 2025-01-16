@@ -1,0 +1,43 @@
+# @package _global_
+
+defaults:
+  - ../env: null  # Please specify environment to use in command line
+  - ../method: cqn_as_simple_vcse
+  - ../intrinsic_reward_module: vcse
+
+pixels: false
+frame_stack: 1
+action_repeat: 1
+action_sequence: 4
+temporal_ensemble: true
+
+batch_size: 128
+update_every_steps: 1
+replay:
+  size: 7000000
+  nstep: 3  # Use 1 for walker_walk
+num_train_frames: 7001000
+save_snapshot: true
+eval_every_steps: 20000
+snapshot_every_n: 50000
+num_explore_steps: 0
+replay_size_before_train: 100000
+snapshot_dir: /home/changyeon/ICML2025/workspace/rlhf_robobase/snapshots
+
+method:
+  critic_lr: 5e-5
+  view_fusion_lr: 5e-5
+  encoder_lr: 5e-5
+  use_dueling: false
+  stddev_schedule: 0.01
+  advantage_model:
+    keys_to_bottleneck: []
+  value_model:
+    keys_to_bottleneck: []
+  critic_target_interval: 1000
+  critic_target_tau: 1.0
+  gru_layers: 0
+
+hydra:
+  run:
+    dir: ./post_train_huma_hbench_exp/state_cqn_as_simple_vcse/humanoidbench_${env.task_name}/default_seed${seed}_${now:%Y%m%d%H%M%S}

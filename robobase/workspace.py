@@ -390,30 +390,30 @@ class Workspace:
             )
             self._query_replay_iter, self._feedback_replay_iter = None, None
 
-            # add on-policy replay buffer & replay loader for guaranteeing training on on-policy data
-            from copy import deepcopy
+            # # add on-policy replay buffer & replay loader for guaranteeing training on on-policy data
+            # from copy import deepcopy
 
-            on_policy_cfg = deepcopy(cfg)
-            on_policy_cfg.replay.size = cfg.rlhf_replay.size
-            self.on_policy_replay_buffer = _create_default_replay_buffer(
-                on_policy_cfg,
-                observation_space=clean_observation_space,
-                action_space=action_space,
-                save_dir=self.work_dir,
-                extra_replay_elements=extra_replay_elements,
-            )
+            # on_policy_cfg = deepcopy(cfg)
+            # on_policy_cfg.replay.size = cfg.rlhf_replay.size
+            # self.on_policy_replay_buffer = _create_default_replay_buffer(
+            #     on_policy_cfg,
+            #     observation_space=clean_observation_space,
+            #     action_space=action_space,
+            #     save_dir=self.work_dir,
+            #     extra_replay_elements=extra_replay_elements,
+            # )
 
-            self.on_policy_replay_loader = DataLoader(
-                self.on_policy_replay_buffer,
-                batch_size=self.on_policy_replay_buffer.batch_size,
-                num_workers=cfg.replay.num_workers,
-                pin_memory=cfg.replay.pin_memory,
-                worker_init_fn=_worker_init_fn,
-                prefetch_factor=1,
-                persistent_workers=True,
-            )
+            # self.on_policy_replay_loader = DataLoader(
+            #     self.on_policy_replay_buffer,
+            #     batch_size=self.on_policy_replay_buffer.batch_size,
+            #     num_workers=cfg.replay.num_workers,
+            #     pin_memory=cfg.replay.pin_memory,
+            #     worker_init_fn=_worker_init_fn,
+            #     prefetch_factor=1,
+            #     persistent_workers=True,
+            # )
 
-            self._on_policy_replay_iter = None
+            # self._on_policy_replay_iter = None
 
             # RLHF settings
             self._reward_pretrain_step = 0
@@ -445,9 +445,10 @@ class Workspace:
 
         self.replay_loader = DataLoader(
             self.replay_buffer,
-            batch_size=self.replay_buffer.batch_size * 2
-            if self.use_rlhf
-            else self.replay_buffer.batch_size,
+            # batch_size=self.replay_buffer.batch_size * 2
+            # if self.use_rlhf
+            # else self.replay_buffer.batch_size,
+            batch_size=self.replay_buffer.batch_size,
             num_workers=cfg.replay.num_workers,
             pin_memory=cfg.replay.pin_memory,
             worker_init_fn=_worker_init_fn,
@@ -588,18 +589,19 @@ class Workspace:
     def replay_iter(self):
         if self._replay_iter is None:
             _replay_iter = iter(self.replay_loader)
-            if (
-                self.use_rlhf
-                and self.total_feedback < self.cfg.rlhf.max_feedback
-                and self.reward_model.activated
-            ):
-                # add on-policy replay iter for guaranteeing training on on-policy data,
-                # only when reward model is activated, and feedback is not full
-                logging.info("Merging replay iter with on-policy replay iter")
-                _on_policy_replay_iter = iter(self.on_policy_replay_loader)
-                _replay_iter = utils.merge_replay_iter(
-                    _replay_iter, _on_policy_replay_iter
-                )
+            # if (
+            #     self.use_rlhf
+            #     and self.total_feedback < self.cfg.rlhf.max_feedback
+            #     and self.reward_model.activated
+            # ):
+            #     # TODO: Add on-policy replay iter for guaranteeing training on on-policy data,
+            #     # add on-policy replay iter for guaranteeing training on on-policy data,
+            #     # only when reward model is activated, and feedback is not full
+            #     logging.info("Merging replay iter with on-policy replay iter")
+            #     _on_policy_replay_iter = iter(self.on_policy_replay_loader)
+            #     _replay_iter = utils.merge_replay_iter(
+            #         _replay_iter, _on_policy_replay_iter
+            #     )
             if self.use_demo_replay:
                 _demo_replay_iter = iter(self.demo_replay_loader)
                 _replay_iter = utils.merge_replay_demo_iter(
@@ -660,6 +662,9 @@ class Workspace:
             if self.cfg.rlhf.use_rlhf:
                 self._update_unsupervised_fn = self.agent.update_unsupervised
                 self._update_only_critic_fn = self.agent.update_only_critic
+
+        if self.cfg.rlhf.use_rlhf:
+            self._reward_update_fn = self.reward_model.update
 
         if self.cfg.use_cuda_graph:
             self._update_fn = CudaGraphModule(self._update_fn, in_keys=[], out_keys=[])
@@ -1026,13 +1031,8 @@ class Workspace:
         )
         it = 0
         while feedback_one_epoch(it):
-            metrics.update(
-                self.reward_model.update(
-                    self.feedback_replay_iter,
-                    self.main_loop_iterations,
-                    self.feedback_replay_buffer,
-                )
-            )
+            batches = self.reward_model.extract_batch(self.feedback_replay_iter)
+            metrics.update(self._reward_update_fn(batches))
             it += 1
         self.reward_model.train(False)
         if self.reward_model.logging:
@@ -1219,30 +1219,32 @@ class Workspace:
                 if self.rlhf_reset_flag is False and self.cfg.rlhf.reset_after_rlhf:
                     observations, info = self.reset_after_rlhf()
                     self.rlhf_reset_flag = True
+
+                # TODO: Add on-policy replay iter for guaranteeing training on on-policy data,
                 # reset replay iter to avoid merging replay iter with on-policy replay iter
                 # and double the batch size to match with merged replay iter
-                if self.rlhf_replay_reset_flag is False:
-                    del self._replay_iter
-                    del self._on_policy_replay_iter
-                    del self.replay_loader
-                    del self.on_policy_replay_buffer
-                    del self.on_policy_replay_loader
+                # if self.rlhf_replay_reset_flag is False:
+                #     del self._replay_iter
+                #     del self._on_policy_replay_iter
+                #     del self.replay_loader
+                #     del self.on_policy_replay_buffer
+                #     del self.on_policy_replay_loader
 
-                    import gc
+                #     import gc
 
-                    gc.collect()
-                    torch.cuda.empty_cache()
+                #     gc.collect()
+                #     torch.cuda.empty_cache()
 
-                    self._replay_iter = None
-                    self.replay_loader = DataLoader(
-                        self.replay_buffer,
-                        persistent_workers=True,
-                        batch_size=self.replay_buffer.batch_size * 2,
-                        num_workers=self.cfg.replay.num_workers,
-                        pin_memory=self.cfg.replay.pin_memory,
-                        worker_init_fn=_worker_init_fn,
-                    )
-                    self.rlhf_replay_reset_flag = True
+                #     self._replay_iter = None
+                #     self.replay_loader = DataLoader(
+                #         self.replay_buffer,
+                #         persistent_workers=True,
+                #         batch_size=self.replay_buffer.batch_size * 2,
+                #         num_workers=self.cfg.replay.num_workers,
+                #         pin_memory=self.cfg.replay.pin_memory,
+                #         worker_init_fn=_worker_init_fn,
+                #     )
+                #     self.rlhf_replay_reset_flag = True
 
             metrics = {}
 
@@ -1410,23 +1412,23 @@ class Workspace:
 
                     if not self.reward_model.activated:
                         self.reward_model.set_activated(True)
-                        del self._replay_iter
-                        del self.replay_loader
+                        # del self._replay_iter
+                        # del self.replay_loader
 
-                        import gc
+                        # import gc
 
-                        gc.collect()
-                        torch.cuda.empty_cache()
+                        # gc.collect()
+                        # torch.cuda.empty_cache()
 
-                        self._replay_iter = None
-                        self.replay_loader = DataLoader(
-                            self.replay_buffer,
-                            persistent_workers=True,
-                            batch_size=self.replay_buffer.batch_size,
-                            num_workers=self.cfg.replay.num_workers,
-                            pin_memory=self.cfg.replay.pin_memory,
-                            worker_init_fn=_worker_init_fn,
-                        )
+                        # self._replay_iter = None
+                        # self.replay_loader = DataLoader(
+                        #     self.replay_buffer,
+                        #     persistent_workers=True,
+                        #     batch_size=self.replay_buffer.batch_size,
+                        #     num_workers=self.cfg.replay.num_workers,
+                        #     pin_memory=self.cfg.replay.pin_memory,
+                        #     worker_init_fn=_worker_init_fn,
+                        # )
 
                     relabel_with_predictor(self.reward_model, self.replay_buffer)
                     if self.use_demo_replay:
@@ -1488,7 +1490,7 @@ class Workspace:
         latest_snapshot = self.work_dir / "snapshots" / "latest_snapshot.pt"
         shutil.copy(snapshot, latest_snapshot)
 
-    def load_snapshot(self, path_to_snapshot_to_load=None):
+    def load_snapshot(self, path_to_snapshot_to_load=None, override_cfg=False):
         if path_to_snapshot_to_load is None:
             path_to_snapshot_to_load = (
                 self.work_dir / "snapshots" / "latest_snapshot.pt"
@@ -1503,7 +1505,12 @@ class Workspace:
             payload = torch.load(f, map_location="cpu")
         self.agent.load_state_dict(payload.pop("agent"))
         for k, v in payload.items():
-            self.__dict__[k] = v
+            if (
+                k != "cfg" or not override_cfg
+            ):  # cfg must not be loaded for efficient post-training.
+                self.__dict__[k] = v
+
+        logging.info(f"Loaded snapshot from env_step {self.global_env_steps}")
 
     def save_reward_model_snapshot(self):
         snapshot = (

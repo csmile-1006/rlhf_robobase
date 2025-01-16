@@ -20,6 +20,7 @@ num_update_steps: 1
 num_explore_steps: 2000
 save_snapshot: false
 snapshot_every_n: 1000
+snapshot_dir: null
 batch_size: 256
 is_imitation_learning: false
 use_compile: false

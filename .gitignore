@@ -40,3 +40,4 @@ events.out.*
 .DS_Store
 .env
 *exp*/
+*snapshots*/

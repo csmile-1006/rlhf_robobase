@@ -5,8 +5,6 @@ import time
 import google.generativeai as genai
 import imageio
 
-from robobase.rlhf_module.utils import retry_on_error
-
 
 def configure_gemini():
     api_key = os.getenv("GEMINI_API_KEY")
@@ -36,9 +34,6 @@ def load_gemini_model(cfg):
     return model
 
 
-@retry_on_error(
-    10, callback_fn=lambda *_: ValueError("Failed to upload video to Gemini")
-)
 def upload_video_to_genai(video_path, verbose=False):
     video_file = genai.upload_file(path=video_path)
     while video_file.state.name == "PROCESSING":

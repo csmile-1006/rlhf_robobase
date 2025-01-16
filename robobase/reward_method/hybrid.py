@@ -8,6 +8,7 @@ import torch
 from diffusers.optimization import get_scheduler
 from tqdm import trange
 from typing_extensions import override
+from tensordict import TensorDict
 
 from robobase import utils
 from robobase.method.utils import (
@@ -20,7 +21,6 @@ from robobase.method.utils import (
 from robobase.models import RoboBaseModule
 from robobase.models.encoder import EncoderModule
 from robobase.models.fusion import FusionModule
-from robobase.replay_buffer.replay_buffer import ReplayBuffer
 from robobase.reward_method.core import RewardMethod
 from robobase.reward_method.markovian import MarkovianRewardModel
 from robobase.reward_method.weight_tuner import WeightRewardModel
@@ -234,20 +234,6 @@ class HybridReward(RewardMethod):
             fused_rgb_feats = fused_rgb_feats.view(*rgb.shape[:2], -1)
         return fused_rgb_feats
 
-    def initialize_reward_model(self):
-        input_shapes = self.get_fully_connected_inputs()
-        input_shapes["actions"] = (
-            np.prod(self.action_space.shape[-1:]),
-        )  # we only need the last dimension of the action space
-        reward_model = self.reward_model(input_shapes=input_shapes)
-        self.markovian = MarkovianRewardModel(
-            reward_model=reward_model,
-            num_reward_models=self.num_reward_models,
-            apply_final_layer_tanh=self.apply_final_layer_tanh,
-        )
-        self.markovian.to(self.device)
-        self.markovian_opt = torch.optim.Adam(self.markovian.parameters(), lr=self.lr)
-
     @override
     def compute_reward(
         self,
@@ -348,20 +334,18 @@ class HybridReward(RewardMethod):
             }
 
         if self.use_pixels:
-            rgbs = (
+            rgbs = torch.as_tensor(
                 stack_tensor_dictionary(
                     extract_many_from_batch(obs, r"rgb(?!.*?tp1)"), 1
-                )
-                .unsqueeze(1)
-                .to(self.device)
+                ).unsqueeze(1),
+                device=self.device,
             )
             fused_rgb_feats = self.encode_rgb_feats(rgbs, train=False).squeeze(1)
-            next_rgbs = (
+            next_rgbs = torch.as_tensor(
                 stack_tensor_dictionary(
                     extract_many_from_batch(next_obs, r"rgb(?!.*?tp1)"), 1
-                )
-                .unsqueeze(1)
-                .to(self.device)
+                ).unsqueeze(1),
+                device=self.device,
             )
             next_fused_rgb_feats = self.encode_rgb_feats(
                 next_rgbs, train=False
@@ -370,21 +354,29 @@ class HybridReward(RewardMethod):
             fused_rgb_feats = None
             next_fused_rgb_feats = None
         qpos = (
-            extract_from_batch(obs, "low_dim_state").to(self.device)
+            torch.as_tensor(
+                extract_from_batch(obs, "low_dim_state"), device=self.device
+            )
             if self.low_dim_size > 0
             else None
         )
         next_qpos = (
-            extract_from_batch(next_obs, "low_dim_state").to(self.device)
+            torch.as_tensor(
+                extract_from_batch(next_obs, "low_dim_state"), device=self.device
+            )
             if self.low_dim_size > 0
             else None
         )
         time_obs = (
-            extract_from_batch(obs, "time", missing_ok=True).to(self.device)
+            torch.as_tensor(
+                extract_from_batch(obs, "time", missing_ok=True), device=self.device
+            )
             if self.time_obs_size > 0
             else None
         )
-        reward_terms = stack_tensor_dictionary(reward_terms, dim=-1).to(self.device)
+        reward_terms = torch.as_tensor(
+            stack_tensor_dictionary(reward_terms, dim=-1), device=self.device
+        )
 
         # change components to be (bs * seq, -1)
         seq_len = None
@@ -529,17 +521,24 @@ class HybridReward(RewardMethod):
             B, S, _ = r_hat.shape
             length = np.random.randint(int(0.7 * S), int(0.9 * S) + 1, size=B)
             start_index = np.random.randint(0, S + 1 - length)
-            mask = torch.zeros((B, S, 1)).to(self.device)
+            mask = torch.zeros((B, S, 1), device=self.device)
             for b in range(B):
                 mask[b, start_index[b] : start_index[b] + length[b]] = 1
             mask_.append(mask)
 
         return torch.cat(mask_)
 
-    @override
-    def update(
-        self, replay_iter, step: int, replay_buffer: ReplayBuffer = None
-    ) -> dict:
+    def extract_batch(self, replay_iter):
+        batches = {}
+        for mem in range(self.num_reward_models):
+            batch = next(replay_iter)
+            for key in batch.keys():
+                batches[f"mem_{mem}_{key}"] = torch.as_tensor(
+                    batch[key], dtype=batch[key].dtype, device=self.device
+                )
+        return batches
+
+    def update(self, batches: TensorDict) -> dict:
         """
         Compute the loss from binary preferences.
 
@@ -553,12 +552,17 @@ class HybridReward(RewardMethod):
 
         """
 
-        metrics = dict()
+        metrics = TensorDict({})
         weighted_loss_dict = defaultdict(float)
         computed_loss_dict = defaultdict(float)
         for mem in range(self.num_reward_models):
-            batch = next(replay_iter)
-            batch = {k: v.to(self.device) for k, v in batch.items()}
+            batch = TensorDict(
+                {
+                    key[len(f"mem_{mem}_") :]: val
+                    for key, val in batches.items()
+                    if key.startswith(f"mem_{mem}_")
+                }
+            )
             weighted_rewards = []
             raw_weights = []
             normalized_weights = []
