@@ -750,10 +750,7 @@ class Workspace:
                 if len(self.extra_replay_elements) > 0:
                     for key in info.keys():
                         if key.startswith("Reward/"):
-                            reward_term_dict[key] += (
-                                info[key]
-                                * self.eval_env.initial_reward_scale[key.split("/")[-1]]
-                            )
+                            reward_term_dict[key] += info[key]
                 step += 1
                 episode_pbar.update(1)
             if episode == 0:
@@ -781,6 +778,14 @@ class Workspace:
             metrics.update(
                 {
                     f"return_{key.split('/')[-1]}": val / episode
+                    for key, val in reward_term_dict.items()
+                }
+            )
+            metrics.update(
+                {
+                    f"real_return_{key.split('/')[-1]}": val
+                    / episode
+                    * self.eval_env.initial_reward_scale[key.split("/")[-1]]
                     for key, val in reward_term_dict.items()
                 }
             )
