@@ -1,7 +1,7 @@
 # ruff: noqa
 TASK_DESCRIPTION = {
-    "h1-walk-v0": "Make H1 humanoid robot walk at 1m/s velocity. The walking behavior must be like that of a human without falling down.",
-    "h1hand-walk-v0": "Make H1 humanoid robot walk at 1m/s velocity. The walking behavior must be like that of a human without falling down.",
-    "g1-walk-v0": "Make G1 humanoid robot walk at 1m/s velocity. The walking behavior must be like that of a human without falling down.",
-    "gr1-walk-v0": "Make GR1 humanoid robot walk at 1m/s velocity. The walking behavior must be like that of a human without falling down.",
+    "h1-walk-v0": "The H1 humanoid robot should walk forward at 1m/s speed. The walking motion should be stable, energy-efficient, and closely resemble natural human walking.",
+    "h1hand-walk-v0": "The H1 humanoid robot should walk forward at 1m/s speed without falling. The walking motion should be stable and closely resemble natural human walking.",
+    "g1-walk-v0": "The G1 humanoid robot should walk forward at 1m/s speed. The walking motion should be stable, energy-efficient, and closely resemble natural human walking.",
+    "gr1-walk-v0": "The GR-1 humanoid robot should walk forward at 1m/s speed without falling. The walking motion should be stable and closely resemble natural human walking.",
 }
