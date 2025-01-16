@@ -30,7 +30,7 @@ snapshot_dir: /home/changyeon/ICML2025/workspace/rlhf_robobase/snapshots
 
 reward_method:
   data_aug_ratio: 20
-  lambda_weight: 0.5
+  lambda_weight: 0.1
 
 method:
   critic_lr: 5e-5
