@@ -27,3 +27,56 @@ method:
   centralized_critic: false
   hidden_dim: 256
   gru_layers: 0
+
+  advantage_model:
+    _target_: robobase.models.MLPWithBottleneckFeatures
+    _partial_: true
+    input_shapes: ???
+    output_shape: ???
+    num_envs: ???
+    num_rnn_layers: 1
+    rnn_hidden_size: 128
+    keys_to_bottleneck: [fused_view_feats]
+    bottleneck_size: 64
+    norm_after_bottleneck: true
+    tanh_after_bottleneck: true
+    mlp_nodes: [512, 512]
+    activation: silu
+    norm: layer
+    linear_bias: false
+
+  value_model:
+    _target_: robobase.models.MLPWithBottleneckFeatures
+    _partial_: true
+    input_shapes: ???
+    output_shape: ???
+    num_envs: ???
+    num_rnn_layers: 1
+    rnn_hidden_size: 128
+    keys_to_bottleneck: [fused_view_feats]
+    bottleneck_size: 64
+    norm_after_bottleneck: true
+    tanh_after_bottleneck: true
+    mlp_nodes: [512, 512]
+    activation: silu
+    norm: layer
+    linear_bias: false
+
+  encoder_model:
+    _target_: robobase.models.EncoderCNNMultiViewDownsampleWithStrides
+    _partial_: true
+    input_shape: ???
+    num_downsample_convs: 1
+    num_post_downsample_convs: 3
+    channels: 32
+    kernel_size: 3
+    channels_multiplier: 1
+    padding: 0
+    activation: silu
+    norm: layer_for_cnn
+
+  view_fusion_model:
+    _target_: robobase.models.FusionMultiCamFeature
+    _partial_: true
+    input_shape: ???
+    mode: flatten
