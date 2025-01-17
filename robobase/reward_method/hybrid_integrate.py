@@ -427,7 +427,7 @@ class HybridReward(RewardMethod):
                             *args,
                             member=mem,
                         )
-                        _scaled_reward_weights = self.weight_tuner.transform_to_tanh(
+                        _scaled_reward_weights = self.weight_tuner.transform_to(
                             _reward_weights
                         )
                         if self.reward_operator == "sum":
@@ -468,7 +468,7 @@ class HybridReward(RewardMethod):
                         *args,
                         member=member,
                     )
-                    scaled_reward_weights = self.weight_tuner.transform_to_tanh(
+                    scaled_reward_weights = self.weight_tuner.transform_to(
                         _reward_weights
                     )
                     if self.reward_operator == "sum":
@@ -615,7 +615,7 @@ class HybridReward(RewardMethod):
                 raw_weight = self.weight_tuner(*args, member=mem).view(
                     *actions.shape[:-2], -1, reward_terms.shape[-1]
                 )
-                normalized_weight = self.weight_tuner.transform_to_tanh(raw_weight)
+                normalized_weight = self.weight_tuner.transform_to(raw_weight)
                 # weighted_reward: (bs, seq, num_reward_terms) -> (bs, seq, 1) -> (bs, 1)
                 if self.reward_operator == "sum":
                     weighted_reward = (normalized_weight * reward_terms).sum(
