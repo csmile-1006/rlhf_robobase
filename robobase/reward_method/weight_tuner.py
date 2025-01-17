@@ -29,7 +29,7 @@ from robobase.reward_method.core import RewardMethod
 
 
 class WeightRewardModel(nn.Module):
-    MIN = -1.0
+    MIN = 0.0
     MAX = 1.0
 
     def __init__(
@@ -45,6 +45,7 @@ class WeightRewardModel(nn.Module):
         self.ws = nn.ModuleList(
             [deepcopy(reward_model) for _ in range(num_reward_models)]
         )
+        self.apply(utils.weight_init)
         for w in self.ws:
             w.initialize_output_layer(utils.uniform_weight_init(0.0))
         if reward_lows is None:
@@ -79,10 +80,10 @@ class WeightRewardModel(nn.Module):
             net_ins["time_obs"] = time_obs
 
         weights = self.ws[member](net_ins)
-        weights = torch.tanh(weights)
+        weights = torch.sigmoid(weights)
         return weights
 
-    def transform_to_tanh(self, weights):
+    def transform_to_sigmoid(self, weights):
         orig_min, orig_max = self.reward_lows, self.reward_highs
         scale = (orig_max - orig_min) / (self.MAX - self.MIN)
         new_weights = orig_min + scale * (weights - self.MIN)
@@ -493,7 +494,7 @@ class WeightTunerReward(RewardMethod):
                             time_obs[_range] if time_obs is not None else None,
                             member=mem,
                         )
-                        scaled_reward_weights = self.reward.transform_to_tanh(
+                        scaled_reward_weights = self.reward.transform_to_sigmoid(
                             _reward_weights
                         )
                         weighted_reward = (
@@ -511,7 +512,7 @@ class WeightTunerReward(RewardMethod):
                         time_obs[_range] if time_obs is not None else None,
                         member=member,
                     )
-                    _scaled_reward_weights = self.reward.transform_to_tanh(
+                    _scaled_reward_weights = self.reward.transform_to_sigmoid(
                         _reward_weights
                     )
                     weighted_reward = (
@@ -611,7 +612,7 @@ class WeightTunerReward(RewardMethod):
                     else None,
                 ).view(*actions.shape[:-2], -1, reward_terms.shape[-1])
                 # r_hat: (bs, seq, num_reward_terms) -> (bs, seq, 1) -> (bs, 1)
-                scaled_r_hat_weight = self.reward.transform_to_tanh(r_hat_weight)
+                scaled_r_hat_weight = self.reward.transform_to_sigmoid(r_hat_weight)
                 r_hat = (scaled_r_hat_weight * reward_terms).sum(dim=-1, keepdim=True)
                 if self.data_aug_ratio > 0.0:
                     mask = self.get_cropping_mask(r_hat, self.data_aug_ratio)
