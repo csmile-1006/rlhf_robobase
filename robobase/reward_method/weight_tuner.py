@@ -29,7 +29,7 @@ from robobase.reward_method.core import RewardMethod
 
 
 class WeightRewardModel(nn.Module):
-    MIN = 0.0
+    MIN = -1.0
     MAX = 1.0
 
     def __init__(
