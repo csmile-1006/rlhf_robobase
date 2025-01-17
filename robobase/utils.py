@@ -87,14 +87,32 @@ def weight_init(m):
             m.bias.data.fill_(0.0)
 
 
+def xavier_weight_init(m):
+    if isinstance(m, nn.Linear):
+        nn.init.xavier_uniform_(m.weight.data)
+        if hasattr(m.bias, "data"):
+            m.bias.data.fill_(0.0)
+    elif isinstance(m, nn.Conv2d) or isinstance(m, nn.ConvTranspose2d):
+        nn.init.xavier_uniform_(m.weight.data)
+        if hasattr(m.bias, "data"):
+            m.bias.data.fill_(0.0)
+    elif isinstance(m, nn.LayerNorm):
+        m.weight.data.fill_(1.0)
+        if hasattr(m.bias, "data"):
+            m.bias.data.fill_(0.0)
+
+
 def uniform_weight_init(given_scale):
     def f(m):
         if isinstance(m, nn.Linear):
             in_num = m.in_features
             out_num = m.out_features
             denoms = (in_num + out_num) / 2.0
+            print(f"in_num: {in_num} / out_num: {out_num} / denoms: {denoms}")
             scale = given_scale / denoms
+            print(f"scale: {scale} / scale.type: {type(scale)}")
             limit = np.sqrt(3 * scale)
+            print(f"limit: {limit}")
             nn.init.uniform_(m.weight.data, a=-limit, b=limit)
             if hasattr(m.bias, "data"):
                 m.bias.data.fill_(0.0)
