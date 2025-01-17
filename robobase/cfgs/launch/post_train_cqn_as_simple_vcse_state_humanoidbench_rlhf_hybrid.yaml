@@ -52,8 +52,8 @@ rlhf:
   comparison_type: major_column
   major_column: speed_reward
   max_feedback: 500
-  update_every_steps: 200000
-  num_pretrain_frames: 500000
+  update_every_steps: 500000
+  num_pretrain_frames: 300000
   num_train_frames: 1000
   initialize_agent_per_session: false
   initialize_reward_model_per_session: true
@@ -64,7 +64,7 @@ rlhf:
   reset_after_rlhf: false
 
 rlhf_replay:
-  size: 400000
+  size: 1000000
   num_queries: 50
   num_labels: 1
   seq_len: 50
