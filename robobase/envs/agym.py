@@ -108,7 +108,7 @@ class AGym(gym.Env):
         if len(self._initial_terms) == 0:
             self._initial_terms = [key for key in self.original_reward_space.keys()]
         else:
-            self._initial_terms = [f"Reward/{key}" for key in self._initial_terms]
+            self._initial_terms = [key for key in self._initial_terms]
 
         if self._reward_term_type == "all":
             self._reward_terms = [key for key in self.__agym_env.reward_space.keys()]
@@ -143,14 +143,13 @@ class AGym(gym.Env):
     def agym_env(self):
         return self.__agym_env
 
-    def _get_obs(self, observation, image):
+    def _get_obs(self, observation):
         ret_obs = {
             "low_dim_state": observation.astype(np.float32),
         }
         if self._use_rlhf and self._use_gemini:
-            ret_obs.update(
-                {f"query_pixels_{key}": image[key] for key in self._query_keys}
-            )
+            for key in self._query_keys:
+                ret_obs[f"query_pixels_{key}"] = self.render().copy()
         return ret_obs
 
     def _flatten_obs(self, observation):
@@ -179,10 +178,6 @@ class AGym(gym.Env):
                 )
             else:
                 _reward = task_reward
-            if self._use_rlhf and self._use_gemini:
-                images = {key: self._render(key) for key in self._query_keys}
-            else:
-                images = {}
             reward += _reward
             for key in self._reward_terms:
                 info[f"Reward/{key}"] += _info[key]
@@ -192,20 +187,16 @@ class AGym(gym.Env):
                 break
         self._i += 1
         self._last_reward = last_reward
-        return self._get_obs(agym_obs, images), reward, terminated, truncated, info
+        return self._get_obs(agym_obs), reward, terminated, truncated, info
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
         if self._agym_env is None:
             self._launch()
         agym_obs, info = self._agym_env.reset(seed=seed, options=options)
-        if self._use_rlhf and self._use_gemini:
-            images = {key: self._render(key) for key in self._query_keys}
-        else:
-            images = {}
         info.update({key: 0.0 for key in self.reward_space.keys()})
         info.update({"task_reward": 0.0})
-        return self._get_obs(agym_obs, images), info
+        return self._get_obs(agym_obs), info
 
     def render(self, view: str = "front") -> None:
         return self._render(self._query_keys[0])

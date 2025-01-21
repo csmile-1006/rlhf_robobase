@@ -39,4 +39,4 @@ method:
 
 hydra:
   run:
-    dir: ./agym_exp_debug/state_cqn_as_simple_vcse/agym_${env.task_name}/default_seed${seed}_${now:%Y%m%d%H%M%S}
+    dir: ./agym_exp/state_cqn_as_simple_vcse/agym_${env.task_name}/default_seed${seed}_${now:%Y%m%d%H%M%S}
