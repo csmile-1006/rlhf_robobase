@@ -49,7 +49,7 @@ rlhf:
   use_rlhf: true
   feedback_type: gemini
   comparison_type: major_column
-  major_column: primary_reward
+  major_column: r_water_transfer
   max_feedback: 500
   update_every_steps: 20000
   num_pretrain_frames: 50000
