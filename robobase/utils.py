@@ -108,11 +108,8 @@ def uniform_weight_init(given_scale):
             in_num = m.in_features
             out_num = m.out_features
             denoms = (in_num + out_num) / 2.0
-            print(f"in_num: {in_num} / out_num: {out_num} / denoms: {denoms}")
             scale = given_scale / denoms
-            print(f"scale: {scale} / scale.type: {type(scale)}")
             limit = np.sqrt(3 * scale)
-            print(f"limit: {limit}")
             nn.init.uniform_(m.weight.data, a=-limit, b=limit)
             if hasattr(m.bias, "data"):
                 m.bias.data.fill_(0.0)

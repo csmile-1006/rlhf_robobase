@@ -15,6 +15,7 @@ from robobase.envs.wrappers import (
     FrameStack,
     RescaleFromTanh,
     ActionSequence,
+    RecedingHorizonControl,
 )
 from robobase.envs.utils.agym_utils import (
     TASK_DESCRIPTION,
@@ -48,7 +49,9 @@ class AGym(gym.Env):
         action_repeat: int = 1,
         frame_skip: int = 2,
         render_mode: str = "rgb_array",
-        query_keys: list[str] = ["right"],
+        use_rlhf: bool = False,
+        use_gemini: bool = False,
+        query_keys: list[str] = ["front"],
         reward_mode: str = "dense",
         reward_term_type: str = "all",
         initial_terms: list[float] = [],
@@ -66,14 +69,17 @@ class AGym(gym.Env):
         self._reward_term_type = reward_term_type
         self._initial_terms = initial_terms
         self._query_keys = query_keys
+        self._use_rlhf = use_rlhf
+        self._use_gemini = use_gemini
         self._agym_env = None
         self._launch()
 
     def _launch(self):
         print(f"Creating AGym environment with task name: {self._task_name}")
         self.__agym_env = gym_old.make(self._task_name)
+        self._agym_env_unwrapped = self.__agym_env.unwrapped
         self._agym_env = gym.wrappers.EnvCompatibility(
-            self.__agym_env, self._render_mode
+            self.__agym_env.unwrapped, self._render_mode
         )
         obs_dict = {}
         obs_dict["low_dim_state"] = spaces.Box(
@@ -81,14 +87,17 @@ class AGym(gym.Env):
             high=self._agym_env.observation_space.high,
             dtype=np.float32,
         )
-        for key in self._query_keys:
-            obs_dict[f"query_pixels_{key}"] = spaces.Box(
-                low=0,
-                high=255,
-                shape=(self.__agym_env.height, self.__agym_env.width, 3),
-                dtype=np.uint8,
-            )
+        if self._use_rlhf and self._use_gemini:
+            for key in self._query_keys:
+                obs_dict[f"query_pixels_{key}"] = spaces.Box(
+                    low=0,
+                    high=255,
+                    shape=(self.__agym_env.height, self.__agym_env.width, 3),
+                    dtype=np.uint8,
+                )
         self.observation_space = spaces.Dict(obs_dict)
+        self.original_reward_space = self.__agym_env.reward_space
+        self.default_reward_weights = self.__agym_env.default_reward_weights
 
         self.action_space = spaces.Box(
             low=self._agym_env.action_space.low,
@@ -97,7 +106,7 @@ class AGym(gym.Env):
         )
 
         if len(self._initial_terms) == 0:
-            self._initial_terms = [key for key in self.__agym_env.reward_space.keys()]
+            self._initial_terms = [key for key in self.original_reward_space.keys()]
         else:
             self._initial_terms = [f"Reward/{key}" for key in self._initial_terms]
 
@@ -112,27 +121,37 @@ class AGym(gym.Env):
 
         self.reward_space = spaces.Dict(
             {
-                k: gym.spaces.Box(
-                    low=self.__agym_env.reward_space[k].low,
-                    high=self.__agym_env.reward_space[k].high,
-                    shape=self.__agym_env.reward_space[k].shape,
+                f"Reward/{k}": gym.spaces.Box(
+                    low=self.original_reward_space[k].low,
+                    high=self.original_reward_space[k].high,
+                    shape=self.original_reward_space[k].shape,
                 )
                 for k in self._reward_terms
             }
         )
 
         self.initial_reward_scale = {
-            k: self.reward_space[k].high for k in self._initial_terms
+            k: self.default_reward_weights[k] for k in self._initial_terms
         }
+        self._last_reward = None
 
+    @property
+    def last_reward(self):
+        return self._last_reward
+
+    @property
     def agym_env(self):
         return self.__agym_env
 
     def _get_obs(self, observation, image):
-        return {
+        ret_obs = {
             "low_dim_state": observation.astype(np.float32),
-            **{f"query_pixels_{key}": image[key] for key in self._query_keys},
         }
+        if self._use_rlhf and self._use_gemini:
+            ret_obs.update(
+                {f"query_pixels_{key}": image[key] for key in self._query_keys}
+            )
+        return ret_obs
 
     def _flatten_obs(self, observation):
         obs_pieces = []
@@ -144,34 +163,35 @@ class AGym(gym.Env):
 
     def step(self, action):
         reward = 0
+        last_reward = {f"Reward/{k}": 0.0 for k in self._reward_terms}
+        info = {"task_reward": 0.0, **{f"Reward/{k}": 0.0 for k in self._reward_terms}}
         for _ in range(self._action_repeat):
-            agym_obs, task_reward, terminated, truncated, info = self._agym_env.step(
+            agym_obs, task_reward, terminated, truncated, _info = self._agym_env.step(
                 action
             )
             info["task_reward"] = task_reward
             if self._reward_mode == "initial":
                 _reward = np.sum(
                     [
-                        self.initial_reward_scale[key] * info[key]
+                        self.initial_reward_scale[key] * _info[key]
                         for key in self._initial_terms
                     ]
                 )
             else:
                 _reward = task_reward
-            if self._render_mode is None:
-                images = {
-                    key: np.zeros_like(
-                        self.observation_space.sample()[f"query_pixels_{key}"],
-                        dtype=np.uint8,
-                    )
-                    for key in self._query_keys
-                }
-            else:
+            if self._use_rlhf and self._use_gemini:
                 images = {key: self._render(key) for key in self._query_keys}
+            else:
+                images = {}
             reward += _reward
+            for key in self._reward_terms:
+                info[f"Reward/{key}"] += _info[key]
+                last_reward[f"Reward/{key}"] = _info[key]
+                last_reward["task_reward"] = task_reward
             if terminated or truncated:
                 break
         self._i += 1
+        self._last_reward = last_reward
         return self._get_obs(agym_obs, images), reward, terminated, truncated, info
 
     def reset(self, seed=None, options=None):
@@ -179,24 +199,18 @@ class AGym(gym.Env):
         if self._agym_env is None:
             self._launch()
         agym_obs, info = self._agym_env.reset(seed=seed, options=options)
-        if self._render_mode is None:
-            images = {
-                key: np.zeros_like(
-                    self.observation_space.sample()[f"query_pixels_{key}"],
-                    dtype=np.uint8,
-                )
-                for key in self._query_keys
-            }
-        else:
+        if self._use_rlhf and self._use_gemini:
             images = {key: self._render(key) for key in self._query_keys}
+        else:
+            images = {}
         info.update({key: 0.0 for key in self.reward_space.keys()})
         info.update({"task_reward": 0.0})
         return self._get_obs(agym_obs, images), info
 
-    def render(self, view: str = "right") -> None:
+    def render(self, view: str = "front") -> None:
         return self._render(self._query_keys[0])
 
-    def _render(self, view: str = "right") -> None:
+    def _render(self, view: str = "front") -> None:
         """Render the environment.
 
         Args:
@@ -227,20 +241,41 @@ class AGym(gym.Env):
 
 
 class AGymEnvFactory(EnvFactory):
-    def _wrap_env(self, env, cfg):
+    def __init__(self):
+        self.env_class = assistive_gym
+
+    def _wrap_env(self, env, cfg, eval_mode: bool = False):
         env = RescaleFromTanh(env)
         env = TimeLimit(env, cfg.env.episode_length)
         if cfg.use_onehot_time_and_no_bootstrap:
             env = OnehotTime(
                 env, cfg.env.episode_length // cfg.action_repeat
             )  # Time limits are handles by DMC
-        env = ActionSequence(env, cfg.action_sequence)
+        if cfg.temporal_ensemble:
+            logging.info(
+                f"Using temporal ensemble with action sequence {cfg.action_sequence}"
+            )
+            env = RecedingHorizonControl(
+                env,
+                cfg.action_sequence,
+                cfg.env.episode_length // cfg.action_repeat,
+                cfg.execution_length,
+                temporal_ensemble=cfg.temporal_ensemble,
+                gain=cfg.temporal_ensemble_gain,
+                stddev_schedule=cfg.method.get("stddev_schedule", 0.01),
+                num_explore_steps=cfg.num_explore_steps,
+                eval_mode=eval_mode,
+            )
+        else:
+            env = ActionSequence(env, cfg.action_sequence)
         env = FrameStack(env, cfg.frame_stack)
         return env
 
     def make_train_env(self, cfg: DictConfig) -> gym.vector.VectorEnv:
         vec_env_class = gym.vector.AsyncVectorEnv
         kwargs = dict(context=None)
+        # vec_env_class = gym.vector.SyncVectorEnv
+        # kwargs = dict()
         return vec_env_class(
             [
                 lambda: self._wrap_env(
@@ -248,6 +283,8 @@ class AGymEnvFactory(EnvFactory):
                         task_name=cfg.env.task_name,
                         action_repeat=cfg.action_repeat,
                         frame_skip=cfg.env.frame_skip,
+                        use_rlhf=cfg.rlhf.use_rlhf,
+                        use_gemini=cfg.rlhf.feedback_type == "gemini",
                         query_keys=cfg.env.query_keys,
                         render_mode="rgb_array" if cfg.rlhf.use_rlhf else None,
                         reward_mode=cfg.env.reward_mode,
@@ -255,6 +292,7 @@ class AGymEnvFactory(EnvFactory):
                         initial_terms=cfg.env.initial_terms,
                     ),
                     cfg,
+                    eval_mode=False,
                 )
                 for _ in range(cfg.num_train_envs)
             ],
@@ -267,6 +305,8 @@ class AGymEnvFactory(EnvFactory):
                 task_name=cfg.env.task_name,
                 action_repeat=cfg.action_repeat,
                 frame_skip=cfg.env.frame_skip,
+                use_rlhf=cfg.rlhf.use_rlhf,
+                use_gemini=cfg.rlhf.feedback_type == "gemini",
                 query_keys=cfg.env.query_keys,
                 render_mode="rgb_array",  # always render for evaluation
                 reward_mode=cfg.env.reward_mode,
@@ -274,6 +314,7 @@ class AGymEnvFactory(EnvFactory):
                 initial_terms=cfg.env.initial_terms,
             ),
             cfg,
+            eval_mode=True,
         )
 
     def get_task_description(self, cfg: DictConfig) -> str:

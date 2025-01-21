@@ -3,8 +3,8 @@
 env:
   env_name: agym
   episode_length: 200  # This is the default for DMC.
-  frame_skip: 1
-  query_keys: [right]
+  frame_skip: 2
+  query_keys: [front]
   reward_mode: dense
   initial_terms: []
   reward_term_type: initial

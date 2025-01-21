@@ -22,6 +22,35 @@ GENERAL_CRITERIA = """
 TASK_DESCRIPTION = {
     "DressingPR2-v0": "Carefully moving the sleeve up a person's stationary left arm. Start from the forearm near the wrist, move past the elbow, and continue up to the shoulder. Note that the robot is already holding the sleeve.",  # noqa
     "FeedingBaxter-v0": "Carefully moving the food on the spoon to the person's mouth without spilling.",
+    "DrinkingPR2-v0": """Task: Robot-Assisted Drinking
+Goal: Help a person drink water by controlling a robot that holds a cup filled with water (simulated as particles).
+Environment Setup:
+- The person's head orientation is randomized at the start
+- Water is represented by small spherical particles in the cup
+- The robot holds and controls the cup
+
+Reward Components:
+1. Cup Positioning
+   - Positive reward for moving cup closer to person's mouth
+   - Positive reward for appropriate cup tilting angle
+   - Positive reward for successful water transfer into mouth
+
+2. Safety Constraints
+   - Negative reward for spilling water
+   - Negative reward for any physical contact between cup and mouth
+   - Negative reward for rapid or jerky movements
+
+3. Comfort Requirements
+   - Movements should be smooth and predictable
+   - Robot should maintain appropriate distance from person
+   - Cup approach and water pouring should be gentle
+
+Success Criteria:
+- Water particles enter person's mouth
+- No water is spilled during the process
+- No physical contact between cup and person
+- Smooth and comfortable robot motion throughout task
+""",
 }
 
 SUBTASK_LIST = {

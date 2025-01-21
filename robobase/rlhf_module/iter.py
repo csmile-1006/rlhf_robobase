@@ -452,7 +452,7 @@ def get_rlhf_iter_fn(
             gemini_model_config = cfg.rlhf.gemini
             video_path = work_dir / "feedbacks" / "videos"
             video_path.mkdir(parents=True, exist_ok=True)
-            if cfg.env.env_name == "agym":
+            if False:
                 general_criteria = env_factory.get_general_criteria(cfg)
                 subtasks = env_factory.get_subtask_list(cfg)
                 return partial(
@@ -466,7 +466,7 @@ def get_rlhf_iter_fn(
                     subtasks=subtasks,
                     video_path=video_path,
                 )
-            elif cfg.env.env_name in ["dmc", "locomujoco", "humanoidbench"]:
+            elif cfg.env.env_name in ["agym", "dmc", "locomujoco", "humanoidbench"]:
                 return partial(
                     collect_gemini_locomotion_preferences,
                     num_queries=cfg.rlhf_replay.num_queries,

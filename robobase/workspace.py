@@ -336,7 +336,7 @@ class Workspace:
             logging.warning("Train env is not created. Training will not be supported ")
 
         self.use_rlhf = cfg.rlhf.use_rlhf
-        if self.cfg.env.env_name in ["humanoidbench", "dmc"]:
+        if self.cfg.env.env_name in ["humanoidbench", "dmc", "agym"]:
             reward_space = self.eval_env.unwrapped.reward_space
             extra_replay_elements = reward_space
         else:
