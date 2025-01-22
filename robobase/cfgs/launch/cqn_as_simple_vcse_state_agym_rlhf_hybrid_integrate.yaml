@@ -51,7 +51,7 @@ rlhf:
   comparison_type: major_column
   major_column: r_water_transfer
   max_feedback: 500
-  update_every_steps: 20000
+  update_every_steps: 50000
   num_pretrain_frames: 50000
   num_train_frames: 1000
   initialize_agent_per_session: false

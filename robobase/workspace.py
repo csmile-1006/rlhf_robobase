@@ -26,6 +26,7 @@ import robobase
 from robobase import utils
 from robobase.envs.env import EnvFactory
 from robobase.logger import Logger
+from robobase.method.value_based import ValueBased
 from robobase.replay_buffer.prioritized_replay_buffer import PrioritizedReplayBuffer
 from robobase.replay_buffer.replay_buffer import ReplayBuffer
 from robobase.replay_buffer.rlhf.feedback_replay_buffer import FeedbackReplayBuffer
@@ -386,7 +387,7 @@ class Workspace:
                 num_workers=cfg.rlhf_replay.num_workers,
                 pin_memory=cfg.rlhf_replay.pin_memory,
                 worker_init_fn=partial(_worker_init_fn, offset=4567),
-                persistent_workers=True,
+                persistent_workers=False,
             )
             self._query_replay_iter, self._feedback_replay_iter = None, None
 
@@ -410,7 +411,7 @@ class Workspace:
             #     pin_memory=cfg.replay.pin_memory,
             #     worker_init_fn=_worker_init_fn,
             #     prefetch_factor=1,
-            #     persistent_workers=True,
+            #     persistent_workers=False,
             # )
 
             # self._on_policy_replay_iter = None
@@ -452,7 +453,7 @@ class Workspace:
             num_workers=cfg.replay.num_workers,
             pin_memory=cfg.replay.pin_memory,
             worker_init_fn=_worker_init_fn,
-            persistent_workers=True,
+            persistent_workers=False,
         )
         self._replay_iter = None
 
@@ -477,7 +478,7 @@ class Workspace:
                 num_workers=cfg.replay.num_workers,
                 pin_memory=cfg.replay.pin_memory,
                 worker_init_fn=partial(_worker_init_fn, offset=3407),
-                persistent_workers=True,
+                persistent_workers=False,
             )
             if self.use_rlhf:
                 self.demo_query_replay_buffer = _create_default_query_replay_buffer(
@@ -492,7 +493,7 @@ class Workspace:
                     self.demo_query_replay_buffer,
                     batch_size=self.demo_query_replay_buffer.batch_size,
                     num_workers=0,
-                    persistent_workers=True,
+                    persistent_workers=False,
                 )
 
         if self.prioritized_replay:
@@ -974,14 +975,23 @@ class Workspace:
                 self.agent.num_update_steps if self.main_loop_iterations == 0 else 1
             )
             for _ in range(num_update_steps):
-                batch = self.agent.extract_batch(self.replay_iter)
-                metrics.update(update_fn(batch))
-                if not unsup_train:
-                    self._update_step += 1
-                    self.agent.update_target_critic(self.update_steps)
+                if isinstance(self.agent, ValueBased):
+                    batch = self.agent.extract_batch(self.replay_iter)
+                    metrics.update(update_fn(batch))
+                    if not unsup_train:
+                        self._update_step += 1
+                        self.agent.update_target_critic(self.update_steps)
+                    else:
+                        self._unsup_update_step += 1
+                        self.agent.update_target_critic(self.unsup_update_steps)
                 else:
-                    self._unsup_update_step += 1
-                    self.agent.update_target_critic(self.unsup_update_steps)
+                    metrics.update(
+                        update_fn(
+                            self.replay_iter,
+                            self.main_loop_iterations + i,
+                            self.replay_buffer,
+                        )
+                    )
         self.agent.train(False)
         if self.agent.logging:
             execution_time_for_update = time.time() - start_time
@@ -1243,7 +1253,7 @@ class Workspace:
                 #     self._replay_iter = None
                 #     self.replay_loader = DataLoader(
                 #         self.replay_buffer,
-                #         persistent_workers=True,
+                #         persistent_workers=False,
                 #         batch_size=self.replay_buffer.batch_size * 2,
                 #         num_workers=self.cfg.replay.num_workers,
                 #         pin_memory=self.cfg.replay.pin_memory,
@@ -1428,7 +1438,7 @@ class Workspace:
                         # self._replay_iter = None
                         # self.replay_loader = DataLoader(
                         #     self.replay_buffer,
-                        #     persistent_workers=True,
+                        #     persistent_workers=False,
                         #     batch_size=self.replay_buffer.batch_size,
                         #     num_workers=self.cfg.replay.num_workers,
                         #     pin_memory=self.cfg.replay.pin_memory,

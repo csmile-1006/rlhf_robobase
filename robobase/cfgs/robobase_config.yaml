@@ -58,7 +58,7 @@ replay:
   save_dir: null
   nstep: 3
   num_workers: 4
-  pin_memory: false
+  pin_memory: true
   alpha: 0.7  # prioritization
   beta: 0.5  # prioritization
   sequential: false
