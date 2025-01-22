@@ -7,6 +7,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from tensordict import TensorDict
 
 from torch.distributions import Distribution
 
@@ -973,3 +974,9 @@ class ActorCritic(OffPolicyMethod, ABC):
         self.critic.set_eval_env_running(value)
         if self.intr_critic is not None:
             self.intr_critic.set_eval_env_running(value)
+
+    def update_unsupervised(self, batch: TensorDict):
+        pass
+
+    def update_only_critic(self, batch: TensorDict):
+        pass
