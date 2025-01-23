@@ -1,0 +1,8 @@
+# @package _global_
+
+defaults:
+  - isaaclab
+  - _self_
+
+env:
+  task_name: Isaac-Velocity-Flat-H1-v0

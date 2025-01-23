@@ -73,6 +73,7 @@ class FrameStack(gym.ObservationWrapper, gym.utils.RecordConstructorArgs):
             )
         self.observation_space = spaces.Dict(new_obs_dict)
         self._concat_fn = np.concatenate if lib == "numpy" else torch.cat
+        self.lib = lib
 
     def _add_frame(self, observation):
         for name, value in observation.items():

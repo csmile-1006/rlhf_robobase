@@ -1,3 +1,4 @@
+# import os
 import logging
 import shutil
 import signal
@@ -13,21 +14,20 @@ import numpy as np
 import torch
 from hydra.core.hydra_config import HydraConfig
 from omegaconf import DictConfig
+from tensordict.nn import CudaGraphModule
 from torch.utils.data import DataLoader
 
 from robobase import utils
 from robobase.envs.isaaclab import IsaacLabEnvFactory
 from robobase.logger import Logger
+from robobase.method.value_based import ValueBased
 from robobase.replay_buffer.replay_buffer import ReplayBuffer
-from robobase.rlhf_module.iter import get_rlhf_iter_fn
-from robobase.rlhf_module.query import get_query_fn
 
 from robobase.workspace import (
     _worker_init_fn,
     relabel_with_predictor,
     _create_default_replay_buffer,
     _create_default_query_replay_buffer,
-    _create_default_feedback_replay_buffer,
 )
 
 torch.backends.cudnn.benchmark = True
@@ -37,7 +37,7 @@ class IsaacLabWorkspace:
     def __init__(
         self,
         cfg: DictConfig,
-        env: gym.Env,
+        # env: gym.Env,
         env_factory: IsaacLabEnvFactory = None,
         create_replay_fn: Optional[Callable[[DictConfig], ReplayBuffer]] = None,
         work_dir: Optional[str] = None,
@@ -54,20 +54,8 @@ class IsaacLabWorkspace:
         )
         print(f"workspace: {self.work_dir}")
 
-        # Sanity checks
-        if (
-            cfg.replay_size_before_train * cfg.action_repeat * cfg.action_sequence
-            < env.unwrapped.max_episode_length
-            and cfg.replay_size_before_train > 0
-        ):
-            raise ValueError(
-                "replay_size_before_train * action_repeat "
-                f"({cfg.replay_size_before_train} * {cfg.action_repeat}) "
-                f"must be >= episode_length ({env.unwrapped.max_episode_length})."
-            )
-
-        if cfg.method.is_rl and cfg.action_sequence != 1:
-            raise ValueError("Action sequence > 1 is not supported for RL methods")
+        # if cfg.method.is_rl and cfg.action_sequence != 1:
+        #     raise ValueError("Action sequence > 1 is not supported for RL methods")
         if cfg.method.is_rl and cfg.execution_length != 1:
             raise ValueError("execution_length > 1 is not supported for RL methods")
         if not cfg.method.is_rl and cfg.replay.nstep != 1:
@@ -94,13 +82,34 @@ class IsaacLabWorkspace:
         self.logger = Logger(self.work_dir, cfg=self.cfg)
         self.env_factory = env_factory
 
-        if (num_demos := cfg.demos) > 0:
+        if (num_demos := cfg.demos) != 0:
             # Collect demos or fetch saved demos before making environments
             # to consider demo-based action space (e.g., standardization)
             self.env_factory.collect_or_fetch_demos(cfg, num_demos)
 
         # Make training environment
-        self.train_envs = self.env_factory.make_train_env(env, cfg)
+        self.train_envs = self.env_factory.make_train_env(cfg)
+        video_interval = 10
+        video_kwargs = {
+            "video_folder": self.work_dir / "videos" / "train",
+            "step_trigger": lambda step: step % video_interval == 0,
+            "video_length": 1000,
+            "disable_logger": True,
+        }
+        self.train_envs = gym.wrappers.RecordVideo(self.train_envs, **video_kwargs)
+
+        # Sanity checks
+        if (
+            not cfg.is_imitation_learning
+            and cfg.replay_size_before_train * cfg.action_repeat * cfg.action_sequence
+            < self.train_envs.unwrapped.max_episode_length
+            and cfg.replay_size_before_train > 0
+        ):
+            raise ValueError(
+                "replay_size_before_train * action_repeat "
+                f"({cfg.replay_size_before_train} * {cfg.action_repeat}) "
+                f"must be >= episode_length ({self.train_envs.unwrapped.max_episode_length})."
+            )
 
         # Create evaluation environment
         self.eval_env = None
@@ -130,7 +139,8 @@ class IsaacLabWorkspace:
             shape=(1, self.train_envs.action_space.shape[-1]),
         )
 
-        reward_space = self.train_envs.unwrapped.single_reward_space
+        # reward_space = self.train_envs.unwrapped.single_reward_space
+        reward_space = None
 
         intrinsic_reward_module = None
         if cfg.get("intrinsic_reward_module", None):
@@ -154,8 +164,14 @@ class IsaacLabWorkspace:
         )
         self.agent.train(False)
 
+        self.use_rlhf = cfg.rlhf.use_rlhf
+
         self.replay_buffer = create_replay_fn(
-            cfg, observation_space, action_space, extra_replay_elements=reward_space
+            cfg,
+            observation_space,
+            action_space,
+            save_dir=self.work_dir,
+            extra_replay_elements=reward_space,
         )
         self.prioritized_replay = cfg.replay.prioritization
         self.extra_replay_elements = self.replay_buffer.extra_replay_elements
@@ -169,59 +185,6 @@ class IsaacLabWorkspace:
         )
         self._replay_iter = None
 
-        self.use_rlhf = cfg.rlhf.use_rlhf
-        if self.use_rlhf:
-            self.reward_model = hydra.utils.instantiate(
-                cfg.reward_method,
-                device=self.device,
-                observation_space=observation_space,
-                action_space=action_space,
-                reward_space=reward_space,
-            )
-            self.reward_model.train(False)
-            self.replay_buffer.set_reward_model(self.reward_model)
-
-            self.query_replay_buffer = _create_default_query_replay_buffer(
-                cfg,
-                observation_space,
-                action_space,
-                save_dir=self.work_dir,
-                extra_replay_elements=reward_space,
-            )
-
-            self.feedback_replay_buffer = _create_default_feedback_replay_buffer(
-                cfg,
-                observation_space,
-                action_space,
-                save_dir=self.work_dir,
-                extra_replay_elements=reward_space,
-            )
-
-            self.query_replay_loader = DataLoader(
-                self.query_replay_buffer,
-                batch_size=self.query_replay_buffer.batch_size,
-                num_workers=0,
-            )
-            self.feedback_replay_loader = DataLoader(
-                self.feedback_replay_buffer,
-                batch_size=self.feedback_replay_buffer.batch_size,
-                num_workers=0,
-            )
-            self._query_replay_iter, self._feedback_replay_iter = None, None
-
-            # RLHF settings
-            self._reward_pretrain_step = 0
-            self._total_feedback = 0
-
-            if cfg.rlhf.feedback_type == "gemini":
-                cfg.rlhf.gemini.task_description = (
-                    self.env_factory.get_task_description(cfg)
-                )
-                cfg.rlhf.gemini.output_path = self.work_dir / "gemini"
-
-            self._comparison_fn = get_rlhf_iter_fn(cfg)
-            self._query_fn = get_query_fn(cfg.rlhf.query_type)
-
         # Create a separate demo replay that contains successful episodes.
         # This is designed for RL. IL algorithms don't have to use this!
         # TODO: Change the name to `self_imitation_buffer` or other names
@@ -233,6 +196,7 @@ class IsaacLabWorkspace:
                 cfg,
                 observation_space,
                 action_space,
+                save_dir=self.work_dir,
                 demo_replay=True,
                 extra_replay_elements=reward_space,
             )
@@ -270,10 +234,22 @@ class IsaacLabWorkspace:
 
         # self.eval_video_recorder = VideoRecorder((self.work_dir / "eval_videos") if self.cfg.log_eval_video else None)
 
+        video_interval = 10
+        video_kwargs = {
+            "video_folder": self.work_dir / "videos" / "train",
+            "step_trigger": lambda step: step % video_interval == 0,
+            "video_length": 1000,
+            "disable_logger": True,
+        }
+        logging.info("Recording videos during training.")
+        self.train_envs = gym.wrappers.RecordVideo(self.train_envs, **video_kwargs)
+
         self._timer = utils.Timer()
         self._pretrain_step = 0
         self._main_loop_iterations = 0
         self._global_env_episode = 0
+        self._update_step = 0
+
         if self.train_envs:
             self._episode_rollouts = [[] for _ in range(cfg.num_train_envs)]
         else:
@@ -293,6 +269,14 @@ class IsaacLabWorkspace:
     @property
     def reward_pretrain_steps(self):
         return self._reward_pretrain_step
+
+    @property
+    def update_steps(self):
+        return self._update_step
+
+    @property
+    def unsup_update_steps(self):
+        return self._unsup_update_step
 
     @property
     def total_feedback(self):
@@ -319,8 +303,12 @@ class IsaacLabWorkspace:
         return (
             self._main_loop_iterations
             * self.cfg.action_repeat
-            * self.cfg.num_train_envs
-            * self.cfg.action_sequence
+            * self.train_envs.num_envs
+            * (
+                self.cfg.action_sequence
+                if not self.cfg.temporal_ensemble
+                else self.cfg.execution_length
+            )
             + self.pretrain_steps
         )
 
@@ -366,8 +354,38 @@ class IsaacLabWorkspace:
         try:
             self._train()
         except Exception as e:
+            logging.critical(e)
             self.shutdown()
             raise e
+
+    def _setup_training_functions(self):
+        if self.cfg.use_compile:
+            self._update_fn = torch.compile(self.agent.update)
+            self._act_fn = torch.compile(self.agent.act)
+            torch.set_float32_matmul_precision("high")
+            if self.cfg.rlhf.use_rlhf:
+                self._update_unsupervised_fn = torch.compile(
+                    self.agent.update_unsupervised
+                )
+                self._update_only_critic_fn = torch.compile(
+                    self.agent.update_only_critic
+                )
+        else:
+            self._update_fn = self.agent.update
+            self._act_fn = self.agent.act
+            if self.cfg.rlhf.use_rlhf:
+                self._update_unsupervised_fn = self.agent.update_unsupervised
+                self._update_only_critic_fn = self.agent.update_only_critic
+
+        if self.cfg.use_cuda_graph:
+            self._update_fn = CudaGraphModule(self._update_fn, in_keys=[], out_keys=[])
+            if self.cfg.rlhf.use_rlhf:
+                self._update_unsupervised_fn = CudaGraphModule(
+                    self._update_unsupervised_fn, in_keys=[], out_keys=[]
+                )
+                self._update_only_critic_fn = CudaGraphModule(
+                    self._update_only_critic_fn, in_keys=[], out_keys=[]
+                )
 
     def _train(self):
         # Load Demo
@@ -376,11 +394,13 @@ class IsaacLabWorkspace:
         # Perform pretraining. This is suitable for behaviour cloning or Offline RL
         self._pretrain_on_demos()
 
-        if self.use_rlhf:
-            self._pretrain_reward_model_on_demos()
+        # if self.use_rlhf:
+        #     self._pretrain_reward_model_on_demos()
+
+        self._setup_training_functions()
 
         # Perform online rl with exploration.
-        self._online_rl() if not self.use_rlhf else self._online_rlhf()
+        self._online_rl()
 
         if self.cfg.save_snapshot:
             self.save_snapshot()
@@ -396,6 +416,7 @@ class IsaacLabWorkspace:
 
     # Deprecated
     def _eval(self, eval_record_all_episode: bool = False) -> dict[str, Any]:
+        raise NotImplementedError("This method is deprecated. Please do not use.")
         # TODO: In future, this func could do with a further refactor
         self.agent.set_eval_env_running(True)
         step, episode, total_reward, successes = 0, 0, 0, 0
@@ -458,7 +479,6 @@ class IsaacLabWorkspace:
         truncations,
         infos,
         next_infos,
-        use_reward_model=False,
     ):
         # TODO: In future, this func could do with a further refactor
         # TODO: Add transitions into replay buffer in sliding window fashion??
@@ -501,9 +521,7 @@ class IsaacLabWorkspace:
 
                 # Re-labeling demonstrations with reward model
                 if self.use_rlhf:
-                    ep = self.reward_model.compute_reward(
-                        ep, use_reward_model=use_reward_model
-                    )
+                    ep = self.reward_model.compute_reward(ep, final_obs=final_obs)
 
                 # Re-labeling successful demonstrations as success, following CQN
                 relabeling_as_demo = (
@@ -529,7 +547,7 @@ class IsaacLabWorkspace:
                     extra_replay_elements = {
                         k: v
                         for k, v in info.items()
-                        if k in self.extra_replay_elements.keys()
+                        if k in list(self.extra_replay_elements.keys())
                     }
 
                     self.replay_buffer.add(
@@ -572,13 +590,17 @@ class IsaacLabWorkspace:
         self._shutting_down = True
 
     def _load_demos(self):
-        if (num_demos := self.cfg.demos) > 0:
+        if (num_demos := self.cfg.demos) != 0:
             # NOTE: Currently we do not protect demos from being evicted from replay
-            self.env_factory.load_demos_into_replay(self.cfg, self.replay_buffer)
+            self.env_factory.load_demos_into_replay(
+                self.cfg,
+                self.replay_buffer,
+                is_demo_buffer=True if self.cfg.is_imitation_learning else False,
+            )
             if self.use_demo_replay:
                 # Load demos to the dedicated demo_replay_buffer
                 self.env_factory.load_demos_into_replay(
-                    self.cfg, self.demo_replay_buffer
+                    self.cfg, self.demo_replay_buffer, is_demo_buffer=True
                 )
             if self.use_rlhf:
                 # Load demos to the dedicated query_replay_buffer
@@ -600,31 +622,43 @@ class IsaacLabWorkspace:
                 )
 
     def _perform_updates(self, unsup_train: bool = False) -> dict[str, Any]:
+        def choose_update_fn():
+            if unsup_train:
+                return self._update_unsupervised_fn
+            else:
+                return self._update_fn
+
+        update_fn = choose_update_fn()
         if self.agent.logging:
             start_time = time.time()
         metrics = {}
         self.agent.train(True)
-        for i in range(self.train_envs.num_envs):
+        num_update_steps = (
+            self.cfg.num_update_steps if self.main_loop_iterations == 0 else 1
+        )
+        for i in range(num_update_steps):
             if (self.main_loop_iterations + i) % self.cfg.update_every_steps != 0:
                 # Skip update
                 continue
-            for _ in range(self.cfg.num_update_steps):
-                if unsup_train:
-                    metrics.update(
-                        self.agent.update_state_entropy(
-                            self.replay_iter,
-                            self.main_loop_iterations + i,
-                            self.replay_buffer,
-                        )
-                    )
+
+            if isinstance(self.agent, ValueBased):
+                batch = self.agent.extract_batch(self.replay_iter)
+                metrics.update(update_fn(batch))
+                if not unsup_train:
+                    self._update_step += 1
+                    self.agent.update_target_critic(self.update_steps)
                 else:
-                    metrics.update(
-                        self.agent.update(
-                            self.replay_iter,
-                            self.main_loop_iterations + i,
-                            self.replay_buffer,
-                        )
+                    self._unsup_update_step += 1
+                    self.agent.update_target_critic(self.unsup_update_steps)
+            else:
+                metrics.update(
+                    update_fn(
+                        self.replay_iter,
+                        self.main_loop_iterations + i,
+                        self.replay_buffer,
                     )
+                )
+
         self.agent.train(False)
         if self.agent.logging:
             execution_time_for_update = time.time() - start_time
@@ -676,13 +710,18 @@ class IsaacLabWorkspace:
         if self.agent.logging:
             start_time = time.time()
         with torch.no_grad(), utils.eval_mode(self.agent):
-            torch_observations = observations
+            torch_observations = {
+                k: torch.as_tensor(v, dtype=torch.float32, device=self.device)
+                for k, v in observations.items()
+            }
             if eval_mode:
                 torch_observations = {
                     k: v.unsqueeze(0) for k, v in torch_observations.items()
                 }
-            action = self.agent.act(
-                torch_observations, self.main_loop_iterations, eval_mode=eval_mode
+            action = self._act_fn(
+                torch_observations,
+                self.main_loop_iterations,
+                eval_mode=True if self.cfg.temporal_ensemble else eval_mode,
             )
             metrics = {}
             # Below is testing a feature which can be enforced in v6.
@@ -694,8 +733,7 @@ class IsaacLabWorkspace:
             # action = action.cpu().detach().numpy()
             if action.ndim != 3:
                 raise ValueError(
-                    "Expected actions from `agent.act` to have shape "
-                    "(Batch, Timesteps, Action Dim)."
+                    "Expected actions from `agent.act` to have shape (Batch, Timesteps, Action Dim)."
                 )
             if eval_mode:
                 action = action[0]  # we expect batch of 1 for eval
@@ -806,9 +844,8 @@ class IsaacLabWorkspace:
 
         observations, info = self.train_envs.reset()
         #  We use agent 0 to accumulate stats about how the training agents are doing
-        agent_0_ep_len = agent_0_reward = 0
-        agent_0_prev_ep_len = agent_0_prev_reward = None
-
+        agent_0_ep_len = agent_0_reward = agent_0_learned_reward = 0
+        agent_0_prev_ep_len = agent_0_prev_reward = agent_0_prev_learned_reward = None
         while train_until_frame(self.global_env_steps):
             metrics = {}
 
@@ -816,21 +853,30 @@ class IsaacLabWorkspace:
             if should_log(self.main_loop_iterations):
                 self.agent.logging = True
             if not seed_until_size(len(self.replay_buffer)):
-                update_metrics = self._perform_updates()
+                update_metrics = self._perform_updates(
+                    unsup_train=self.use_rlhf
+                    and self.unsup_update_steps < self.cfg.rlhf.num_unsup_train_frames
+                )
                 metrics.update(update_metrics)
 
             (
                 action,
                 (next_observations, rewards, terminations, truncations, next_info),
                 env_metrics,
-            ) = self._perform_env_steps(observations, self.train_envs, False)
+            ) = self._perform_env_steps(
+                observations,
+                self.train_envs,
+                False,
+            )
 
-            agent_0_reward += rewards[0]
+            agent_0_learned_reward += rewards[0]
+            agent_0_reward += next_info.get("task_reward", rewards)[0]
             agent_0_ep_len += 1
             if terminations[0] or truncations[0]:
                 agent_0_prev_ep_len = agent_0_ep_len
                 agent_0_prev_reward = agent_0_reward
-                agent_0_ep_len = agent_0_reward = 0
+                agent_0_prev_learned_reward = agent_0_learned_reward
+                agent_0_ep_len = agent_0_reward = agent_0_learned_reward = 0
 
             metrics.update(env_metrics)
             transitions = (
@@ -845,7 +891,6 @@ class IsaacLabWorkspace:
             numpy_transitions = list(map(utils.convert_torch_to_numpy, transitions))
             self._add_to_replay(
                 *numpy_transitions,
-                use_reward_model=seed_until_size(len(self.replay_buffer)),
             )
             observations = next_observations
             info = next_info
@@ -855,6 +900,7 @@ class IsaacLabWorkspace:
                     metrics.update(
                         {
                             "episode_reward": agent_0_prev_reward,
+                            "episode_learned_reward": agent_0_prev_learned_reward,
                             "episode_length": agent_0_prev_ep_len
                             * self.cfg.action_repeat,
                         }
@@ -876,156 +922,6 @@ class IsaacLabWorkspace:
                     else:
                         self.logger._log(key, value, self.global_env_steps)  # type: ignore
                 self.logger._dump(self.global_env_steps, "train")  # type: ignore
-
-            # temporarily disable evaluation in IsaacLab.
-            if False:
-                eval_metrics = self._eval()
-                eval_metrics.update(self._get_common_metrics())
-                self.logger.log_metrics(
-                    eval_metrics, self.global_env_steps, prefix="eval"
-                )
-
-            if should_save_snapshot(self.main_loop_iterations):
-                self.save_snapshot()
-
-            if self._shutting_down:
-                break
-
-            self._main_loop_iterations += 1
-
-    def _online_rlhf(self):
-        train_until_frame = utils.Until(self.cfg.num_train_frames)
-        seed_until_size = utils.Until(self.cfg.replay_size_before_train)
-        unsup_train_until_frame = utils.Until(
-            self.cfg.rlhf.num_unsup_train_frames + self.cfg.replay_size_before_train
-        )
-        should_log = utils.Every(self.cfg.log_every)
-        # eval_every_n = self.cfg.eval_every_steps if self.eval_env is not None else 0
-        # should_eval = utils.Every(eval_every_n)
-        snapshot_every_n = self.cfg.snapshot_every_n if self.cfg.save_snapshot else 0
-        should_save_snapshot = utils.Every(snapshot_every_n)
-
-        should_update_reward_model = utils.Every(self.cfg.rlhf.update_every_steps)
-        should_log_reward_model = utils.Every(self.cfg.rlhf.log_every)
-        snapshot_reward_model_every_n = (
-            self.cfg.rlhf.snapshot_every_n if self.cfg.save_snapshot else 0
-        )
-        should_save_reward_model_snapshot = utils.Every(snapshot_reward_model_every_n)
-
-        observations, info = self.train_envs.reset()
-        #  We use agent 0 to accumulate stats about how the training agents are doing
-        agent_0_ep_len = agent_0_reward = 0
-        agent_0_prev_ep_len = agent_0_prev_reward = None
-
-        while train_until_frame(self.global_env_steps):
-            metrics = {}
-
-            num_reward_model_updates = 0
-            self.reward_model.logging = False
-            if (
-                not seed_until_size(len(self.replay_buffer))
-                and not unsup_train_until_frame(len(self.replay_buffer))
-                and self.total_feedback < self.cfg.rlhf.max_feedback
-                and should_update_reward_model(self.global_env_steps)
-            ):
-                self.reward_model.logging = True
-                logging.info(
-                    f"[Feedback {self.total_feedback} / {self.cfg.rlhf.max_feedback}] Collecting feedback for {self.cfg.rlhf_replay.num_queries} queries"  # noqa
-                )
-                self.collect_feedback()
-                for it in range(self.cfg.rlhf.num_train_frames):
-                    reward_update_metrics = self._perform_reward_model_updates()
-                    metrics.update(reward_update_metrics)
-                    metrics.update(self._get_common_metrics())
-                    metrics["iteration"] = self.global_env_steps + it
-                    if should_log_reward_model(it):
-                        self.logger.log_metrics(
-                            metrics, metrics["iteration"], prefix="train_reward"
-                        )
-                    metrics = {}
-                relabel_with_predictor(self.reward_model, self.replay_buffer)
-                if self.use_demo_replay:
-                    relabel_with_predictor(self.reward_model, self.demo_replay_buffer)
-
-                if num_reward_model_updates == 0:
-                    (
-                        self.agent.critic,
-                        self.agent.critic_target,
-                        self.agent.critic_opt,
-                    ) = self.agent.build_critic()
-                    self.agent.train(True)
-                    for j in range(self.cfg.rlhf.num_reset_update_steps):
-                        _ = self.agent.update(
-                            self.replay_iter,
-                            self.main_loop_iterations + j,
-                            self.replay_buffer,
-                        )
-                    self.agent.train(False)
-                num_reward_model_updates += 1
-
-            if (
-                self.total_feedback < self.cfg.rlhf.max_feedback
-                and should_save_reward_model_snapshot(self.main_loop_iterations)
-            ):
-                self.save_reward_model_snapshot()
-
-            self.agent.logging = False
-            if should_log(self.main_loop_iterations):
-                self.agent.logging = True
-
-            if not seed_until_size(len(self.replay_buffer)):
-                update_metrics = self._perform_updates(
-                    unsup_train=unsup_train_until_frame(len(self.replay_buffer))
-                )
-                metrics.update(update_metrics)
-
-            (
-                action,
-                (next_observations, rewards, terminations, truncations, next_info),
-                env_metrics,
-            ) = self._perform_env_steps(observations, self.train_envs, False)
-
-            agent_0_reward += rewards[0]
-            agent_0_ep_len += 1
-            if terminations[0] or truncations[0]:
-                agent_0_prev_ep_len = agent_0_ep_len
-                agent_0_prev_reward = agent_0_reward
-                agent_0_ep_len = agent_0_reward = 0
-
-            metrics.update(env_metrics)
-            transitions = (
-                action,
-                observations,
-                rewards,
-                terminations,
-                truncations,
-                info,
-                next_info,
-            )
-            numpy_transitions = list(map(utils.convert_torch_to_numpy, transitions))
-            self._add_to_replay(
-                *numpy_transitions,
-                use_reward_model=seed_until_size(len(self.replay_buffer)),
-            )
-            observations = next_observations
-            info = next_info
-            if should_log(self.main_loop_iterations):
-                metrics.update(self._get_common_metrics())
-                if agent_0_prev_reward is not None and agent_0_prev_ep_len is not None:
-                    metrics.update(
-                        {
-                            "episode_reward": agent_0_prev_reward,
-                            "episode_length": agent_0_prev_ep_len
-                            * self.cfg.action_repeat,
-                        }
-                    )
-                self.logger.log_metrics(
-                    metrics,
-                    self.global_env_steps,
-                    prefix="train"
-                    if not unsup_train_until_frame(len(self.replay_buffer))
-                    else "unsup_train",
-                )
 
             # temporarily disable evaluation in IsaacLab.
             if False:
@@ -1081,7 +977,7 @@ class IsaacLabWorkspace:
         latest_snapshot = self.work_dir / "snapshots" / "latest_snapshot.pt"
         shutil.copy(snapshot, latest_snapshot)
 
-    def load_snapshot(self, path_to_snapshot_to_load=None):
+    def load_snapshot(self, path_to_snapshot_to_load=None, override_cfg=False):
         if path_to_snapshot_to_load is None:
             path_to_snapshot_to_load = (
                 self.work_dir / "snapshots" / "latest_snapshot.pt"
@@ -1096,7 +992,9 @@ class IsaacLabWorkspace:
             payload = torch.load(f, map_location="cpu")
         self.agent.load_state_dict(payload.pop("agent"))
         for k, v in payload.items():
-            self.__dict__[k] = v
+            if k != "cfg" or not override_cfg:
+                self.__dict__[k] = v
+        logging.info(f"Loaded snapshot from env_step {self.global_env_steps}")
 
     def save_reward_model_snapshot(self):
         snapshot = (

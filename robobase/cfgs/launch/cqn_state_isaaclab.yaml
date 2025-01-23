@@ -1,0 +1,26 @@
+# @package _global_
+
+defaults:
+  - ../env: null  # Please specify environment to use in command line
+  - ../method: cqn
+
+pixels: false
+frame_stack: 1
+action_repeat: 1
+num_train_envs: 32
+num_eval_episodes: 5
+num_update_steps: 32
+log_every: 200
+eval_every_steps: 50000
+save_snapshot: true
+snapshot_every_n: 50000
+num_train_frames: 50000000
+
+replay:
+  size: 5000000
+  nstep: 3
+  num_workers: 4
+
+hydra:
+  run:
+    dir: ./isaaclab_exp/state_cqn/isaaclab/${env.task_name}/default_seed${seed}_${now:%Y%m%d%H%M%S}

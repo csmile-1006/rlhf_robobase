@@ -1,3 +1,5 @@
+from typing import Any, SupportsFloat, List
+
 from robobase.utils import (
     DemoEnv,
     add_demo_to_replay_buffer,
@@ -13,7 +15,6 @@ from robobase.envs.wrappers import (
     # ActionSequence,
     AppendDemoInfo,
     FrameStack,
-    ConcatDim,
     # RecedingHorizonControl,
 )
 from omegaconf import DictConfig
@@ -21,81 +22,112 @@ from omegaconf import DictConfig
 
 from robobase.replay_buffer.rlhf.query_replay_buffer import QueryReplayBuffer
 
-from typing import List
 import copy
 
 UNIT_TEST = False
 
 
+class IsaacLab(gym.Env):
+    metadata = {"render_modes": ["rgb_array", "human"]}
+
+    def __init__(self, task_name, num_envs, seed, render_mode=None):
+        """Create the environment for the task."""
+        from omni.isaac.lab.app import AppLauncher
+
+        device = "cuda:0"
+        app_launcher = AppLauncher(headless=True, device=device, enable_cameras=True)
+        simulation_app = app_launcher.app  # noqa
+
+        import omni.isaac.lab_tasks  # noqa: F401
+        from omni.isaac.lab.envs import ManagerBasedEnvCfg
+        from omni.isaac.lab_tasks.utils import parse_env_cfg
+
+        env_cfg: ManagerBasedEnvCfg = parse_env_cfg(task_name)
+        env_cfg.sim.device = device
+        env_cfg.seed = seed
+        env_cfg.scene.num_envs = num_envs
+        self._env = gym.make(task_name, cfg=env_cfg, render_mode="rgb_array")
+        self._num_envs = num_envs
+        assert render_mode is None or render_mode in self.metadata["render_modes"]
+        self._render_mode = render_mode
+
+    @property
+    def max_episode_length(self):
+        return self._env.unwrapped.max_episode_length
+
+    @property
+    def render_mode(self):
+        return self._render_mode
+
+    @property
+    def observation_space(self):
+        return gym.spaces.Dict({"low_dim_state": self._env.observation_space["policy"]})
+
+    @property
+    def action_space(self):
+        return self._env.action_space
+
+    @property
+    def is_vector_env(self):
+        return True
+
+    @property
+    def num_envs(self):
+        return self._num_envs
+
+    def reset(self, **kwargs) -> tuple[Any, dict[str, Any]]:
+        new_obs, info = self._env.reset(**kwargs)
+        return {"low_dim_state": new_obs["policy"]}, info
+
+    @property
+    def device(self):
+        return self._env.device
+
+    def step(
+        self, action: Any
+    ) -> tuple[Any, SupportsFloat, bool, bool, dict[str, Any]]:
+        new_obs, reward, terminated, truncated, info = self._env.step(action)
+        return {"low_dim_state": new_obs["policy"]}, reward, terminated, truncated, info
+
+    def render(self, *args, **kwargs):
+        return self._env.render()
+
+    def close(self):
+        self._env.close()
+
+
 class IsaacLabEnvFactory(EnvFactory):
-    def _wrap_env(self, env, cfg, demo_env=False, train=True, return_raw_spaces=False):
+    def _wrap_env(self, cfg, demo_env=False, train=True, return_raw_spaces=False):
         # last two are grippers
         # assert cfg.demos > 0
+        env = IsaacLab(
+            task_name=cfg.env.task_name,
+            num_envs=cfg.num_train_envs,
+            seed=cfg.seed,
+            render_mode=cfg.env.render_mode,
+        )
         assert cfg.action_repeat == 1
 
         action_space = copy.deepcopy(env.action_space)
         observation_space = copy.deepcopy(env.observation_space)
 
-        obs_stats = None
-        # if cfg.demos > 0:
-        #     env = RescaleFromTanhWithMinMax(
-        #         env=env,
-        #         action_stats=self._action_stats,
-        #         min_max_margin=cfg.min_max_margin,
-        #     )
-        #     if cfg.norm_obs:
-        #         obs_stats = self._obs_stats
-        # else:
-        #     assert cfg.norm_obs is False, "Need to provide demos to normalize obs"
-        #     env = RescaleFromTanh(env=env)
-
-        # We normalize the low dimensional observations in the ConcatDim wrapper.
-        # This is to be consistent with the original ACT implementation.
-        env = ConcatDim(
-            env,
-            shape_length=1,
-            dim=-1,
-            new_name="low_dim_state",
-            norm_obs=cfg.norm_obs,
-            obs_stats=obs_stats,
-            keys_to_ignore=["proprioception_floating_base_actions"],
-            lib="torch",
-        )
         if cfg.use_onehot_time_and_no_bootstrap:
             env = OnehotTime(env, env.max_episode_length)
         if not demo_env:
             env = FrameStack(env, cfg.frame_stack, lib="torch")
 
-        # if not demo_env:
-        #     if not train:
-        #         env = RecedingHorizonControl(
-        #             env,
-        #             cfg.action_sequence,
-        #             env.max_episode_length // (cfg.env.demo_down_sample_rate),
-        #             cfg.execution_length,
-        #             temporal_ensemble=cfg.temporal_ensemble,
-        #             gain=cfg.temporal_ensemble_gain,
-        #         )
-        #     else:
-        #         env = ActionSequence(
-        #             env,
-        #             cfg.action_sequence,
-        #         )
-
         env = AppendDemoInfo(env)
-
         if return_raw_spaces:
             return env, action_space, observation_space
         else:
             return env
 
-    def make_train_env(self, env: gym.Env, cfg: DictConfig) -> gym.Env:
-        return self._wrap_env(env=env, cfg=cfg, demo_env=False, train=True)
+    def make_train_env(self, cfg: DictConfig) -> gym.Env:
+        return self._wrap_env(cfg=cfg, demo_env=False, train=True)
 
-    def make_eval_env(self, env: gym.Env, cfg: DictConfig) -> gym.Env:
+    def make_eval_env(self, cfg: DictConfig) -> gym.Env:
         raise NotImplementedError
         env, self._action_space, self._observation_space = self._wrap_env(
-            env=env,
             cfg=cfg,
             demo_env=False,
             train=False,
