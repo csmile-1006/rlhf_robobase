@@ -736,14 +736,7 @@ class OnPolicyWorkspace:
             start_time = time.time()
         metrics = {}
         self.agent.actor_critic.train()
-        mean_value_loss, mean_surrogate_loss = update_fn()
-        metrics.update(
-            {
-                "mean_value_loss": mean_value_loss,
-                "mean_surrogate_loss": mean_surrogate_loss,
-            }
-        )
-
+        metrics.update(update_fn())
         self.agent.actor_critic.eval()
         if self.agent.logging:
             execution_time_for_update = time.time() - start_time

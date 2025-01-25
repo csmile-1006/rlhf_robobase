@@ -363,4 +363,12 @@ class PPO:
         mean_surrogate_loss /= num_updates
         self.storage.clear()
 
-        return mean_value_loss, mean_surrogate_loss
+        metrics = {
+            "mean_value_loss": mean_value_loss.detach(),
+            "mean_surrogate_loss": mean_surrogate_loss.detach(),
+            "mean_kl": kl_mean.detach(),
+            "learning_rate": self.learning_rate,
+            "mean_std": self.actor_critic.std.mean().detach(),
+        }
+
+        return metrics
