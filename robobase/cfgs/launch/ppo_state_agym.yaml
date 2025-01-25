@@ -7,7 +7,7 @@ defaults:
 pixels: false
 frame_stack: 1
 action_repeat: 1
-num_train_envs: 32
+num_train_envs: 36
 num_eval_episodes: 2
 log_every: 10
 eval_every_steps: 50000
@@ -17,4 +17,4 @@ num_train_frames: 10001000
 
 hydra:
   run:
-    dir: ./debug/state_ppo/dmc_${env.task_name}/default_seed${seed}_${now:%Y%m%d%H%M%S}
+    dir: ./agym_exp/state_ppo/agym_${env.task_name}/default_seed${seed}_${now:%Y%m%d%H%M%S}
