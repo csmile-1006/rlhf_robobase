@@ -364,11 +364,10 @@ class PPO:
         self.storage.clear()
 
         metrics = {
-            "mean_value_loss": mean_value_loss.detach(),
-            "mean_surrogate_loss": mean_surrogate_loss.detach(),
-            "mean_kl": kl_mean.detach(),
+            "mean_value_loss": mean_value_loss,
+            "mean_surrogate_loss": mean_surrogate_loss,
             "learning_rate": self.learning_rate,
-            "mean_std": self.actor_critic.std.mean().detach(),
+            "mean_std": self.actor_critic.std.mean().item(),
         }
 
         return metrics
