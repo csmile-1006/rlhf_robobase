@@ -886,8 +886,6 @@ class OnPolicyWorkspace:
                 }
             )
 
-        self.agent.compute_returns(torch_critic_observations)
-
         return action, (*env_step_tuple, next_info), metrics
 
     def _pretrain_on_demos(self):
@@ -1026,6 +1024,14 @@ class OnPolicyWorkspace:
                 observations = next_observations
                 critic_observations = next_observations
                 info = next_info
+
+            with torch.no_grad():
+                torch_critic_observations = torch.as_tensor(
+                    critic_observations["low_dim_state"],
+                    dtype=torch.float32,
+                    device=self.device,
+                ).squeeze(-2)
+                self.agent.compute_returns(torch_critic_observations)
 
             metrics.update(self._perform_updates())
 
