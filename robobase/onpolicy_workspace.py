@@ -415,6 +415,7 @@ class OnPolicyWorkspace:
         # training steps but not environment steps. We need another PR to address this
         return (
             self._main_loop_iterations
+            * self.cfg.method.num_steps_per_env
             * self.cfg.action_repeat
             * self.train_envs.num_envs
             * (
@@ -1051,14 +1052,14 @@ class OnPolicyWorkspace:
                     else "unsup_train",
                 )
 
-            if should_eval(self.global_env_steps):
+            if should_eval(self.main_loop_iterations):
                 eval_metrics = self._eval(eval_record_all_episode=True)
                 eval_metrics.update(self._get_common_metrics())
                 self.logger.log_metrics(
                     eval_metrics, self.global_env_steps, prefix="eval"
                 )
 
-            if should_save_snapshot(self.global_env_steps):
+            if should_save_snapshot(self.main_loop_iterations):
                 self.save_snapshot()
 
             if self.use_rlhf:
@@ -1161,7 +1162,7 @@ class OnPolicyWorkspace:
             if self._shutting_down:
                 break
 
-            self._main_loop_iterations += self.cfg.method.num_steps_per_env
+            self._main_loop_iterations += 1
 
     def _get_common_metrics(self) -> dict[str, Any]:
         _, total_time = self._timer.reset()
