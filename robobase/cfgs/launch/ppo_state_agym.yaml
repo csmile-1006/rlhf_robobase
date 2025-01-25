@@ -9,7 +9,7 @@ frame_stack: 1
 action_repeat: 1
 num_train_envs: 32
 num_eval_episodes: 2
-log_every: 10
+log_every: 1
 eval_every_steps: 50
 save_snapshot: true
 snapshot_every_n: 50
