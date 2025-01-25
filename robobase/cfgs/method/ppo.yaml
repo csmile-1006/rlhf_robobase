@@ -1,0 +1,25 @@
+# @package _global_
+
+method:
+  # training parameters
+  # -- value function
+  value_loss_coef: 1.0
+  clip_param: 0.2
+  use_clipped_value_loss: true
+  # -- surrogate loss
+  desired_kl: 0.01
+  entropy_coef: 0.01
+  gamma: 0.99
+  lam: 0.95
+  max_grad_norm: 1.0
+  # -- training
+  learning_rate: 0.0005
+  num_learning_epochs: 10
+  num_mini_batches: 4  # mini batch size = num_envs * num_steps / num_mini_batches
+  schedule: adaptive  # adaptive, fixed
+  activation: elu
+  # -- actor_critic
+  actor_hidden_dims: [128, 128, 128]
+  critic_hidden_dims: [128, 128, 128]
+  init_noise_std: 1.0
+  num_steps_per_env: 200  # number of steps per environment per iteration

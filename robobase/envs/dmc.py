@@ -5,6 +5,7 @@ import numpy as np
 import gymnasium as gym
 from gymnasium import spaces
 
+import dm_control
 from dm_control import manipulation, suite
 from dm_control.suite.wrappers import pixels
 from dm_env import specs
@@ -153,6 +154,11 @@ class DMC(gym.Env):
         self.action_space = _convert_dm_control_to_gym_space(
             self._dmc_env.action_spec(), dtype=np.float32
         )
+        self._last_reward = None
+
+    @property
+    def last_reward(self):
+        return self._last_reward
 
     def _get_obs(self, timestep):
         obs = timestep.observation
@@ -178,6 +184,7 @@ class DMC(gym.Env):
 
     def step(self, action):
         reward = 0
+        last_reward = {f"Reward/{k}": 0.0 for k in self._reward_terms}
         info = {"task_reward": 0, **{f"Reward/{k}": 0 for k in self._reward_terms}}
         for _ in range(self._action_repeat):
             ts = self._dmc_env.step(action)
@@ -195,6 +202,8 @@ class DMC(gym.Env):
             reward += _reward
             for key in self._reward_terms:
                 info[f"Reward/{key}"] += detailed_reward[key]
+                last_reward[f"Reward/{key}"] = detailed_reward[key]
+                last_reward["task_reward"] = ts.reward
             if ts.last():
                 break
         # See https://github.com/google-deepmind/dm_control/blob/f2f0e2333d8bd82c0b6ba83628fe44c2bcc94ef5/dm_control/rl/control.py#L115C18-L115C29
@@ -204,6 +213,7 @@ class DMC(gym.Env):
         assert not np.any(
             terminal and truncated
         ), "Can't be both terminal and truncated."
+        self._last_reward = last_reward
         return self._get_obs(ts), reward, terminal, truncated, info
 
     def reset(self, seed=None, options=None):
@@ -239,6 +249,9 @@ class DMC(gym.Env):
 
 
 class DMCEnvFactory(EnvFactory):
+    def __init__(self):
+        self.env_class = dm_control
+
     def _wrap_env(self, env, cfg):
         env = RescaleFromTanh(env)
         if cfg.env.episode_length != 1000:
