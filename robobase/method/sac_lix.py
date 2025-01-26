@@ -1,13 +1,17 @@
+from typing import Iterator
 from distutils.dist import Distribution
 
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
+from tensordict import TensorDict
 from robobase.method.utils import extract_many_from_spec
 
 from robobase.models.lix_utils import analysis_optimizers
 
 from robobase import utils
+from robobase.method.utils import loss_weights
 from robobase.method.actor_critic import ActorCritic, Actor
 from robobase.models.lix_utils.analysis_modules import LIXModule
 
@@ -26,7 +30,8 @@ class SACActor(Actor):
         log_std = torch.tanh(log_std)
         log_std = LOG_STD_MIN + 0.5 * (LOG_STD_MAX - LOG_STD_MIN) * (log_std + 1)
         std = log_std.exp()
-        dist = utils.SquashedNormal(mu, std)
+        # dist = utils.SquashedNormal(mu, std)
+        dist = torch.distributions.Normal(mu, std)
         return dist
 
     def logprob(self, dist):
@@ -101,9 +106,108 @@ class SACLix(ActorCritic):
         self.actor = SACActor(actor_model_obj).to(self.device)
         self.actor_opt = torch.optim.Adam(self.actor.parameters(), lr=self.actor_lr)
 
+    def extract_batch(
+        self, replay_iter: Iterator[dict[str, torch.Tensor]]
+    ) -> TensorDict:
+        batch = next(replay_iter)
+        batch = TensorDict(
+            {
+                k: torch.as_tensor(v, dtype=v.dtype, device=self.device)
+                for k, v in batch.items()
+            },
+        )
+        batch["reward"] = batch["reward"].unsqueeze(1)
+        batch["discount"] = batch["discount"].to(batch["reward"].dtype).unsqueeze(1)
+        batch["terminal"] = batch["terminal"].to(batch["reward"].dtype)
+        batch["truncated"] = batch["truncated"].to(batch["reward"].dtype)
+        # 1. If not terminal and not truncated, we bootstrap
+        # 2. If not terminal and truncated, we bootstrap
+        # 3. If terminal and not truncated, we don't bootstrap
+        # 4. If terminal and truncated,(e.g., success in last timestep)
+        #    we don't bootstrap as terminal has a priortiy over truncated
+        # In summary, we do not bootstrap when terminal; otherwise we do bootstrap
+        batch["bootstrap"] = (1.0 - batch["terminal"]).unsqueeze(1)
+        if self.always_bootstrap:
+            # Override bootstrap to be 1
+            batch["bootstrap"] = torch.ones_like(batch["bootstrap"])
+
+        batch["loss_coeff"] = loss_weights(batch, self.replay_beta)
+
+        return batch
+
+    def update_critic(
+        self,
+        low_dim_obs,
+        fused_view_feats,
+        action,
+        reward,
+        discount,
+        bootstrap,
+        next_low_dim_obs,
+        next_fused_view_feats,
+        time_obs,
+        next_time_obs,
+        loss_coeff,
+        updating_intrinsic_critic,
+        updating_unsup_critic,
+    ):
+        assert not (
+            updating_intrinsic_critic and updating_unsup_critic
+        ), "Cannot update both intrinsic and unsup critic."
+        lp = ""
+
+        critic, critic_opt = (
+            self.critic,
+            self.critic_opt,
+        )
+
+        metrics = TensorDict({})
+        target_qs = self.calculate_target_q(
+            next_low_dim_obs,
+            next_fused_view_feats,
+            next_time_obs,
+            reward,
+            discount,
+            bootstrap,
+            updating_intrinsic_critic,
+        )
+
+        qs = critic(low_dim_obs, fused_view_feats, action, time_obs)
+
+        target_qs = target_qs.repeat(1, self.num_critics)
+        q_critic_loss = F.mse_loss(qs, target_qs, reduction="none").mean(
+            -1, keepdim=True
+        )
+        critic_loss = q_critic_loss * loss_coeff.unsqueeze(1)
+
+        # Compute priority
+        new_pri = torch.sqrt(q_critic_loss + 1e-10)
+        self._td_error = (new_pri / torch.max(new_pri)).cpu().detach().numpy()
+        critic_loss = torch.mean(critic_loss)
+
+        if self.logging:
+            metrics[f"{lp}critic_target_q"] = target_qs.mean().detach()
+            for i in range(1, self.num_critics):
+                metrics[f"{lp}critic_q{i + 1}"] = qs[..., i].mean().detach()
+            metrics[f"{lp}critic_loss"] = critic_loss.detach()
+
+        # optimize encoder and critic
+        critic_opt.zero_grad(set_to_none=True)
+        critic_loss.backward()
+        if self.critic_grad_clip:
+            nn.utils.clip_grad_norm_(critic.parameters(), self.critic_grad_clip)
+        critic_opt.step()
+        return metrics
+
+    def update_target_critic(self, step: int):
+        # update critic target
+        if step % self.critic_target_interval == 0:
+            utils.soft_update_params(
+                self.critic, self.critic_target, self.critic_target_tau
+            )
+
     def calculate_target_q(
         self,
-        step,
         next_low_dim_obs,
         next_fused_view_feats,
         next_time_obs,
@@ -153,9 +257,9 @@ class SACLix(ActorCritic):
         ).mean()
 
     def update_actor(
-        self, low_dim_obs, fused_view_feats, act, step, time_obs, demos, loss_coeff
+        self, low_dim_obs, fused_view_feats, act, time_obs, demos, loss_coeff
     ):
-        metrics = dict()
+        metrics = TensorDict({})
 
         dist = self.actor(low_dim_obs, fused_view_feats)
         action, log_prob = self.actor.logprob(dist)
@@ -170,16 +274,6 @@ class SACLix(ActorCritic):
             log_prob,
         )
         intr_actor_loss = 0
-        if self.intrinsic_reward_module is not None:
-            intr_actor_loss = self._compute_actor_loss(
-                low_dim_obs,
-                fused_view_feats,
-                action,
-                time_obs,
-                loss_coeff,
-                self.intr_critic,
-                log_prob,
-            )
         bc_metrics, bc_loss = self.get_bc_loss(dist.mean, act, demos)
         metrics.update(bc_metrics)
         actor_loss = base_actor_loss + intr_actor_loss + bc_loss
@@ -197,11 +291,48 @@ class SACLix(ActorCritic):
         ).mean()
         alpha_loss.backward()
         self.a_optimizer.step()
-        alpha = self.log_alpha.exp().item()
+        alpha = self.log_alpha.exp().detach()
         if self.logging:
             metrics["alpha"] = alpha
-            metrics["alpha_loss"] = alpha_loss
-            metrics["mean_act"] = dist.mean.mean().item()
-            metrics["actor_loss"] = actor_loss.item()
-            metrics["actor_logprob"] = log_prob.mean().item()
+            metrics["alpha_loss"] = alpha_loss.detach()
+            metrics["mean_act"] = dist.mean.mean().detach()
+            metrics["actor_loss"] = actor_loss.detach()
+            metrics["actor_logprob"] = log_prob.mean().detach()
+        return metrics
+
+    def update(
+        self,
+        batch: TensorDict,
+    ) -> dict[str, np.ndarray]:
+        low_dim_obs = next_low_dim_obs = None
+        fused_view_feats = next_fused_view_feats = None
+        low_dim_obs, next_low_dim_obs = self.extract_low_dim_state(batch)
+
+        metrics = self.update_critic(
+            low_dim_obs,
+            fused_view_feats,
+            batch["action"],
+            batch["reward"],
+            batch["discount"],
+            batch["bootstrap"],
+            next_low_dim_obs,
+            next_fused_view_feats,
+            None,
+            None,
+            batch["loss_coeff"],
+            False,
+            False,
+        )
+
+        metrics.update(
+            self.update_actor(
+                low_dim_obs,
+                fused_view_feats,
+                batch["action"],
+                None,
+                None,
+                batch["loss_coeff"],
+            )
+        )
+
         return metrics

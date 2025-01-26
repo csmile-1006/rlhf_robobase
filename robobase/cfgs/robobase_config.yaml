@@ -25,6 +25,8 @@ batch_size: 256
 is_imitation_learning: false
 use_compile: false
 use_cuda_graph: false
+video_interval: 1000
+video_length: 1000
 
 # Demonstration settings
 demos: 0

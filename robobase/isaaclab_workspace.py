@@ -20,14 +20,14 @@ from torch.utils.data import DataLoader
 from robobase import utils
 from robobase.envs.isaaclab import IsaacLabEnvFactory
 from robobase.logger import Logger
+from robobase.method.actor_critic import ActorCritic
 from robobase.method.value_based import ValueBased
 from robobase.replay_buffer.replay_buffer import ReplayBuffer
-
 from robobase.workspace import (
+    _create_default_query_replay_buffer,
+    _create_default_replay_buffer,
     _worker_init_fn,
     relabel_with_predictor,
-    _create_default_replay_buffer,
-    _create_default_query_replay_buffer,
 )
 
 torch.backends.cudnn.benchmark = True
@@ -89,11 +89,10 @@ class IsaacLabWorkspace:
 
         # Make training environment
         self.train_envs = self.env_factory.make_train_env(cfg)
-        video_interval = 10
         video_kwargs = {
             "video_folder": self.work_dir / "videos" / "train",
-            "step_trigger": lambda step: step % video_interval == 0,
-            "video_length": 1000,
+            "step_trigger": lambda step: step % cfg.video_interval == 0,
+            "video_length": cfg.video_length,
             "disable_logger": True,
         }
         self.train_envs = gym.wrappers.RecordVideo(self.train_envs, **video_kwargs)
@@ -303,7 +302,7 @@ class IsaacLabWorkspace:
         return (
             self._main_loop_iterations
             * self.cfg.action_repeat
-            * self.train_envs.num_envs
+            * self.cfg.num_train_envs
             * (
                 self.cfg.action_sequence
                 if not self.cfg.temporal_ensemble
@@ -641,7 +640,7 @@ class IsaacLabWorkspace:
                 # Skip update
                 continue
 
-            if isinstance(self.agent, ValueBased):
+            if isinstance(self.agent, (ValueBased, ActorCritic)):
                 batch = self.agent.extract_batch(self.replay_iter)
                 metrics.update(update_fn(batch))
                 if not unsup_train:
@@ -663,10 +662,10 @@ class IsaacLabWorkspace:
         if self.agent.logging:
             execution_time_for_update = time.time() - start_time
             metrics["agent_batched_updates_per_second"] = (
-                self.train_envs.num_envs / execution_time_for_update
+                num_update_steps / execution_time_for_update
             )
             metrics["agent_updates_per_second"] = (
-                self.train_envs.num_envs * self.cfg.batch_size
+                num_update_steps * self.cfg.batch_size
             ) / execution_time_for_update
         return metrics
 

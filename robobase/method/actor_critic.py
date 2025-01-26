@@ -142,6 +142,7 @@ class ActorCritic(OffPolicyMethod, ABC):
         encoder_lr: float,
         weight_decay: float,
         critic_target_tau: float,
+        critic_target_interval: int,
         num_critics: int,
         actor_grad_clip: Optional[float],
         critic_grad_clip: Optional[float],
@@ -168,6 +169,7 @@ class ActorCritic(OffPolicyMethod, ABC):
         self.encoder_lr = encoder_lr
         self.weight_decay = weight_decay
         self.critic_target_tau = critic_target_tau
+        self.critic_target_interval = critic_target_interval
         self.num_critics = num_critics
         self.actor_grad_clip = actor_grad_clip
         self.critic_grad_clip = critic_grad_clip
@@ -424,7 +426,6 @@ class ActorCritic(OffPolicyMethod, ABC):
         bootstrap,
         next_low_dim_obs,
         next_fused_view_feats,
-        step,
         time_obs,
         next_time_obs,
         loss_coeff,
@@ -455,7 +456,6 @@ class ActorCritic(OffPolicyMethod, ABC):
 
         metrics = dict()
         target_qs = self.calculate_target_q(
-            step,
             next_low_dim_obs,
             next_fused_view_feats,
             next_time_obs,
@@ -529,6 +529,13 @@ class ActorCritic(OffPolicyMethod, ABC):
             if self.logging:
                 metrics["ratio_of_demos"] = demos.mean().item()
         return metrics, bc_loss
+
+    def update_target_critic(self, step: int):
+        # update critic target
+        if step % self.critic_target_interval == 0:
+            utils.soft_update_params(
+                self.critic, self.critic_target, self.critic_target_tau
+            )
 
     def _compute_actor_loss(
         self, low_dim_obs, fused_view_feats, action, time_obs, loss_coeff, critic
@@ -715,9 +722,7 @@ class ActorCritic(OffPolicyMethod, ABC):
 
     def update(
         self,
-        replay_iter: Iterator[dict[str, torch.Tensor]],
-        step: int,
-        replay_buffer: ReplayBuffer = None,
+        batch: TensorDict,
     ) -> dict[str, np.ndarray]:
         (
             metrics,
@@ -732,7 +737,7 @@ class ActorCritic(OffPolicyMethod, ABC):
             time_obs,
             next_time_obs,
             loss_coeff,
-        ) = self.extract_batch(replay_iter)
+        ) = batch
 
         low_dim_obs = next_low_dim_obs = None
         fused_view_feats = next_fused_view_feats = None
@@ -768,7 +773,6 @@ class ActorCritic(OffPolicyMethod, ABC):
                 bootstrap,
                 next_low_dim_obs,
                 next_fused_view_feats,
-                step,
                 time_obs,
                 next_time_obs,
                 loss_coeff,
@@ -777,50 +781,45 @@ class ActorCritic(OffPolicyMethod, ABC):
             )
         )
 
-        if isinstance(replay_buffer, PrioritizedReplayBuffer):
-            replay_buffer.set_priority(
-                indices=batch["indices"].cpu().detach().numpy(),
-                priorities=self._td_error**self.replay_alpha,
-            )
+        # if isinstance(replay_buffer, PrioritizedReplayBuffer):
+        #     replay_buffer.set_priority(
+        #         indices=batch["indices"].cpu().detach().numpy(),
+        #         priorities=self._td_error**self.replay_alpha,
+        #     )
 
-        if self.intrinsic_reward_module is not None:
-            intrinsic_rewards = self.intrinsic_reward_module.compute_irs(batch, step)
-            self.intrinsic_reward_module.update(batch)
-            metrics.update(
-                self.update_critic(
-                    low_dim_obs,
-                    fused_view_feats.detach() if fused_view_feats is not None else None,
-                    action,
-                    intrinsic_rewards,
-                    discount,
-                    bootstrap,
-                    next_low_dim_obs,
-                    next_fused_view_feats.detach()
-                    if next_fused_view_feats is not None
-                    else None,
-                    step,
-                    time_obs,
-                    next_time_obs,
-                    loss_coeff,
-                    True,
-                    False,
-                )
-            )
-            utils.soft_update_params(
-                self.intr_critic, self.intr_critic_target, self.critic_target_tau
-            )
+        # if self.intrinsic_reward_module is not None:
+        #     intrinsic_rewards = self.intrinsic_reward_module.compute_irs(batch, step)
+        #     self.intrinsic_reward_module.update(batch)
+        #     metrics.update(
+        #         self.update_critic(
+        #             low_dim_obs,
+        #             fused_view_feats.detach() if fused_view_feats is not None else None,
+        #             action,
+        #             intrinsic_rewards,
+        #             discount,
+        #             bootstrap,
+        #             next_low_dim_obs,
+        #             next_fused_view_feats.detach()
+        #             if next_fused_view_feats is not None
+        #             else None,
+        #             step,
+        #             time_obs,
+        #             next_time_obs,
+        #             loss_coeff,
+        #             True,
+        #             False,
+        #         )
+        #     )
+        #     utils.soft_update_params(
+        #         self.intr_critic, self.intr_critic_target, self.critic_target_tau
+        #     )
 
         if fused_view_feats is not None:
             fused_view_feats = fused_view_feats.detach()
         metrics.update(
             self.update_actor(
-                low_dim_obs, fused_view_feats, action, step, time_obs, demos, loss_coeff
+                low_dim_obs, fused_view_feats, action, time_obs, demos, loss_coeff
             )
-        )
-
-        # update critic target
-        utils.soft_update_params(
-            self.critic, self.critic_target, self.critic_target_tau
         )
 
         return metrics
@@ -934,7 +933,6 @@ class ActorCritic(OffPolicyMethod, ABC):
 
     def calculate_target_q(
         self,
-        step,
         next_low_dim_obs,
         next_fused_view_feats,
         next_time_obs,

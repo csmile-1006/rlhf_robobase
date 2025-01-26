@@ -11,6 +11,7 @@ method:
   weight_decay: 0.0
   num_critics: 2
   critic_target_tau: 0.01
+  critic_target_interval: 1
   actor_grad_clip: null
   critic_grad_clip: null
   always_bootstrap: false  # Always do bootstrap; could be useful for episodic task
