@@ -10,10 +10,19 @@ action_repeat: 1
 num_train_envs: 32
 num_eval_episodes: 2
 log_every: 1
-eval_every_steps: 50
+eval_every_steps: 100
 save_snapshot: true
-snapshot_every_n: 50
+snapshot_every_n: 100
 num_train_frames: 10001000
+
+method:
+  learning_rate: 1.0e-4
+  gamma: 0.99
+  desired_kl: 0.02
+  actor_hidden_dims: [256, 128, 64]
+  critic_hidden_dims: [256, 128, 64]
+  activation: elu
+  entropy_coef: 0.001
 
 hydra:
   run:
