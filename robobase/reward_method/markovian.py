@@ -53,9 +53,7 @@ class MarkovianRewardModel(nn.Module):
     def forward(
         self,
         low_dim_obs,
-        next_low_dim_obs,
         fused_view_feats,
-        next_fused_view_feats,
         action,
         time_obs,
         member=0,
@@ -63,10 +61,8 @@ class MarkovianRewardModel(nn.Module):
         net_ins = {"action": action.view(action.shape[0], -1)}
         if low_dim_obs is not None:
             net_ins["low_dim_obs"] = low_dim_obs
-            net_ins["next_low_dim_obs"] = next_low_dim_obs
         if fused_view_feats is not None:
             net_ins["fused_view_feats"] = fused_view_feats
-            net_ins["next_fused_view_feats"] = next_fused_view_feats
         if time_obs is not None:
             net_ins["time_obs"] = time_obs
 

@@ -651,10 +651,6 @@ class OnPolicyWorkspace:
                 final_info = last_next_info["final_info"]
                 task_success = int(final_info.get("task_success", 0) > 0.0)
 
-                # Re-labeling demonstrations with reward model
-                if self.use_rlhf:
-                    ep = self.reward_model.compute_reward(ep, final_obs=final_obs)
-
                 # Re-labeling successful demonstrations as success, following CQN
                 relabeling_as_demo = (
                     task_success
@@ -854,7 +850,26 @@ class OnPolicyWorkspace:
             )
             start_time = time.time()
 
-        *env_step_tuple, next_info = env.step(action)
+        next_observations, rewards, terminations, truncations, next_info = env.step(
+            action
+        )
+        # TODO: debug details
+        if self.use_rlhf:
+            rewards = self.reward_model.compute_reward(
+                {
+                    "action": action,
+                    **{
+                        k: v
+                        for k, v in observations.items()
+                        if k in self.observation_space.spaces
+                    },
+                    **{
+                        k: v
+                        for k, v in next_info.items()
+                        if k in self.reward_space.keys()
+                    },
+                }
+            )
 
         if self.agent.logging:
             execution_time_for_env_step = time.time() - start_time
@@ -866,7 +881,7 @@ class OnPolicyWorkspace:
                 metrics[f"env_info/{k}"] = v if eval_mode else v[0]
 
         if not eval_mode:
-            self.agent.process_env_step(env_step_tuple[1], env_step_tuple[2], next_info)
+            self.agent.process_env_step(rewards, terminations, next_info)
 
         if eval_mode:
             next_info.update(env.last_reward)
@@ -879,7 +894,11 @@ class OnPolicyWorkspace:
                 }
             )
 
-        return action, (*env_step_tuple, next_info), metrics
+        return (
+            action,
+            (next_observations, rewards, terminations, truncations, next_info),
+            metrics,
+        )
 
     def _pretrain_on_demos(self):
         if self.cfg.num_pretrain_steps > 0:
