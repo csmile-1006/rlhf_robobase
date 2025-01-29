@@ -168,10 +168,8 @@ class HybridReward(RewardMethod):
         input_sizes = {}
         if self.rgb_latent_size > 0:
             input_sizes["fused_view_feats"] = (self.rgb_latent_size,)
-            input_sizes["fused_view_feats_tp1"] = (self.rgb_latent_size,)
         if self.low_dim_size > 0:
             input_sizes["low_dim_obs"] = (self.low_dim_size,)
-            input_sizes["low_dim_obs_tp1"] = (self.low_dim_size,)
         if self.time_obs_size > 0:
             input_sizes["time_obs"] = (self.time_obs_size,)
         if self.time_dim > 0:
@@ -236,9 +234,9 @@ class HybridReward(RewardMethod):
     def compute_reward(
         self,
         seq: Sequence,
-        final_obs: dict = None,
         member: int = -1,
         return_reward: bool = False,
+        episodic: bool = True,
     ) -> torch.Tensor:
         """
         Compute the reward from sequences.
@@ -256,8 +254,6 @@ class HybridReward(RewardMethod):
         if not self.activated:
             return seq
 
-        start_idx = 0
-
         if isinstance(seq, list):
             # Case with online episodes
             # seq: list of (action, obs, reward, term, trunc, info, next_info)
@@ -268,25 +264,14 @@ class HybridReward(RewardMethod):
                 list_of_obs_dicts = [
                     {k: v[-1] for k, v in elem[1].items()} for elem in seq
                 ]
-                list_of_next_obs_dicts = list_of_obs_dicts[1:] + [
-                    {k: v[-1] for k, v in final_obs.items()}
-                ]
             else:
                 list_of_obs_dicts = [elem[1] for elem in seq]
-                list_of_next_obs_dicts = list_of_obs_dicts[1:] + [final_obs]
             obs = {key: [] for key in list_of_obs_dicts[0].keys()}
             for obs_dict in list_of_obs_dicts:
                 for key, val in obs_dict.items():
                     obs[key].append(val)
             obs = utils.convert_numpy_to_torch(
                 {key: np.stack(val) for key, val in obs.items()}, self.device
-            )
-            next_obs = {key: [] for key in list_of_next_obs_dicts[0].keys()}
-            for next_obs_dict in list_of_next_obs_dicts:
-                for key, val in next_obs_dict.items():
-                    next_obs[key].append(val)
-            next_obs = utils.convert_numpy_to_torch(
-                {key: np.stack(val) for key, val in next_obs.items()}, self.device
             )
             # obs: (T, elem_shape) for elem in obs
             # actions: (T, action_shape)
@@ -310,15 +295,7 @@ class HybridReward(RewardMethod):
             actions = utils.convert_numpy_to_torch(seq["action"], self.device)
             obs = utils.convert_numpy_to_torch(
                 {
-                    key: val[start_idx:]
-                    for key, val in seq.items()
-                    if key in self.observation_space.spaces
-                },
-                self.device,
-            )
-            next_obs = utils.convert_numpy_to_torch(
-                {
-                    key: val[start_idx + 1 :]
+                    key: val
                     for key, val in seq.items()
                     if key in self.observation_space.spaces
                 },
@@ -339,28 +316,11 @@ class HybridReward(RewardMethod):
                 device=self.device,
             )
             fused_rgb_feats = self.encode_rgb_feats(rgbs, train=False).squeeze(1)
-            next_rgbs = torch.as_tensor(
-                stack_tensor_dictionary(
-                    extract_many_from_batch(next_obs, r"rgb(?!.*?tp1)"), 1
-                ).unsqueeze(1),
-                device=self.device,
-            )
-            next_fused_rgb_feats = self.encode_rgb_feats(
-                next_rgbs, train=False
-            ).squeeze(1)
         else:
             fused_rgb_feats = None
-            next_fused_rgb_feats = None
         qpos = (
             torch.as_tensor(
                 extract_from_batch(obs, "low_dim_state"), device=self.device
-            )
-            if self.low_dim_size > 0
-            else None
-        )
-        next_qpos = (
-            torch.as_tensor(
-                extract_from_batch(next_obs, "low_dim_state"), device=self.device
             )
             if self.low_dim_size > 0
             else None
@@ -380,12 +340,8 @@ class HybridReward(RewardMethod):
         seq_len = None
         if qpos is not None and qpos.ndim > 2:
             qpos = qpos.reshape(-1, *qpos.shape[-1:])
-            next_qpos = next_qpos.reshape(-1, *next_qpos.shape[-1:])
         if fused_rgb_feats is not None:
             fused_rgb_feats = fused_rgb_feats.reshape(-1, *fused_rgb_feats.shape[-1:])
-            next_fused_rgb_feats = next_fused_rgb_feats.reshape(
-                -1, *next_fused_rgb_feats.shape[-1:]
-            )
         if time_obs is not None:
             time_obs = time_obs.reshape(-1, *time_obs.shape[-1:])
         if actions.ndim > 2:
@@ -394,7 +350,7 @@ class HybridReward(RewardMethod):
         if reward_terms.ndim > 2:
             reward_terms = reward_terms.reshape(-1, *reward_terms.shape[-1:])
 
-        T = actions.shape[0] - start_idx - 1  # b/c last timestep is not used
+        T = actions.shape[0] - 1 if episodic else actions.shape[0]
         weighted_rewards = []
         computed_rewards = []
         for i in trange(
@@ -413,12 +369,8 @@ class HybridReward(RewardMethod):
                     for mem in range(self.num_reward_models):
                         args = (
                             qpos[_range] if qpos is not None else None,
-                            next_qpos[_range] if next_qpos is not None else None,
                             fused_rgb_feats[_range]
                             if fused_rgb_feats is not None
-                            else None,
-                            next_fused_rgb_feats[_range]
-                            if next_fused_rgb_feats is not None
                             else None,
                             actions[_range],
                             time_obs[_range] if time_obs is not None else None,
@@ -454,12 +406,8 @@ class HybridReward(RewardMethod):
                 else:
                     args = (
                         qpos[_range] if qpos is not None else None,
-                        next_qpos[_range] if next_qpos is not None else None,
                         fused_rgb_feats[_range]
                         if fused_rgb_feats is not None
-                        else None,
-                        next_fused_rgb_feats[_range]
-                        if next_fused_rgb_feats is not None
                         else None,
                         actions[_range],
                         time_obs[_range] if time_obs is not None else None,
@@ -509,7 +457,7 @@ class HybridReward(RewardMethod):
                 seq[idx][2] = total_rewards[idx]
 
         elif isinstance(seq, dict):
-            seq["reward"][:-1] = total_rewards
+            seq["reward"][: len(total_rewards)] = total_rewards
 
         return seq
 
@@ -570,9 +518,6 @@ class HybridReward(RewardMethod):
                 if self.low_dim_size > 0:
                     # (bs, seq, low_dim)
                     qpos = extract_from_batch(batch, f"seg{i}_low_dim_state").detach()
-                    next_qpos = extract_from_batch(
-                        batch, f"seg{i}_low_dim_state_tp1"
-                    ).detach()
 
                 if self.use_pixels:
                     # (bs, seq, v, ch, h, w)
@@ -581,13 +526,8 @@ class HybridReward(RewardMethod):
                     )
                     fused_rgb_feats = self.encode_rgb_feats(rgb, train=True)
 
-                    next_rgb = stack_tensor_dictionary(
-                        extract_many_from_batch(batch, rf"seg{i}_rgb(?!.*?tp1)"), 2
-                    )
-                    next_fused_rgb_feats = self.encode_rgb_feats(next_rgb, train=True)
                 else:
                     fused_rgb_feats = None
-                    next_fused_rgb_feats = None
 
                 time_obs = extract_from_batch(batch, "time", missing_ok=True)
 
@@ -600,12 +540,8 @@ class HybridReward(RewardMethod):
                 # raw_weight: (bs * seq, num_reward_terms) -> (bs, seq, num_reward_terms)
                 args = (
                     qpos.reshape(-1, *qpos.shape[2:]),
-                    next_qpos.reshape(-1, *next_qpos.shape[2:]),
                     fused_rgb_feats.reshape(-1, *fused_rgb_feats.shape[2:])
                     if fused_rgb_feats is not None
-                    else None,
-                    next_fused_rgb_feats.reshape(-1, *next_fused_rgb_feats.shape[2:])
-                    if next_fused_rgb_feats is not None
                     else None,
                     actions.reshape(-1, *actions.shape[2:]),
                     time_obs.reshape(-1, *time_obs.shape[2:])

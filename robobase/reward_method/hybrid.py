@@ -238,6 +238,7 @@ class HybridReward(RewardMethod):
         seq: Sequence,
         member: int = -1,
         return_reward: bool = False,
+        episodic: bool = True,
     ) -> torch.Tensor:
         """
         Compute the reward from sequences.
@@ -254,8 +255,6 @@ class HybridReward(RewardMethod):
 
         if not self.activated:
             return seq
-
-        start_idx = 0
 
         if isinstance(seq, list):
             # Case with online episodes
@@ -298,7 +297,7 @@ class HybridReward(RewardMethod):
             actions = utils.convert_numpy_to_torch(seq["action"], self.device)
             obs = utils.convert_numpy_to_torch(
                 {
-                    key: val[start_idx:]
+                    key: val
                     for key, val in seq.items()
                     if key in self.observation_space.spaces
                 },
@@ -353,7 +352,9 @@ class HybridReward(RewardMethod):
         if reward_terms.ndim > 2:
             reward_terms = reward_terms.reshape(-1, *reward_terms.shape[-1:])
 
-        T = actions.shape[0] - start_idx - 1  # b/c last timestep is not used
+        T = (
+            actions.shape[0] - 1 if episodic else actions.shape[0]
+        )  # for episode, last timestep is not used, but for online, last timestep is used
         weighted_rewards = []
         computed_rewards = []
         for i in trange(
@@ -460,7 +461,7 @@ class HybridReward(RewardMethod):
                 seq[idx][2] = total_rewards[idx]
 
         elif isinstance(seq, dict):
-            seq["reward"][:-1] = total_rewards
+            seq["reward"][: len(total_rewards)] = total_rewards
 
         return seq
 

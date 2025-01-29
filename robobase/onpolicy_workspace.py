@@ -171,19 +171,6 @@ class OnPolicyWorkspace:
         )
         print(f"workspace: {self.work_dir}")
 
-        # Sanity checks
-        if (
-            not cfg.is_imitation_learning
-            and cfg.replay_size_before_train * cfg.action_repeat * cfg.action_sequence
-            < cfg.env.episode_length
-            and cfg.replay_size_before_train > 0
-        ):
-            raise ValueError(
-                "replay_size_before_train * action_repeat "
-                f"({cfg.replay_size_before_train} * {cfg.action_repeat}) "
-                f"must be >= episode_length ({cfg.env.episode_length})."
-            )
-
         self.cfg = cfg
         utils.set_seed_everywhere(cfg.seed)
         dev = "cpu"
@@ -432,11 +419,6 @@ class OnPolicyWorkspace:
             raise ValueError("reward replay is not enabled")
         if self._query_replay_iter is None:
             _query_replay_iter = iter(self.query_replay_loader)
-            if self.use_demo_replay:
-                _demo_query_replay_iter = iter(self.demo_query_replay_loader)
-                _query_replay_iter = utils.merge_replay_demo_iter(
-                    _query_replay_iter, _demo_query_replay_iter
-                )
             self._query_replay_iter = _query_replay_iter
         return self._query_replay_iter
 
@@ -465,32 +447,15 @@ class OnPolicyWorkspace:
             self._update_fn = torch.compile(self.agent.update)
             self._act_fn = torch.compile(self.agent.act)
             torch.set_float32_matmul_precision("high")
-            if self.cfg.rlhf.use_rlhf:
-                self._update_unsupervised_fn = torch.compile(
-                    self.agent.update_unsupervised
-                )
-                self._update_only_critic_fn = torch.compile(
-                    self.agent.update_only_critic
-                )
         else:
             self._update_fn = self.agent.update
             self._act_fn = self.agent.act
-            if self.cfg.rlhf.use_rlhf:
-                self._update_unsupervised_fn = self.agent.update_unsupervised
-                self._update_only_critic_fn = self.agent.update_only_critic
 
         if self.cfg.rlhf.use_rlhf:
             self._reward_update_fn = self.reward_model.update
 
         if self.cfg.use_cuda_graph:
             self._update_fn = CudaGraphModule(self._update_fn, in_keys=[], out_keys=[])
-            if self.cfg.rlhf.use_rlhf:
-                self._update_unsupervised_fn = CudaGraphModule(
-                    self._update_unsupervised_fn, in_keys=[], out_keys=[]
-                )
-                self._update_only_critic_fn = CudaGraphModule(
-                    self._update_only_critic_fn, in_keys=[], out_keys=[]
-                )
 
     def _train(self):
         self._setup_training_functions()
@@ -652,11 +617,7 @@ class OnPolicyWorkspace:
                 task_success = int(final_info.get("task_success", 0) > 0.0)
 
                 # Re-labeling successful demonstrations as success, following CQN
-                relabeling_as_demo = (
-                    task_success
-                    and self.use_demo_replay
-                    and self.cfg.use_self_imitation
-                )
+                relabeling_as_demo = task_success and self.cfg.use_self_imitation
                 ep_index = 0
                 for act, obs, rew, term, trunc, info, next_info in ep:
                     # Only keep the last frames regardless of frame stacks because
@@ -722,10 +683,7 @@ class OnPolicyWorkspace:
 
     def _perform_updates(self, unsup_train: bool = False) -> dict[str, Any]:
         def choose_update_fn():
-            if unsup_train:
-                return self._update_unsupervised_fn
-            else:
-                return self._update_fn
+            return self._update_fn
 
         update_fn = choose_update_fn()
         if self.agent.logging:
@@ -858,18 +816,12 @@ class OnPolicyWorkspace:
             rewards = self.reward_model.compute_reward(
                 {
                     "action": action,
-                    **{
-                        k: v
-                        for k, v in observations.items()
-                        if k in self.observation_space.spaces
-                    },
-                    **{
-                        k: v
-                        for k, v in next_info.items()
-                        if k in self.reward_space.keys()
-                    },
-                }
-            )
+                    **{k: v for k, v in observations.items()},
+                    **{k: v for k, v in next_info.items()},
+                    "reward": rewards,
+                },
+                episodic=False,
+            )["reward"]
 
         if self.agent.logging:
             execution_time_for_env_step = time.time() - start_time
@@ -1083,10 +1035,7 @@ class OnPolicyWorkspace:
             if self.use_rlhf:
                 if (
                     self.cfg.rlhf.num_unsup_train_frames > 0
-                    and self.global_env_steps
-                    - self.cfg.rlhf.num_pretrain_frames
-                    - self.cfg.replay_size_before_train
-                    == 0
+                    and self.global_env_steps - self.cfg.rlhf.num_pretrain_frames == 0
                     and not self.reward_model.activated
                 ):
                     if hasattr(self.agent, "reset_critic"):
@@ -1097,12 +1046,11 @@ class OnPolicyWorkspace:
                 if (
                     self.total_feedback < self.cfg.rlhf.max_feedback
                     and should_update_reward_model(
-                        self.global_env_steps
+                        self.main_loop_iterations
                         - max(
                             self.cfg.rlhf.num_pretrain_frames,
                             self.cfg.rlhf.num_unsup_train_frames,
                         )
-                        - self.cfg.replay_size_before_train
                     )
                 ):
                     self.reward_model.logging = True
