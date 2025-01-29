@@ -3,7 +3,7 @@
 defaults:
   - ../env: null  # Please specify environment to use in command line
   - ../method: ppo
-  - ../reward_method: hybrid_integrate
+  - ../reward_method: hybrid
 
 env:
   reward_mode: initial
@@ -15,7 +15,7 @@ num_train_envs: 32
 update_every_steps: 1
 num_eval_episodes: 1
 log_every: 1
-eval_every_steps: 100
+eval_every_steps: 1
 save_snapshot: true
 snapshot_every_n: 100
 num_train_frames: 10001000

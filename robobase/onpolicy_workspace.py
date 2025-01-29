@@ -812,7 +812,7 @@ class OnPolicyWorkspace:
             action
         )
         # TODO: debug details
-        if self.use_rlhf:
+        if self.use_rlhf and not eval_mode:
             rewards = self.reward_model.compute_reward(
                 {
                     "action": action,
