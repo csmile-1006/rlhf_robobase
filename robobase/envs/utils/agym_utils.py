@@ -22,18 +22,19 @@ GENERAL_CRITERIA = """
 TASK_DESCRIPTION = {
     "DressingPR2-v0": "Carefully moving the sleeve up a person's stationary left arm. Start from the forearm near the wrist, move past the elbow, and continue up to the shoulder. Note that the robot is already holding the sleeve.",  # noqa
     "FeedingBaxter-v0": """Task: Robot-Assisted Feeding
-Goal: Feed a person using a robot that holds a spoon with pink-colored food (simulated as particles).
+Goal: Use a robot to feed a person with a spoon holding pink-colored food (simulated as particles).
 Environment Setup:
-- The person's mouth is marked by a bright green sphere
-- The robot holds and controls the spoon
-- The robot must feed the pink-colored food on the spoon to the person's mouth without spilling.
+- The person's mouth is indicated by a bright green sphere
+- The robot holds and maneuvers the spoon
+- The robot must deliver the pink-colored food from the spoon to the person's mouth without spilling.
+- If the food particle is within 0.02 meters of the person's mouth, it is considered fed, removed, and the robot arm earns a reward.
 
 Success Criteria:
-- The pink-colored food goes into the person's mouth
-- No pink-colored food is spilled
-- The robot's movements are smooth and predictable
-- No uncomfortable contact between the spoon and the person
-- The robot arm keeps a safe distance from the person
+- Ensure all pink-colored food successfully reaches the person's mouth and disappears
+- Prevent any spilling of the pink-colored food
+- The robot's movements should be smooth and predictable
+- Avoid uncomfortable contact between the spoon and the person, and prevent spoon vibration near the person's mouth
+- The robot arm maintains a safe distance from the person
 """,
     "DrinkingPR2-v0": """Task: Robot-Assisted Drinking
 Goal: Help a person drink water by controlling a robot that holds a cup filled with water (simulated as particles).
