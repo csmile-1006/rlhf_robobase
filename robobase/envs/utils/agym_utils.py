@@ -27,11 +27,14 @@ Environment Setup:
 - The person's mouth is indicated by a bright green sphere
 - The robot holds and maneuvers the spoon
 - The robot must deliver the pink-colored food from the spoon to the person's mouth without spilling.
-- If the food particle is within 0.02 meters of the person's mouth, it is considered fed, removed, and the robot arm earns a reward.
+- If the food particle is within 0.02 meters of the person's mouth, it is considered fed, then the particle is removed from the spoon and the robot arm earns a reward.
 
 Success Criteria:
 - Ensure all pink-colored food successfully reaches the person's mouth and disappears
 - Prevent any spilling of the pink-colored food
+- After feeding all food, **THE ROBOT ARM MUST RETURN TO THE STARTING POSITION**
+
+General Instructions:
 - The robot's movements should be smooth and predictable
 - Avoid uncomfortable contact between the spoon and the person, and prevent spoon vibration near the person's mouth
 - The robot arm maintains a safe distance from the person
