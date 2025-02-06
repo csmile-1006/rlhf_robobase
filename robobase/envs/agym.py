@@ -207,10 +207,8 @@ class AGym(gym.Env):
         Args:
             view (str, optional): Camera view to render from.
         """
-        if view not in ["front", "right", "top"]:
-            raise ValueError(
-                f'view must be one of ["front", "right", "top"], got {view}'
-            )
+        if view not in ["front", "side"]:
+            raise ValueError(f'view must be one of ["front", "side"], got {view}')
         if self._i % self._frame_skip == 0:
             img, depth = self._agym_env.env.get_camera_image_depth(view=view)
             img = img[:, :, :3]
