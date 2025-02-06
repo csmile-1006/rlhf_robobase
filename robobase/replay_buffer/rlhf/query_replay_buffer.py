@@ -518,6 +518,11 @@ class QueryReplayBuffer(ReplayBuffer):
         _, _, global_index = [int(x) for x in eps_fn.stem.split("_")[1:]]
         return self._load_episode_fn(eps_fn), global_index, eps_fn
 
+    def load_episode(self, idx: int):
+        eps_fn = self._episode_files[idx]
+        eps_fn["episode_number"] = eps_fn.stem.split("_")[1]
+        return self._load_episode_fn(eps_fn)
+
     def _load_episode_into_worker(self, eps_fn: Path, global_idx: int):
         # Load episode into memory
         try:

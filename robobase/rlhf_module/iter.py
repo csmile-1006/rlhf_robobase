@@ -10,11 +10,6 @@ from omegaconf import DictConfig
 from tqdm import tqdm
 
 from robobase.envs.env import EnvFactory
-from robobase.reward_method.core import RewardMethod
-from robobase.rlhf_module.comparison import (
-    RootPairwiseComparisonFn,
-    get_comparison_fn,
-)
 from robobase.rlhf_module.feedback import get_feedback_fn
 from robobase.rlhf_module.prompt import (
     get_zeroshot_locomotion_pairwise_comparison_prompt,
@@ -181,7 +176,7 @@ async def collect_gemini_manipulation_preferences(
     feedback_iter: int,
 ):
     target_viewpoints = gemini_model_config.target_viewpoints
-    tot_queries = range(num_queries)
+    tot_queries = range()
     logging.info("START!")
     comparison_fn.initialize(segments)
     # 1. Identify subtasks for each video.
@@ -305,18 +300,14 @@ async def _collect_locomotion_feedback(videos, gemini_model_config, task_descrip
 
 async def collect_gemini_locomotion_preferences(
     segments: Sequence,
-    num_queries: int,
-    comparison_fn: object,
-    feedback_fn: Callable,
+    pairs: Sequence,
     gemini_model_config: DictConfig,
     task_description: str,
     video_path: Path,
     feedback_iter: int,
 ):
     target_viewpoints = gemini_model_config.target_viewpoints
-    tot_queries = range(num_queries)
-    logging.info("START!")
-    comparison_fn.initialize(segments)
+    tot_queries = range(len(pairs))
 
     feedbacks = []
     total_metadata = []
@@ -325,10 +316,7 @@ async def collect_gemini_locomotion_preferences(
     pair_indices = []
     videos = []
     for i in tqdm(tot_queries, desc="Uploading videos", position=0, leave=False):
-        pair = comparison_fn()
-        while not check_valid_pair(segments, pair):
-            comparison_fn.increment()
-            pair = comparison_fn()
+        pair = pairs[i]
         video1 = get_gemini_video_ids(
             segments, pair[0], target_viewpoints, video_path, feedback_iter, i, 0
         )
@@ -338,7 +326,6 @@ async def collect_gemini_locomotion_preferences(
         pair_indices.append(pair)
         videos.append(video1)
         videos.append(video2)
-        comparison_fn.increment()
 
     videos = [(videos[i], videos[i + 1]) for i in range(0, len(videos), 2)]
     responses = await _collect_locomotion_feedback(
@@ -436,19 +423,13 @@ async def collect_gemini_locomotion_preferences(
     return feedbacks, total_metadata
 
 
-def get_rlhf_iter_fn(
-    work_dir: Path, cfg: DictConfig, env_factory: EnvFactory, reward_model: RewardMethod
-):
-    comparison_fn = get_comparison_fn(cfg, reward_model)
+def get_rlhf_iter_fn(work_dir: Path, cfg: DictConfig, env_factory: EnvFactory):
     feedback_fn = get_feedback_fn(cfg.env.env_name, cfg.rlhf.feedback_type)
 
     match cfg.rlhf.feedback_type:
         case "gemini":
             task_description = env_factory.get_task_description(cfg)
             assert task_description is not None, "Task description is not provided."
-            assert (
-                comparison_fn != RootPairwiseComparisonFn
-            ), "RootPairwiseComparisonFn is not supported for Gemini."
             gemini_model_config = cfg.rlhf.gemini
             video_path = work_dir / "feedbacks" / "videos"
             video_path.mkdir(parents=True, exist_ok=True)
@@ -458,7 +439,6 @@ def get_rlhf_iter_fn(
                 return partial(
                     collect_gemini_manipulation_preferences,
                     num_queries=cfg.rlhf_replay.num_queries,
-                    comparison_fn=comparison_fn,
                     feedback_fn=feedback_fn,
                     gemini_model_config=gemini_model_config,
                     task_description=task_description,
@@ -470,8 +450,6 @@ def get_rlhf_iter_fn(
                 return partial(
                     collect_gemini_locomotion_preferences,
                     num_queries=cfg.rlhf_replay.num_queries,
-                    comparison_fn=comparison_fn,
-                    feedback_fn=feedback_fn,
                     gemini_model_config=gemini_model_config,
                     task_description=task_description,
                     video_path=video_path,
@@ -480,7 +458,6 @@ def get_rlhf_iter_fn(
             return partial(
                 collect_basic_preferences,
                 num_queries=cfg.rlhf_replay.num_queries,
-                comparison_fn=comparison_fn,
                 feedback_fn=feedback_fn,
             )
         case _:

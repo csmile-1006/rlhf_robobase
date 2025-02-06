@@ -30,6 +30,15 @@ class ActionSequence(gym.ActionWrapper, gym.utils.RecordConstructorArgs):
             dtype=self.action_space.dtype,
         )
 
+    def reset(
+        self,
+        *,
+        seed: int | None = None,
+        options: Dict[str, Any] | None = None,
+        **kwargs,
+    ):
+        return self.env.reset(seed=seed, options=options, **kwargs)
+
     def _step_sequence(self, action):
         total_reward = np.array(0.0)
         action_idx_reached = 0
@@ -129,10 +138,14 @@ class RecedingHorizonControl(ActionSequence):
         self._cur_step = 0
 
     def reset(
-        self, *, seed: int | None = None, options: Dict[str, Any] | None = None
+        self,
+        *,
+        seed: int | None = None,
+        options: Dict[str, Any] | None = None,
+        **kwargs,
     ) -> tuple[Any, dict[str, Any]]:
         self._init_action_history()
-        return super().reset(seed=seed, options=options)
+        return super().reset(seed=seed, options=options, **kwargs)
 
     @property
     def last_modified_action(self):

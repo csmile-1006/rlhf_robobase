@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import multiprocessing
 import os
 import random
 import shutil
@@ -20,18 +21,18 @@ from hydra.core.hydra_config import HydraConfig
 from omegaconf import DictConfig
 from tensordict.nn import CudaGraphModule
 from torch.utils.data import DataLoader
-from tqdm import tqdm
+from tqdm import tqdm, trange
 
 import robobase
 from robobase import utils
 from robobase.envs.env import EnvFactory
 from robobase.logger import Logger
+from robobase.method.ppo import PPO, ActorCritic
 from robobase.replay_buffer.rlhf.feedback_replay_buffer import FeedbackReplayBuffer
 from robobase.replay_buffer.rlhf.query_replay_buffer import QueryReplayBuffer
+from robobase.rlhf_module.comparison import check_valid_pair, get_comparison_fn
 from robobase.rlhf_module.iter import get_rlhf_iter_fn
 from robobase.rlhf_module.third_party.gemini import configure_gemini
-
-from robobase.method.ppo import ActorCritic, PPO
 
 torch.backends.cudnn.benchmark = True
 
@@ -309,8 +310,9 @@ class OnPolicyWorkspace:
             self._total_feedback = 0
             self._feedback_iter = 0
 
+            self._comparison_fn = get_comparison_fn(cfg, self.reward_model)
             self._rlhf_iter_fn = get_rlhf_iter_fn(
-                self.work_dir, cfg, env_factory, self.reward_model
+                self.work_dir, cfg, env_factory, self.reward_model, self.rlhf_env
             )
 
             self._unsup_update_step = 0
@@ -474,9 +476,11 @@ class OnPolicyWorkspace:
         self.shutdown()
 
     def eval(self) -> dict[str, Any]:
-        return self._eval(eval_record_all_episode=True)
+        return self._eval(eval_record_all_episode=True, return_action=True)
 
-    def _eval(self, eval_record_all_episode: bool = False) -> dict[str, Any]:
+    def _eval(
+        self, eval_record_all_episode: bool = False, return_action: bool = False
+    ) -> dict[str, Any]:
         # TODO: In future, this func could do with a further refactor
         step, episode, total_learned_reward, total_reward, successes = 0, 0, 0, 0, 0
         if len(self.extra_replay_elements) > 0:
@@ -487,8 +491,10 @@ class OnPolicyWorkspace:
         pbar = tqdm(
             total=self.cfg.num_eval_episodes, desc="Evaluating", leave=False, position=0
         )
+        total_actions = []
         while eval_until_episode(episode):
-            observation, info = self.eval_env.reset()
+            ep_actions = []
+            observation, info = self.eval_env.reset(seed=self.cfg.seed)
             # eval agent always has last id (ids start from 0)
             enabled = eval_record_all_episode or episode == 0
             self.eval_video_recorder.init(self.eval_env, enabled=enabled)
@@ -506,11 +512,13 @@ class OnPolicyWorkspace:
                     (next_observation, reward, termination, truncation, next_info),
                     env_metrics,
                 ) = self._perform_env_steps(
-                    observation, critic_observation, self.eval_env, True
+                    observation, critic_observation, self.eval_env, True, return_action
                 )
                 observation = next_observation
                 critic_observation = next_observation
                 info = next_info
+                if return_action:
+                    ep_actions.append(env_metrics.pop("action"))
                 metrics.update(env_metrics)
                 # Below is testing a feature wich can be enforced in v6.
                 # The ability will allow agent info to be passed to envirionments.
@@ -540,6 +548,7 @@ class OnPolicyWorkspace:
             else:
                 successes = None
             episode += 1
+            total_actions.append(ep_actions)
             pbar.update(1)
         metrics.update(
             {
@@ -567,7 +576,55 @@ class OnPolicyWorkspace:
             metrics["episode_success"] = successes / episode
         if self.cfg.log_eval_video and len(first_rollout) > 0:
             metrics["eval_rollout"] = dict(video=first_rollout, fps=4)
+
+        if return_action:
+            metrics["eval_actions"] = [
+                np.asarray(ep_actions) for ep_actions in total_actions
+            ]
         return metrics
+
+    def replay(
+        self, randomness_values: np.array, actions: np.array = None, env: gym.Env = None
+    ) -> dict[str, Any]:
+        # TODO: In future, this func could do with a further refactor
+        if len(self.extra_replay_elements) > 0:
+            reward_term_dict = {key: 0 for key in self.extra_replay_elements}
+        observations = []
+        # observation, info = self.eval_env.reset(seed=self.cfg.seed, randomness_values=randomness_values)
+        observation, info = env.reset(
+            seed=self.cfg.seed, randomness_values=randomness_values
+        )
+        # eval agent always has last id (ids start from 0)
+        termination, truncation = False, False
+        episode_pbar = tqdm(
+            total=self.cfg.env.episode_length,
+            desc="Episode",
+            leave=False,
+            position=1,
+        )
+        critic_observation = observation
+        ep_step = 0
+        observations.append(observation)
+        while not (termination or truncation):
+            (
+                (next_observation, _, termination, truncation, next_info),
+                _,
+            ) = self._replay_env_steps(
+                observation, critic_observation, actions[ep_step], env, True
+            )
+            observation = next_observation
+            critic_observation = next_observation
+            info = next_info
+            # Below is testing a feature wich can be enforced in v6.
+            # The ability will allow agent info to be passed to envirionments.
+            if len(self.extra_replay_elements) > 0:
+                for key in info.keys():
+                    if key.startswith("Reward/"):
+                        reward_term_dict[key] += info[key]
+            ep_step += 1
+            observations.append(next_observation)
+            episode_pbar.update(1)
+        return observations
 
     def _add_to_replay(
         self,
@@ -704,6 +761,44 @@ class OnPolicyWorkspace:
 
     def collect_feedback(self):
         query_batch = next(self.query_replay_iter)
+        self._comparison_fn.initialize(query_batch)
+        pairs = []
+        for i in trange(
+            self.cfg.rlhf_replay.num_queries,
+            desc="Identifying pairs",
+            position=0,
+            leave=False,
+        ):
+            pair = self._comparison_fn()
+            while not check_valid_pair(query_batch, pair):
+                self._comparison_fn.increment()
+                pair = self._comparison_fn()
+            pairs.append(pair)
+
+        def process_pair(pair_index):
+            target_idx = pairs[pair_index // 2][pair_index % 2]
+            ep = self.query_replay_buffer.load_episode(
+                query_batch["episode_number"][target_idx]
+            )
+            randomness_values = ep["randomness_values"][0]
+            actions = ep["actions"]
+            rlhf_env = self.env_factory.make_rlhf_env(self.cfg)
+
+            new_observations = self.replay(randomness_values, actions, rlhf_env)
+            obs_keys = new_observations[0].keys()
+            new_observations = {
+                key: np.asarray([obs[key][-1] for obs in new_observations])
+                for key in obs_keys
+            }
+            return target_idx, new_observations
+
+        with multiprocessing.Pool(processes=10) as pool:
+            results = pool.map(process_pair, range(len(pairs) * 2))
+
+        for target_idx, new_observations in results:
+            for key in new_observations.keys():
+                query_batch[target_idx][key] = new_observations[key]
+
         if self.cfg.rlhf.feedback_type == "gemini":
             if not hasattr(self, "_loop"):
                 self._loop = asyncio.get_event_loop()
@@ -766,6 +861,7 @@ class OnPolicyWorkspace:
         critic_observations: dict[str, np.ndarray],
         env: gym.Env,
         eval_mode: bool,
+        return_action: bool = False,
     ) -> tuple[np.ndarray, tuple, dict[str, Any]]:
         if self.agent.logging:
             start_time = time.time()
@@ -794,6 +890,8 @@ class OnPolicyWorkspace:
                 action, act_info = action
                 metrics["agent_act_info"] = act_info
             action = action.cpu().detach().numpy()[:, None, :]
+            if return_action:
+                metrics["action"] = action
             if action.ndim != 3:
                 raise ValueError(
                     f"Expected actions from `agent.act` to have shape (Batch, Timesteps, Action Dim) != {action.shape}."
@@ -848,6 +946,65 @@ class OnPolicyWorkspace:
 
         return (
             action,
+            (next_observations, rewards, terminations, truncations, next_info),
+            metrics,
+        )
+
+    def _replay_env_steps(
+        self,
+        observations: dict[str, np.ndarray],
+        critic_observations: dict[str, np.ndarray],
+        action: np.ndarray,
+        env: gym.Env,
+        eval_mode: bool,
+        return_action: bool = False,
+    ) -> tuple[np.ndarray, tuple, dict[str, Any]]:
+        if self.agent.logging:
+            start_time = time.time()
+
+        metrics = {}
+        if eval_mode:
+            action = action[0]  # we expect batch of 1 for eval
+
+        next_observations, rewards, terminations, truncations, next_info = env.step(
+            action
+        )
+        # TODO: debug details
+        if self.use_rlhf and not eval_mode:
+            rewards = self.reward_model.compute_reward(
+                {
+                    "action": action,
+                    **{k: v for k, v in observations.items()},
+                    **{k: v for k, v in next_info.items()},
+                    "reward": rewards,
+                },
+                episodic=False,
+            )["reward"]
+
+        if self.agent.logging:
+            execution_time_for_env_step = time.time() - start_time
+            metrics["env_steps_per_second"] = (
+                self.train_envs.num_envs / execution_time_for_env_step
+            )
+            for k, v in next_info.items():
+                # if train env, then will be vectorised, so get first elem
+                metrics[f"env_info/{k}"] = v if eval_mode else v[0]
+
+        if not eval_mode:
+            self.agent.process_env_step(rewards, terminations, next_info)
+
+        if eval_mode:
+            next_info.update(env.last_reward)
+        else:
+            _rewards = env.get_attr("last_reward")
+            next_info.update(
+                {
+                    k: np.stack([elem[k] for elem in _rewards], axis=0)
+                    for k in _rewards[0].keys()
+                }
+            )
+
+        return (
             (next_observations, rewards, terminations, truncations, next_info),
             metrics,
         )
@@ -937,7 +1094,7 @@ class OnPolicyWorkspace:
                 snapshot_reward_model_every_n
             )
 
-        observations, info = self.train_envs.reset()
+        observations, info = self.train_envs.reset(seed=self.cfg.seed)
         critic_observations = observations
         #  We use agent 0 to accumulate stats about how the training agents are doing
         agent_0_ep_len = agent_0_reward = agent_0_learned_reward = 0

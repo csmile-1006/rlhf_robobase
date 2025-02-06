@@ -140,6 +140,10 @@ class AGym(gym.Env):
         return self._last_reward
 
     @property
+    def randomness_values(self):
+        return self.__agym_env.randomness_values
+
+    @property
     def agym_env(self):
         return self.__agym_env
 
@@ -185,17 +189,26 @@ class AGym(gym.Env):
                 last_reward["task_reward"] = task_reward
             if terminated or truncated:
                 break
+        info["randomness_values"] = self.randomness_values
         self._i += 1
         self._last_reward = last_reward
         return self._get_obs(agym_obs), reward, terminated, truncated, info
 
-    def reset(self, seed=None, options=None):
+    def reset(
+        self,
+        seed=None,
+        options=None,
+        randomness_values=None,
+    ):
         super().reset(seed=seed)
         if self._agym_env is None:
             self._launch()
-        agym_obs, info = self._agym_env.reset(seed=seed, options=options)
-        info.update({key: 0.0 for key in self.reward_space.keys()})
+        if seed is not None:
+            self.__agym_env.seed(seed)
+        agym_obs = self.__agym_env.reset(randomness_values=randomness_values)
+        info = {key: 0.0 for key in self.reward_space.keys()}
         info.update({"task_reward": 0.0})
+        info.update({"randomness_values": self.randomness_values})
         return self._get_obs(agym_obs), info
 
     def render(self, view: str = "front") -> None:
@@ -272,7 +285,7 @@ class AGymEnvFactory(EnvFactory):
                         task_name=cfg.env.task_name,
                         action_repeat=cfg.action_repeat,
                         frame_skip=cfg.env.frame_skip,
-                        use_rlhf=cfg.rlhf.use_rlhf,
+                        use_rlhf=False,
                         use_gemini=cfg.rlhf.feedback_type == "gemini",
                         query_keys=cfg.env.query_keys,
                         render_mode="rgb_array" if cfg.rlhf.use_rlhf else None,
@@ -294,10 +307,28 @@ class AGymEnvFactory(EnvFactory):
                 task_name=cfg.env.task_name,
                 action_repeat=cfg.action_repeat,
                 frame_skip=cfg.env.frame_skip,
-                use_rlhf=cfg.rlhf.use_rlhf,
+                use_rlhf=False,
                 use_gemini=cfg.rlhf.feedback_type == "gemini",
                 query_keys=cfg.env.query_keys,
                 render_mode="rgb_array",  # always render for evaluation
+                reward_mode=cfg.env.reward_mode,
+                reward_term_type=cfg.env.reward_term_type,
+                initial_terms=cfg.env.initial_terms,
+            ),
+            cfg,
+            eval_mode=True,
+        )
+
+    def make_rlhf_env(self, cfg: DictConfig) -> gym.Env:
+        return self._wrap_env(
+            AGym(
+                task_name=cfg.env.task_name,
+                action_repeat=cfg.action_repeat,
+                frame_skip=cfg.env.frame_skip,
+                use_rlhf=True,
+                use_gemini=cfg.rlhf.feedback_type == "gemini",
+                query_keys=cfg.env.query_keys,
+                render_mode="rgb_array" if cfg.rlhf.use_rlhf else None,
                 reward_mode=cfg.env.reward_mode,
                 reward_term_type=cfg.env.reward_term_type,
                 initial_terms=cfg.env.initial_terms,
