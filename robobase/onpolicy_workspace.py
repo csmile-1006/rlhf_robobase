@@ -30,9 +30,10 @@ from robobase.logger import Logger
 from robobase.method.ppo import PPO, ActorCritic
 from robobase.replay_buffer.rlhf.feedback_replay_buffer import FeedbackReplayBuffer
 from robobase.replay_buffer.rlhf.query_replay_buffer import QueryReplayBuffer
-from robobase.rlhf_module.comparison import check_valid_pair, get_comparison_fn
+from robobase.rlhf_module.comparison import get_comparison_fn
 from robobase.rlhf_module.iter import get_rlhf_iter_fn
 from robobase.rlhf_module.third_party.gemini import configure_gemini
+from robobase.rlhf_module.utils import check_valid_pair
 
 torch.backends.cudnn.benchmark = True
 

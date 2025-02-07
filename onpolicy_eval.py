@@ -39,7 +39,7 @@ def main(cfg):
     workspace.agent.logging = False
     workspace._setup_training_functions()
 
-    mode = "replay"
+    mode = "eval"
     if mode == "replay":
         base_path = Path(
             "/home/changyeon/ICML2025/workspace/rlhf_robobase/agym_exp/eval/agym_FeedingBaxter-v0/20250206162548"
