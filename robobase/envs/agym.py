@@ -163,7 +163,11 @@ class AGym(gym.Env):
     def step(self, action):
         reward = 0
         last_reward = {f"Reward/{k}": 0.0 for k in self._reward_terms}
-        info = {"task_reward": 0.0, **{f"Reward/{k}": 0.0 for k in self._reward_terms}}
+        info = {
+            "task_reward": 0.0,
+            "rlhf": int(self._use_rlhf),
+            **{f"Reward/{k}": 0.0 for k in self._reward_terms},
+        }
         for _ in range(self._action_repeat):
             agym_obs, task_reward, terminated, truncated, _info = self._agym_env.step(
                 action
@@ -195,7 +199,7 @@ class AGym(gym.Env):
             self._launch()
         agym_obs, info = self._agym_env.reset(seed=seed, options=options)
         info.update({key: 0.0 for key in self.reward_space.keys()})
-        info.update({"task_reward": 0.0})
+        info.update({"task_reward": 0.0, "rlhf": int(self._use_rlhf)})
         return self._get_obs(agym_obs), info
 
     def render(self, view: str = "front") -> None:
@@ -265,28 +269,72 @@ class AGymEnvFactory(EnvFactory):
         kwargs = dict(context=None)
         # vec_env_class = gym.vector.SyncVectorEnv
         # kwargs = dict()
-        return vec_env_class(
-            [
+        if not cfg.rlhf.use_rlhf:
+            return vec_env_class(
+                [
+                    lambda: self._wrap_env(
+                        AGym(
+                            task_name=cfg.env.task_name,
+                            action_repeat=cfg.action_repeat,
+                            frame_skip=cfg.env.frame_skip,
+                            use_rlhf=False,
+                            use_gemini=cfg.rlhf.feedback_type == "gemini",
+                            query_keys=cfg.env.query_keys,
+                            render_mode="rgb_array" if cfg.rlhf.use_rlhf else None,
+                            reward_mode=cfg.env.reward_mode,
+                            reward_term_type=cfg.env.reward_term_type,
+                            initial_terms=cfg.env.initial_terms,
+                        ),
+                        cfg,
+                        eval_mode=False,
+                    )
+                    for _ in range(cfg.num_train_envs)
+                ],
+                **kwargs,
+            )
+        else:
+            envs = [
                 lambda: self._wrap_env(
                     AGym(
                         task_name=cfg.env.task_name,
                         action_repeat=cfg.action_repeat,
                         frame_skip=cfg.env.frame_skip,
-                        use_rlhf=cfg.rlhf.use_rlhf,
+                        use_rlhf=False,
                         use_gemini=cfg.rlhf.feedback_type == "gemini",
                         query_keys=cfg.env.query_keys,
-                        render_mode="rgb_array" if cfg.rlhf.use_rlhf else None,
+                        render_mode="rgb_array",  # always render for evaluation
                         reward_mode=cfg.env.reward_mode,
                         reward_term_type=cfg.env.reward_term_type,
                         initial_terms=cfg.env.initial_terms,
                     ),
                     cfg,
-                    eval_mode=False,
+                    eval_mode=True,
                 )
-                for _ in range(cfg.num_train_envs)
-            ],
-            **kwargs,
-        )
+                for _ in range(cfg.num_train_envs - 2)
+            ]
+
+            # some envs need to render
+            envs += [
+                lambda: self._wrap_env(
+                    AGym(
+                        task_name=cfg.env.task_name,
+                        action_repeat=cfg.action_repeat,
+                        frame_skip=cfg.env.frame_skip,
+                        use_rlhf=True,
+                        use_gemini=cfg.rlhf.feedback_type == "gemini",
+                        query_keys=cfg.env.query_keys,
+                        render_mode="rgb_array",  # always render for evaluation
+                        reward_mode=cfg.env.reward_mode,
+                        reward_term_type=cfg.env.reward_term_type,
+                        initial_terms=cfg.env.initial_terms,
+                    ),
+                    cfg,
+                    eval_mode=True,
+                )
+                for _ in range(2)
+            ]
+
+            return vec_env_class(envs, **kwargs)
 
     def make_eval_env(self, cfg: DictConfig) -> gym.Env:
         return self._wrap_env(

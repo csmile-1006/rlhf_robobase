@@ -619,6 +619,7 @@ class OnPolicyWorkspace:
                 # Re-labeling successful demonstrations as success, following CQN
                 relabeling_as_demo = task_success and self.cfg.use_self_imitation
                 ep_index = 0
+                is_rlhf = ep[-1][-2]["rlhf"] > 0
                 for act, obs, rew, term, trunc, info, next_info in ep:
                     # Only keep the last frames regardless of frame stacks because
                     # replay buffer always store single-step transitions
@@ -645,10 +646,7 @@ class OnPolicyWorkspace:
                         self.demo_replay_buffer.add(
                             clean_obs, act, rew, term, trunc, **extra_replay_elements
                         )
-                    if (
-                        self.use_rlhf
-                        and self.total_feedback < self.cfg.rlhf.max_feedback
-                    ):
+                    if is_rlhf and self.total_feedback < self.cfg.rlhf.max_feedback:
                         task_rew = info["task_reward"]
                         self.query_replay_buffer.add(
                             obs,
@@ -670,7 +668,7 @@ class OnPolicyWorkspace:
                 }
                 if relabeling_as_demo:
                     self.demo_replay_buffer.add_final(final_clean_obs)
-                if self.use_rlhf and self.total_feedback < self.cfg.rlhf.max_feedback:
+                if is_rlhf and self.total_feedback < self.cfg.rlhf.max_feedback:
                     self.query_replay_buffer.add_final(final_obs)
 
                 # clean up

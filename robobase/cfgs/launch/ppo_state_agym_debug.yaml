@@ -1,0 +1,34 @@
+# @package _global_
+
+defaults:
+  - ../env: null  # Please specify environment to use in command line
+  - ../method: ppo
+  - ../reward_method: hybrid
+
+env:
+  reward_mode: initial
+
+pixels: false
+frame_stack: 1
+action_repeat: 1
+num_train_envs: 32
+update_every_steps: 1
+num_eval_episodes: 1
+log_every: 1
+eval_every_steps: 1
+save_snapshot: true
+snapshot_every_n: 100
+num_train_frames: 10001000
+
+method:
+  learning_rate: 1.0e-4
+  gamma: 0.99
+  desired_kl: 0.02
+  actor_hidden_dims: [256, 128, 64]
+  critic_hidden_dims: [256, 128, 64]
+  activation: elu
+  entropy_coef: 0.001
+
+hydra:
+  run:
+    dir: ./debug/state_ppo/agym_${env.task_name}/default_seed${seed}_${now:%Y%m%d%H%M%S}
