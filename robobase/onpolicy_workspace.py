@@ -1,6 +1,7 @@
 import asyncio
 import logging
-import multiprocessing
+
+# import multiprocessing
 import os
 import random
 import shutil
@@ -9,6 +10,7 @@ import sys
 import time
 import warnings
 from functools import partial
+from io import BytesIO
 from pathlib import Path
 from typing import Any
 
@@ -312,9 +314,7 @@ class OnPolicyWorkspace:
             self._feedback_iter = 0
 
             self._comparison_fn = get_comparison_fn(cfg, self.reward_model)
-            self._rlhf_iter_fn = get_rlhf_iter_fn(
-                self.work_dir, cfg, env_factory, self.reward_model, self.rlhf_env
-            )
+            self._rlhf_iter_fn = get_rlhf_iter_fn(self.work_dir, cfg, env_factory)
 
             self._unsup_update_step = 0
 
@@ -611,7 +611,11 @@ class OnPolicyWorkspace:
                 (next_observation, _, termination, truncation, next_info),
                 _,
             ) = self._replay_env_steps(
-                observation, critic_observation, actions[ep_step], env, True
+                observation,
+                critic_observation,
+                actions[ep_step][None, None, ...],
+                env,
+                True,
             )
             observation = next_observation
             critic_observation = next_observation
@@ -708,6 +712,10 @@ class OnPolicyWorkspace:
                         and self.total_feedback < self.cfg.rlhf.max_feedback
                     ):
                         task_rew = info["task_reward"]
+                        if self.use_rlhf:
+                            extra_replay_elements["randomness_values"] = info[
+                                "randomness_values"
+                            ]
                         self.query_replay_buffer.add(
                             obs,
                             act,
@@ -778,11 +786,17 @@ class OnPolicyWorkspace:
 
         def process_pair(pair_index):
             target_idx = pairs[pair_index // 2][pair_index % 2]
+
             ep = self.query_replay_buffer.load_episode(
                 query_batch["episode_number"][target_idx]
             )
-            randomness_values = ep["randomness_values"][0]
-            actions = ep["actions"]
+            rv = ep["randomness_values"][-1]
+            len_rval = rv[0]
+            with BytesIO(rv[1 : len_rval + 1]) as fin:
+                randomness_values = eval(
+                    fin.read().decode("utf-8").strip().replace(chr(0), "")
+                )
+            actions = ep["action"]
             rlhf_env = self.env_factory.make_rlhf_env(self.cfg)
 
             new_observations = self.replay(randomness_values, actions, rlhf_env)
@@ -791,14 +805,18 @@ class OnPolicyWorkspace:
                 key: np.asarray([obs[key][-1] for obs in new_observations])
                 for key in obs_keys
             }
-            return target_idx, new_observations
 
-        with multiprocessing.Pool(processes=10) as pool:
-            results = pool.map(process_pair, range(len(pairs) * 2))
+            return new_observations
 
-        for target_idx, new_observations in results:
-            for key in new_observations.keys():
-                query_batch[target_idx][key] = new_observations[key]
+        results = [process_pair(i) for i in range(len(pairs) * 2)]
+
+        query_batch.update(
+            {
+                key: np.stack([results[i][key] for i in range(len(results))])
+                for key in results[0].keys()
+                if key not in query_batch.keys()
+            }
+        )
 
         if self.cfg.rlhf.feedback_type == "gemini":
             if not hasattr(self, "_loop"):
@@ -806,7 +824,7 @@ class OnPolicyWorkspace:
                 asyncio.set_event_loop(self._loop)
             feedbacks, metadata = self._loop.run_until_complete(
                 self._rlhf_iter_fn(
-                    segments=query_batch, feedback_iter=self.feedback_iter
+                    segments=query_batch, pairs=pairs, feedback_iter=self.feedback_iter
                 )
             )
         else:

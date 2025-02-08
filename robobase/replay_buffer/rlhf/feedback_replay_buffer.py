@@ -175,7 +175,7 @@ class FeedbackReplayBuffer(ReplayBuffer):
             new_extra_replay_elements[name] = spaces.Box(
                 np.stack([space.low for _ in range(transition_seq_len)]),
                 np.stack([space.high for _ in range(transition_seq_len)]),
-                shape=(transition_seq_len,) + space.shape[1:],
+                shape=(transition_seq_len,) + space.shape,
                 dtype=space.dtype,
             )
         extra_replay_elements = new_extra_replay_elements

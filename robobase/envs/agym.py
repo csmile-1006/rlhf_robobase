@@ -75,7 +75,6 @@ class AGym(gym.Env):
         self._launch()
 
     def _launch(self):
-        print(f"Creating AGym environment with task name: {self._task_name}")
         self.__agym_env = gym_old.make(self._task_name)
         self._agym_env_unwrapped = self.__agym_env.unwrapped
         self._agym_env = gym.wrappers.EnvCompatibility(
@@ -141,7 +140,12 @@ class AGym(gym.Env):
 
     @property
     def randomness_values(self):
-        return self.__agym_env.randomness_values
+        _rvalues = np.zeros((500,), dtype=np.uint32)
+        raw_data = str(self.__agym_env.randomness_values).encode("utf-8")
+        __rvalues = np.frombuffer(raw_data, dtype=np.uint8)
+        _rvalues[0] = __rvalues.shape[0]
+        _rvalues[1 : __rvalues.shape[0] + 1] = __rvalues
+        return _rvalues
 
     @property
     def agym_env(self):

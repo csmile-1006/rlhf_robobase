@@ -338,10 +338,14 @@ async def collect_gemini_locomotion_preferences(
         label = postprocess_gemini_response(response)
         pref_dict = {
             "segment_0": {
-                key: np.asarray(segments[key][pair[0]]) for key in segments.keys()
+                key: np.asarray(segments[key][pair[0]])
+                for key in segments.keys()
+                if "query" not in key
             },
             "segment_1": {
-                key: np.asarray(segments[key][pair[1]]) for key in segments.keys()
+                key: np.asarray(segments[key][pair[1]])
+                for key in segments.keys()
+                if "query" not in key
             },
             "label": np.asarray(label)[np.newaxis],
         }
@@ -449,7 +453,6 @@ def get_rlhf_iter_fn(work_dir: Path, cfg: DictConfig, env_factory: EnvFactory):
             elif cfg.env.env_name in ["agym", "dmc", "locomujoco", "humanoidbench"]:
                 return partial(
                     collect_gemini_locomotion_preferences,
-                    num_queries=cfg.rlhf_replay.num_queries,
                     gemini_model_config=gemini_model_config,
                     task_description=task_description,
                     video_path=video_path,

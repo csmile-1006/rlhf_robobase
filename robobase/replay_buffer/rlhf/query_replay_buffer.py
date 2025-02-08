@@ -317,6 +317,9 @@ class QueryReplayBuffer(ReplayBuffer):
 
         # add index in the episode
         storage_elements[INDICES] = ReplayElement(INDICES, (), np.int64)
+        storage_elements["randomness_values"] = ReplayElement(
+            "randomness_values", (500,), np.uint32
+        )
 
         return storage_elements, obs_elements
 
@@ -520,7 +523,6 @@ class QueryReplayBuffer(ReplayBuffer):
 
     def load_episode(self, idx: int):
         eps_fn = self._episode_files[idx]
-        eps_fn["episode_number"] = eps_fn.stem.split("_")[1]
         return self._load_episode_fn(eps_fn)
 
     def _load_episode_into_worker(self, eps_fn: Path, global_idx: int):
@@ -673,7 +675,7 @@ class QueryReplayBuffer(ReplayBuffer):
             if name not in replay_sample:
                 replay_sample[name] = episode[name][transition_idxs]
 
-        replay_sample["episode_number"] = eps_fn.stem.split("_")[1]
+        replay_sample["episode_number"] = int(eps_fn.stem.split("_")[1])
         replay_sample["global_steps"] = global_index
 
         return replay_sample
