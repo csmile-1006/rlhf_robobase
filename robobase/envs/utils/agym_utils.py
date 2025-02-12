@@ -40,33 +40,40 @@ General Instructions:
 - The robot arm maintains a safe distance from the person
 """,
     "DrinkingPR2-v0": """Task: Robot-Assisted Drinking
-Goal: Help a person drink water by controlling a robot that holds a cup filled with water (simulated as particles).
+Goal: Use a robot to feed a person with a cup containing cyan-colored water (simulated as particles).
 Environment Setup:
-- The person's head orientation is randomized at the start
-- Water is represented by small spherical particles in the cup
-- The robot holds and controls the cup
-
-Reward Components:
-1. Cup Positioning
-   - Positive reward for moving cup closer to person's mouth
-   - Positive reward for appropriate cup tilting angle
-   - Positive reward for successful water transfer into mouth
-
-2. Safety Constraints
-   - Negative reward for spilling water
-   - Negative reward for any physical contact between cup and mouth
-   - Negative reward for rapid or jerky movements
-
-3. Comfort Requirements
-   - Movements should be smooth and predictable
-   - Robot should maintain appropriate distance from person
-   - Cup approach and water pouring should be gentle
+- The person's mouth is indicated by a bright green sphere
+- The robot holds and maneuvers the spoon
+- The robot must deliver the cyan-colored water from the cup to the person's mouth without spilling.
+- If the water particle is within 0.03 meters of the person's mouth, it is considered fed, then the particle is removed from the cup and the robot arm earns a reward.
 
 Success Criteria:
-- Water particles enter person's mouth
-- No water is spilled during the process
-- No physical contact between cup and person
-- Smooth and comfortable robot motion throughout task
+- Ensure all cyan-colored water successfully reaches the person's mouth and disappears
+- Prevent any spilling of the blue-colored water
+- After feeding all water, **THE ROBOT ARM MUST RETURN TO THE STARTING POSITION**
+
+General Instructions:
+- The robot's movements should be smooth and predictable
+- Avoid uncomfortable contact between the spoon and the person, and prevent spoon vibration near the person's mouth
+- The robot arm maintains a safe distance from the person
+""",
+    "DrinkingSaywer-v0": """Task: Robot-Assisted Drinking
+Goal: Use a robot to make a person drink a cup containing cyan-colored water (simulated as particles).
+Environment Setup:
+- The person's mouth is indicated by a bright green sphere
+- The robot holds and maneuvers the spoon
+- The robot must deliver the cyan-colored water from the cup to the person's mouth without spilling.
+- If the water particle is within 0.03 meters of the person's mouth, it is considered fed, then the particle is removed from the cup and the robot arm earns a reward.
+
+Success Criteria:
+- Ensure all cyan-colored water successfully reaches the person's mouth and disappears
+- Prevent any spilling of the cyan-colored water
+- After feeding all water, **THE ROBOT ARM MUST RETURN TO THE STARTING POSITION**
+
+General Instructions:
+- The robot's movements should be smooth and predictable
+- Avoid uncomfortable contact between the spoon and the person, and prevent spoon vibration near the person's mouth
+- The robot arm maintains a safe distance from the person
 """,
 }
 
