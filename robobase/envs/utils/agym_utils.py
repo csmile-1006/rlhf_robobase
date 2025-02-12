@@ -57,7 +57,7 @@ General Instructions:
 - Avoid uncomfortable contact between the spoon and the person, and prevent spoon vibration near the person's mouth
 - The robot arm maintains a safe distance from the person
 """,
-    "DrinkingSaywer-v0": """Task: Robot-Assisted Drinking
+    "DrinkingSawyer-v0": """Task: Robot-Assisted Drinking
 Goal: Use a robot to make a person drink a cup containing cyan-colored water (simulated as particles).
 Environment Setup:
 - The person's mouth is indicated by a bright green sphere
