@@ -70,7 +70,7 @@ def get_gemini_video_ids(
     for viewpoint in target_viewpoints:
         assert (
             f"query_pixels_{viewpoint}" in segments
-        ), "query_pixels_{viewpoint} not found in segments"
+        ), f"query_pixels_{viewpoint} not found in segments"
         index = segments["indices"][idx]
         video_file_path = (
             video_path

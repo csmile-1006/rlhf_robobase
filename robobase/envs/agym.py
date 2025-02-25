@@ -74,6 +74,10 @@ class AGym(gym.Env):
         self._agym_env = None
         self._launch()
 
+    def enable_opengl(self):
+        assert self.__agym_env is not None, "Environment not initialized"
+        self.__agym_env.enable_gpu()
+
     def _launch(self):
         self.__agym_env = gym_old.make(self._task_name)
         self._agym_env_unwrapped = self.__agym_env.unwrapped
@@ -311,7 +315,7 @@ class AGymEnvFactory(EnvFactory):
                 task_name=cfg.env.task_name,
                 action_repeat=cfg.action_repeat,
                 frame_skip=cfg.env.frame_skip,
-                use_rlhf=False,
+                use_rlhf=cfg.rlhf.use_rlhf,
                 use_gemini=cfg.rlhf.feedback_type == "gemini",
                 query_keys=cfg.env.query_keys,
                 render_mode="rgb_array",  # always render for evaluation

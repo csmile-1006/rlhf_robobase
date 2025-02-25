@@ -61,7 +61,7 @@ General Instructions:
 Goal: Use a robot to make a person drink a cup containing cyan-colored water (simulated as particles).
 Environment Setup:
 - The person's mouth is indicated by a bright green sphere
-- The robot holds and maneuvers the spoon
+- The robot holds and maneuvers the transparent cup with cyan-colored water
 - The robot must deliver the cyan-colored water from the cup to the person's mouth without spilling.
 - If the water particle is within 0.03 meters of the person's mouth, it is considered fed, then the particle is removed from the cup and the robot arm earns a reward.
 
@@ -72,7 +72,7 @@ Success Criteria:
 
 General Instructions:
 - The robot's movements should be smooth and predictable
-- Avoid uncomfortable contact between the spoon and the person, and prevent spoon vibration near the person's mouth
+- Avoid uncomfortable contact between the transparent cup and the person, and prevent cup vibration near the person's mouth
 - The robot arm maintains a safe distance from the person
 """,
 }

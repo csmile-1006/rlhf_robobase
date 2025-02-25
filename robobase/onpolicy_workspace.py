@@ -95,7 +95,7 @@ def _create_default_query_replay_buffer(
         transition_seq_len=cfg.rlhf_replay.seq_len,
         max_episode_number=cfg.rlhf_replay.max_episode_number if not use_demo else 0,
         upload_gemini=cfg.rlhf.feedback_type == "gemini",
-        purge_replay_on_shutdown=True,
+        purge_replay_on_shutdown=False,
         save_snapshot=True,
     )
 
@@ -197,6 +197,7 @@ class OnPolicyWorkspace:
         self.env_factory = env_factory
 
         self.eval_env = self.env_factory.make_eval_env(cfg)
+        self.eval_env.enable_opengl()
 
         # Create the RL Agent
         full_observation_space = self.eval_env.observation_space
@@ -279,7 +280,7 @@ class OnPolicyWorkspace:
             self.reward_model.train(False)
             self.query_replay_buffer = _create_default_query_replay_buffer(
                 cfg,
-                observation_space=full_observation_space,
+                observation_space=clean_observation_space,
                 action_space=action_space,
                 save_dir=self.work_dir,
                 extra_replay_elements=extra_replay_elements,
@@ -296,7 +297,10 @@ class OnPolicyWorkspace:
             self.query_replay_loader = DataLoader(
                 self.query_replay_buffer,
                 batch_size=self.query_replay_buffer.batch_size,
-                worker_init_fn=partial(_worker_init_fn, offset=1234),
+                num_workers=0,
+                pin_memory=cfg.rlhf_replay.pin_memory,
+                persistent_workers=False,
+                prefetch_factor=None,
             )
             self.feedback_replay_loader = DataLoader(
                 self.feedback_replay_buffer,
@@ -797,9 +801,8 @@ class OnPolicyWorkspace:
                     fin.read().decode("utf-8").strip().replace(chr(0), "")
                 )
             actions = ep["action"]
-            rlhf_env = self.env_factory.make_rlhf_env(self.cfg)
 
-            new_observations = self.replay(randomness_values, actions, rlhf_env)
+            new_observations = self.replay(randomness_values, actions, self.eval_env)
             obs_keys = new_observations[0].keys()
             new_observations = {
                 key: np.asarray([obs[key][-1] for obs in new_observations])
@@ -808,8 +811,9 @@ class OnPolicyWorkspace:
 
             return new_observations
 
-        results = [process_pair(i) for i in range(len(pairs) * 2)]
-
+        results = []
+        for i in range(len(pairs) * 2):
+            results.append(process_pair(i))
         query_batch.update(
             {
                 key: np.stack([results[i][key] for i in range(len(results))])
