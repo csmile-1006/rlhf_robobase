@@ -786,16 +786,16 @@ class OnPolicyWorkspace:
             while not check_valid_pair(query_batch, pair):
                 self._comparison_fn.increment()
                 pair = self._comparison_fn()
-            try:
-                self.query_replay_buffer.load_episode(
-                    query_batch["episode_number"][pair[0]]
-                )
-                self.query_replay_buffer.load_episode(
-                    query_batch["episode_number"][pair[1]]
-                )
-            except Exception as e:
-                print(f"Error loading episodes: {e} / {pair}")
-                continue
+                try:
+                    self.query_replay_buffer.load_episode(
+                        query_batch["episode_number"][pair[0]]
+                    )
+                    self.query_replay_buffer.load_episode(
+                        query_batch["episode_number"][pair[1]]
+                    )
+                except Exception as e:
+                    print(f"Error loading episodes: {e} / {pair}")
+                    continue
             pairs.append(pair)
 
         def process_pair(pair_index):

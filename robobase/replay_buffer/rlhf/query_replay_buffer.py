@@ -563,10 +563,6 @@ class QueryReplayBuffer(ReplayBuffer):
         return True
 
     def _try_fetch(self):
-        if self._samples_since_last_fetch < self._fetch_every:
-            return
-        self._samples_since_last_fetch = 0
-
         try:
             worker_id = torch.utils.data.get_worker_info().id
         except Exception:
