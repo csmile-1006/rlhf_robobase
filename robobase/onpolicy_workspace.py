@@ -23,7 +23,7 @@ from hydra.core.hydra_config import HydraConfig
 from omegaconf import DictConfig
 from tensordict.nn import CudaGraphModule
 from torch.utils.data import DataLoader
-from tqdm import tqdm, trange
+from tqdm import tqdm
 
 import robobase
 from robobase import utils
@@ -776,31 +776,44 @@ class OnPolicyWorkspace:
         query_batch = next(self.query_replay_iter)
         self._comparison_fn.initialize(query_batch)
         pairs = []
-        for i in trange(
-            self.cfg.rlhf_replay.num_queries,
+        pbar = tqdm(
+            total=self.cfg.rlhf_replay.num_queries * 2,
             desc="Identifying pairs",
             position=0,
             leave=False,
-        ):
+        )
+        while len(pairs) < self.cfg.rlhf_replay.num_queries:
+            # Get next pair of indices to compare from comparison function
             pair = self._comparison_fn()
-            while not check_valid_pair(query_batch, pair):
+
+            # Validate that the pair represents different episodes/timesteps
+            if not check_valid_pair(query_batch, pair):
+                print(f"Invalid pair: {pair}")
                 self._comparison_fn.increment()
-                pair = self._comparison_fn()
-                try:
-                    self.query_replay_buffer.load_episode(
-                        query_batch["episode_number"][pair[0]]
-                    )
-                    self.query_replay_buffer.load_episode(
-                        query_batch["episode_number"][pair[1]]
-                    )
-                except Exception as e:
-                    print(f"Error loading episodes: {e} / {pair}")
-                    continue
+                continue
+
+            # Try to load both episodes from the replay buffer
+            try:
+                episode1 = query_batch["episode_number"][pair[0]]
+                episode2 = query_batch["episode_number"][pair[1]]
+
+                # Verify both episodes can be loaded
+                self.query_replay_buffer.load_episode(episode1)
+                self.query_replay_buffer.load_episode(episode2)
+
+            except Exception as e:
+                # Skip this pair if episodes can't be loaded
+                print(f"Error loading episodes: {e} / {pair}")
+                self._comparison_fn.increment()
+                continue
+
+            # If validation passes, add pair and update progress
             pairs.append(pair)
+            self._comparison_fn.increment()
+            pbar.update(1)
 
         def process_pair(pair_index):
             target_idx = pairs[pair_index // 2][pair_index % 2]
-
             ep = self.query_replay_buffer.load_episode(
                 query_batch["episode_number"][target_idx]
             )
@@ -823,7 +836,14 @@ class OnPolicyWorkspace:
 
         results = []
         for i in range(len(pairs) * 2):
-            results.append(process_pair(i))
+            try:
+                results.append(process_pair(i))
+            except Exception as e:
+                print(f"Error processing pair: {e} / {pairs[i // 2][i % 2]}")
+                continue
+
+        results = results[: self.cfg.rlhf_replay.num_queries]
+
         query_batch.update(
             {
                 key: np.stack([results[i][key] for i in range(len(results))])
@@ -843,7 +863,7 @@ class OnPolicyWorkspace:
             )
         else:
             feedbacks, metadata = self._rlhf_iter_fn(
-                segments=query_batch, feedback_iter=self.feedback_iter
+                segments=query_batch, pairs=pairs, feedback_iter=self.feedback_iter
             )
         if metadata:
             for feedback, metadatum in zip(feedbacks, metadata):

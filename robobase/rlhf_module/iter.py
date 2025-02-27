@@ -31,25 +31,19 @@ General function to collect preferences (LLM vs non-LLM)
 
 def collect_basic_preferences(
     segments: Sequence,
+    pairs: Sequence,
     num_queries: int,
-    comparison_fn: object,
     feedback_fn: Callable,
     feedback_iter: int,
 ):
     tot_queries = range(num_queries)
     logging.info("START!")
-    comparison_fn.initialize(segments)
 
     feedbacks = []
     metadata = []
     for i in tot_queries:
-        pair = comparison_fn()
-        while not check_valid_pair(segments, pair):
-            comparison_fn.increment()
-            pair = comparison_fn()
+        pair = pairs[i]
         label = feedback_fn(segments, pair, index=i, len_tot_queries=len(tot_queries))
-        comparison_fn.update(pair, label)
-        comparison_fn.increment()
 
         video_id_1 = get_normal_video_ids(segments, pair[0], feedback_iter, i, 0)
         video_id_2 = get_normal_video_ids(segments, pair[1], feedback_iter, i, 1)
