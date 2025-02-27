@@ -842,7 +842,7 @@ class OnPolicyWorkspace:
                 print(f"Error processing pair: {e} / {pairs[i // 2][i % 2]}")
                 continue
 
-        results = results[: self.cfg.rlhf_replay.num_queries]
+        results = results[: self.cfg.rlhf_replay.num_queries * 2]
 
         query_batch.update(
             {
