@@ -803,7 +803,9 @@ class OnPolicyWorkspace:
 
             except Exception as e:
                 # Skip this pair if episodes can't be loaded
-                print(f"Error loading episodes: {e} / {pair}")
+                print(
+                    f"Error loading episodes: {e} / {pair} / episode1: {episode1} / episode2: {episode2}"
+                )
                 self._comparison_fn.increment()
                 continue
 
@@ -814,7 +816,7 @@ class OnPolicyWorkspace:
 
         def process_pair(pair_index):
             target_idx = pairs[pair_index // 2][pair_index % 2]
-            ep = self.query_replay_buffer.load_episode(
+            ep = self.query_replay_buffer.load_episode_from_idx(
                 query_batch["episode_number"][target_idx]
             )
             rv = ep["randomness_values"][-1]

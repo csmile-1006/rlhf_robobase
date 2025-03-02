@@ -204,6 +204,7 @@ class QueryReplayBuffer(ReplayBuffer):
         self._load_episode_fn = load_episode
 
         # =======
+        self._episodes = {}  # key: episode_idx, value: episode_file_path
         self._episode_files = []  # list of episode file path
         # Key: global_idx. Global_idx refers to the index in the entire replay buffer.
         # Value: (episode_file_path, transition_idx) where transition_idx
@@ -521,8 +522,8 @@ class QueryReplayBuffer(ReplayBuffer):
         _, _, global_index = [int(x) for x in eps_fn.stem.split("_")[1:]]
         return self._load_episode_fn(eps_fn), global_index, eps_fn
 
-    def load_episode(self, idx: int):
-        eps_fn = self._episode_files[idx]
+    def load_episode_from_idx(self, idx: int):
+        eps_fn = self._episodes[idx]
         return self._load_episode_fn(eps_fn)
 
     def _load_episode_into_worker(self, eps_fn: Path, global_idx: int):
@@ -535,8 +536,11 @@ class QueryReplayBuffer(ReplayBuffer):
 
         # Remove earliest episode if buffer is full.
         eps_len = episode_len(episode)
+        episode_idx = int(eps_fn.stem.split("_")[1])
         while eps_len + self._size > self._max_size_per_worker:
             early_eps_files = self._episode_files.pop(0)
+            early_episode_idx = int(early_eps_files.stem.split("_")[1])
+            del self._episodes[early_episode_idx]
             early_eps = self._load_episode_fn(early_eps_files)
             self._size -= episode_len(early_eps)
             keys = list(self._global_idxs_to_episode_and_transition_idx.keys())
@@ -547,6 +551,7 @@ class QueryReplayBuffer(ReplayBuffer):
 
         self._episode_files.append(eps_fn)
         self._episode_files.sort()  # NOTE: eps_fn starts with created timestamp.
+        self._episodes[episode_idx] = episode
         # so after sort, earliest episode appears first.
         global_idxs = np.arange(global_idx, global_idx + eps_len)
         global_idxs_wrapped = (global_idxs % self.replay_capacity).tolist()
