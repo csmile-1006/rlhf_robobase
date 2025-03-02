@@ -211,8 +211,8 @@ class AGym(gym.Env):
         super().reset(seed=seed)
         if self._agym_env is None:
             self._launch()
-        if seed is not None:
-            self.__agym_env.seed(seed)
+        # if seed is not None:
+        #     self.__agym_env.seed(seed)
         agym_obs = self.__agym_env.reset(randomness_values=randomness_values)
         info = {key: 0.0 for key in self.reward_space.keys()}
         info.update({"task_reward": 0.0})

@@ -40,15 +40,15 @@ General Instructions:
 - The robot arm maintains a safe distance from the person
 """,
     "DrinkingPR2-v0": """Task: Robot-Assisted Drinking
-Goal: Use a robot to feed a person with a cup containing cyan-colored water (simulated as particles).
+Goal: Use a robot to feed a person with a cup containing pink-colored water (simulated as particles).
 Environment Setup:
 - The person's mouth is indicated by a bright green sphere
 - The robot holds and maneuvers the spoon
-- The robot must deliver the cyan-colored water from the cup to the person's mouth without spilling.
+- The robot must deliver the pink-colored water from the cup to the person's mouth without spilling.
 - If the water particle is within 0.03 meters of the person's mouth, it is considered fed, then the particle is removed from the cup and the robot arm earns a reward.
 
 Success Criteria:
-- Ensure all cyan-colored water successfully reaches the person's mouth and disappears
+- Ensure all pink-colored water successfully reaches the person's mouth and disappears
 - Prevent any spilling of the blue-colored water
 - After feeding all water, **THE ROBOT ARM MUST RETURN TO THE STARTING POSITION**
 
@@ -58,16 +58,16 @@ General Instructions:
 - The robot arm maintains a safe distance from the person
 """,
     "DrinkingSawyer-v0": """Task: Robot-Assisted Drinking
-Goal: Use a robot to make a person drink a cup containing cyan-colored water (simulated as particles).
+Goal: Use a robot to make a person drink a cup containing pink-colored water (simulated as particles).
 Environment Setup:
 - The person's mouth is indicated by a bright green sphere
-- The robot holds and maneuvers the transparent cup with cyan-colored water
-- The robot must deliver the cyan-colored water from the cup to the person's mouth without spilling.
+- The robot holds and maneuvers the transparent cup with pink-colored water
+- The robot must deliver the pink-colored water from the cup to the person's mouth without spilling.
 - If the water particle is within 0.03 meters of the person's mouth, it is considered fed, then the particle is removed from the cup and the robot arm earns a reward.
 
 Success Criteria:
-- Ensure all cyan-colored water successfully reaches the person's mouth and disappears
-- Prevent any spilling of the cyan-colored water
+- Ensure all pink-colored water successfully reaches the person's mouth and disappears
+- Prevent any spilling of the pink-colored water
 - After feeding all water, **THE ROBOT ARM MUST RETURN TO THE STARTING POSITION**
 
 General Instructions:
