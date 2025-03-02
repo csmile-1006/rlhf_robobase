@@ -523,7 +523,7 @@ class QueryReplayBuffer(ReplayBuffer):
         return self._load_episode_fn(eps_fn), global_index, eps_fn
 
     def load_episode_from_idx(self, idx: int):
-        eps_fn = self._episodes[idx]
+        eps_fn = self._episodes[idx.item()]
         return self._load_episode_fn(eps_fn)
 
     def _load_episode_into_worker(self, eps_fn: Path, global_idx: int):
