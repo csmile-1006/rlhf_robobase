@@ -551,7 +551,7 @@ class QueryReplayBuffer(ReplayBuffer):
 
         self._episode_files.append(eps_fn)
         self._episode_files.sort()  # NOTE: eps_fn starts with created timestamp.
-        self._episodes[episode_idx] = episode
+        self._episodes[episode_idx] = eps_fn
         # so after sort, earliest episode appears first.
         global_idxs = np.arange(global_idx, global_idx + eps_len)
         global_idxs_wrapped = (global_idxs % self.replay_capacity).tolist()
