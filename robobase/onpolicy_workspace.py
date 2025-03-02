@@ -798,8 +798,8 @@ class OnPolicyWorkspace:
                 episode2 = query_batch["episode_number"][pair[1]]
 
                 # Verify both episodes can be loaded
-                self.query_replay_buffer.load_episode(episode1)
-                self.query_replay_buffer.load_episode(episode2)
+                self.query_replay_buffer.load_episode_from_idx(episode1)
+                self.query_replay_buffer.load_episode_from_idx(episode2)
 
             except Exception as e:
                 # Skip this pair if episodes can't be loaded
