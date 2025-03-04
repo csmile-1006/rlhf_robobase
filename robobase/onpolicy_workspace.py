@@ -23,7 +23,7 @@ from hydra.core.hydra_config import HydraConfig
 from omegaconf import DictConfig
 from tensordict.nn import CudaGraphModule
 from torch.utils.data import DataLoader
-from tqdm import tqdm
+from tqdm import tqdm, trange
 
 import robobase
 from robobase import utils
@@ -777,7 +777,7 @@ class OnPolicyWorkspace:
         self._comparison_fn.initialize(query_batch)
         pairs = []
         pbar = tqdm(
-            total=self.cfg.rlhf_replay.num_queries * 2,
+            total=self.cfg.rlhf_replay.num_queries,
             desc="Identifying pairs",
             position=0,
             leave=False,
@@ -837,7 +837,7 @@ class OnPolicyWorkspace:
             return new_observations
 
         results = []
-        for i in range(len(pairs) * 2):
+        for i in trange(len(pairs) * 2, desc="Replaying pairs", leave=False):
             try:
                 results.append(process_pair(i))
             except Exception as e:

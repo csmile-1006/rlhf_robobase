@@ -4,6 +4,7 @@ import time
 
 import google.generativeai as genai
 import imageio
+from tenacity import retry, stop_after_attempt, wait_exponential
 
 
 def configure_gemini():
@@ -34,6 +35,7 @@ def load_gemini_model(cfg):
     return model
 
 
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=15))
 def upload_video_to_genai(video_path, verbose=False):
     video_file = genai.upload_file(path=video_path)
     while video_file.state.name == "PROCESSING":
