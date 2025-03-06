@@ -830,7 +830,17 @@ class OnPolicyWorkspace:
             new_observations = self.replay(randomness_values, actions, self.eval_env)
             obs_keys = new_observations[0].keys()
             new_observations = {
-                key: np.asarray([obs[key][-1] for obs in new_observations])
+                key: np.asarray(
+                    [
+                        obs[key][-1]
+                        for obs in new_observations[
+                            query_batch["indices"][target_idx] : query_batch["indices"][
+                                target_idx
+                            ]
+                            + self.cfg.rlhf_replay.seq_len
+                        ]
+                    ]
+                )
                 for key in obs_keys
             }
 
