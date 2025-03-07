@@ -11,7 +11,7 @@ def configure_gemini():
     genai.configure(api_key=api_key)
 
 
-def load_gemini_model(cfg):
+def load_gemini_model(cfg, system_instruction=None):
     generation_config = {
         "temperature": cfg.temperature,
         "top_p": cfg.top_p,
@@ -30,6 +30,7 @@ def load_gemini_model(cfg):
         model_name=cfg.model_type,
         generation_config=generation_config,
         safety_settings=safety_settings,
+        system_instruction=system_instruction,
     )
     return model
 

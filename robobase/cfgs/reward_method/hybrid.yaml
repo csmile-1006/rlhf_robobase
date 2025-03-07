@@ -2,8 +2,8 @@
 reward_method:
   _target_: robobase.reward_method.hybrid.HybridReward
   device: ${device}
-  lr: 1e-4
-  weight_decay: 1e-4
+  lr: 4e-3
+  weight_decay: 0.0
   lambda_weight: 0.25
   num_train_steps: ${num_pretrain_steps}
   adaptive_lr: false
@@ -43,7 +43,7 @@ reward_method:
     bottleneck_size: 50
     norm_after_bottleneck: false
     tanh_after_bottleneck: false
-    mlp_nodes: [128, 128]
+    mlp_nodes: [256, 256]
 
   weight_model:
     _target_: robobase.models.MLPWithBottleneckFeatures
@@ -57,4 +57,4 @@ reward_method:
     bottleneck_size: 50
     norm_after_bottleneck: false
     tanh_after_bottleneck: false
-    mlp_nodes: [128, 128]
+    mlp_nodes: [256, 256]
