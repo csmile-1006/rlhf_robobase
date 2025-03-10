@@ -11,7 +11,7 @@ env:
 pixels: false
 frame_stack: 1
 action_repeat: 1
-num_train_envs: 32
+num_train_envs: 4
 update_every_steps: 1
 num_eval_episodes: 1
 log_every: 1
@@ -35,7 +35,7 @@ reward_method:
 
 rlhf:
   use_rlhf: true
-  feedback_type: script
+  feedback_type: gemini
   comparison_type: major_column
   major_column: r_distance_mouth_target
   max_feedback: 20
@@ -46,13 +46,13 @@ rlhf:
   initialize_reward_model_per_session: true
   snapshot_every_n: ${rlhf.update_every_steps}
   gemini:
-    model_type: gemini-1.5-pro
+    model_type: gemini-2.0-flash-001
     target_viewpoints: ${env.query_keys}
   reset_after_rlhf: false
 
 rlhf_replay:
   size: 200000 # too large for humanoidbench, handling recent episodes only.
-  num_queries: 5
+  num_queries: 3
   num_labels: 1
   seq_len: 50
   feedback_batch_size: 128

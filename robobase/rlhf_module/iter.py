@@ -9,6 +9,9 @@ import numpy as np
 from omegaconf import DictConfig
 from tqdm import tqdm
 
+from google import genai
+from google.genai import types
+
 from robobase.envs.env import EnvFactory
 from robobase.reward_method.core import RewardMethod
 from robobase.rlhf_module.comparison import (
@@ -21,6 +24,8 @@ from robobase.rlhf_module.prompt import (
     get_zeroshot_manipulation_pairwise_comparison_prompt,
     get_zeroshot_subtask_identification_prompt,
     get_zeroshot_video_evaluation_prompt,
+    zeroshot_video_evaluation_prompt,
+    zeroshot_locomotion_pairwise_comparison_prompt,
 )
 from robobase.rlhf_module.third_party.gemini import (
     get_gemini_video_ids,
@@ -436,8 +441,206 @@ async def collect_gemini_locomotion_preferences(
     return feedbacks, total_metadata
 
 
+async def get_chat_message(chat_session, prompt):
+    response = await chat_session.send_message(prompt)
+    return response.text
+
+
+async def _get_locomotion_feedback_v2(
+    client, video1, video2, gemini_model_config, task_description
+):
+    config = types.GenerateContentConfig(
+        system_instruction=zeroshot_video_evaluation_prompt.format(
+            task_description=task_description.strip()
+        ).strip(),
+        temperature=gemini_model_config.temperature,
+        top_p=gemini_model_config.top_p,
+        top_k=gemini_model_config.top_k,
+        max_output_tokens=gemini_model_config.max_output_tokens,
+    )
+    chat_session = client.aio.chats.create(
+        model=gemini_model_config.model_type, config=config
+    )
+    prompt_1 = "Please evaluate the video."
+    prompt_2 = "Please evaluate the video. Note that the video is not the same as the most previous one, and be independent of the previous evaluation."  # noqa
+
+    video1_prompt = [video1["front"], prompt_1]
+    video2_prompt = [video2["front"], prompt_2]
+    video_evaluation1 = await get_chat_message(chat_session, video1_prompt)
+    video_evaluation2 = await get_chat_message(chat_session, video2_prompt)
+    quest = zeroshot_locomotion_pairwise_comparison_prompt
+    response = await chat_session.send_message(quest)
+    return response, quest, video_evaluation1, video_evaluation2
+
+
+async def _collect_locomotion_feedback_v2(
+    client, videos, gemini_model_config, task_description
+):
+    responses = await asyncio.gather(
+        *[
+            _get_locomotion_feedback_v2(
+                client, video1, video2, gemini_model_config, task_description
+            )
+            for video1, video2 in videos
+        ]
+    )
+    return responses
+
+
+async def collect_gemini_locomotion_preferences_v2(
+    gemini_client: genai.Client,
+    segments: Sequence,
+    num_queries: int,
+    comparison_fn: object,
+    feedback_fn: Callable,
+    gemini_model_config: DictConfig,
+    task_description: str,
+    video_path: Path,
+    feedback_iter: int,
+):
+    target_viewpoints = gemini_model_config.target_viewpoints
+    tot_queries = range(num_queries)
+    logging.info("START!")
+    comparison_fn.initialize(segments)
+
+    feedbacks = []
+    total_metadata = []
+
+    # upload videos in linear way
+    pair_indices = []
+    videos = []
+    for i in tqdm(tot_queries, desc="Uploading videos", position=0, leave=False):
+        pair = comparison_fn()
+        while not check_valid_pair(segments, pair):
+            comparison_fn.increment()
+            pair = comparison_fn()
+        video1 = get_gemini_video_ids(
+            gemini_client,
+            segments,
+            pair[0],
+            target_viewpoints,
+            video_path,
+            feedback_iter,
+            i,
+            0,
+        )
+        video2 = get_gemini_video_ids(
+            gemini_client,
+            segments,
+            pair[1],
+            target_viewpoints,
+            video_path,
+            feedback_iter,
+            i,
+            1,
+        )
+        pair_indices.append(pair)
+        videos.append(video1)
+        videos.append(video2)
+        comparison_fn.increment()
+
+    videos = [(videos[i], videos[i + 1]) for i in range(0, len(videos), 2)]
+    responses = await _collect_locomotion_feedback_v2(
+        gemini_client, videos, gemini_model_config, task_description
+    )
+    results = []
+    for pair, (response, quest, video_evaluation1, video_evaluation2) in zip(
+        pair_indices, responses
+    ):
+        label = postprocess_gemini_response(response)
+        pref_dict = {
+            "segment_0": {
+                key: np.asarray(segments[key][pair[0]]) for key in segments.keys()
+            },
+            "segment_1": {
+                key: np.asarray(segments[key][pair[1]]) for key in segments.keys()
+            },
+            "label": np.asarray(label)[np.newaxis],
+        }
+        results.append(
+            (response, label, pref_dict, quest, video_evaluation1, video_evaluation2)
+        )
+
+    for (video1, video2), (
+        response,
+        label,
+        pref_dict,
+        quest,
+        video_evaluation1,
+        video_evaluation2,
+    ) in zip(videos, results):
+        metadata = {
+            "response": response.text,
+            # "quest": quest,
+            "video_evaluation1": video_evaluation1,
+            "video_evaluation2": video_evaluation2,
+            "label": label,
+        }
+        metadata.update(
+            {f"video1_{key}": val.display_name for key, val in video1.items()}
+        )
+        metadata.update(
+            {f"video2_{key}": val.display_name for key, val in video2.items()}
+        )
+        feedbacks.append(pref_dict)
+        total_metadata.append(metadata)
+    logging.info("FINISH!")
+
+    if gemini_model_config.compute_self_consistency:
+        # compute self consistency with different temperatures
+        sc_gemini_model_config = deepcopy(gemini_model_config)
+        sc_gemini_model_config.temperature = (
+            gemini_model_config.self_consistency_temperature
+        )
+        # Create multiple copies of videos for self-consistency evaluation
+        num_original_videos = len(videos)
+        num_samples = gemini_model_config.n_self_consistency_samples
+
+        # Duplicate each video pair num_samples times
+        self_consistency_videos = videos * num_samples
+
+        # Get feedback for all duplicated videos
+        self_consistency_responses = await _collect_locomotion_feedback_v2(
+            self_consistency_videos, sc_gemini_model_config, task_description
+        )
+
+        # Group responses by original video pair
+        # e.g. if we have 2 video pairs and 3 samples:
+        # [v1_s1, v1_s2, v1_s3, v2_s1, v2_s2, v2_s3] -> [[v1_s1, v1_s2, v1_s3], [v2_s1, v2_s2, v2_s3]]
+        sc_responses = [
+            self_consistency_responses[i::num_original_videos]
+            for i in range(num_original_videos)
+        ]
+
+        sc_metadata = []
+        for i in tot_queries:
+            target_elem = total_metadata[i]
+            for j in range(gemini_model_config.n_self_consistency_samples):
+                response, quest, video_evaluation1, video_evaluation2 = sc_responses[i][
+                    j
+                ]
+                label = postprocess_gemini_response(response)
+                target_elem.update(
+                    {
+                        f"sc_{j}_response": response.text,
+                        # f"sc_{j}_quest": quest,
+                        f"sc_{j}_video_evaluation1": video_evaluation1,
+                        f"sc_{j}_video_evaluation2": video_evaluation2,
+                        f"sc_{j}_label": label,
+                    }
+                )
+            sc_metadata.append(target_elem)
+        total_metadata = sc_metadata
+
+    return feedbacks, total_metadata
+
+
 def get_rlhf_iter_fn(
-    work_dir: Path, cfg: DictConfig, env_factory: EnvFactory, reward_model: RewardMethod
+    work_dir: Path,
+    cfg: DictConfig,
+    env_factory: EnvFactory,
+    reward_model: RewardMethod,
+    gemini_client: genai.Client = None,
 ):
     comparison_fn = get_comparison_fn(cfg, reward_model)
     feedback_fn = get_feedback_fn(cfg.env.env_name, cfg.rlhf.feedback_type)
@@ -445,6 +648,7 @@ def get_rlhf_iter_fn(
     match cfg.rlhf.feedback_type:
         case "gemini":
             task_description = env_factory.get_task_description(cfg)
+            assert gemini_client is not None, "Gemini client is not provided."
             assert task_description is not None, "Task description is not provided."
             assert (
                 comparison_fn != RootPairwiseComparisonFn
@@ -468,7 +672,8 @@ def get_rlhf_iter_fn(
                 )
             elif cfg.env.env_name in ["agym", "dmc", "locomujoco", "humanoidbench"]:
                 return partial(
-                    collect_gemini_locomotion_preferences,
+                    collect_gemini_locomotion_preferences_v2,
+                    gemini_client=gemini_client,
                     num_queries=cfg.rlhf_replay.num_queries,
                     comparison_fn=comparison_fn,
                     feedback_fn=feedback_fn,

@@ -309,18 +309,19 @@ class OnPolicyWorkspace:
             self._total_feedback = 0
             self._feedback_iter = 0
 
-            self._rlhf_iter_fn = get_rlhf_iter_fn(
-                self.work_dir, cfg, env_factory, self.reward_model
-            )
-
             self._unsup_update_step = 0
+            self._gemini_client = None
 
             if cfg.rlhf.feedback_type == "gemini":
-                configure_gemini()
+                self._gemini_client = configure_gemini()
                 import asyncio
 
                 self._loop = asyncio.get_event_loop()
                 asyncio.set_event_loop(self._loop)
+
+            self._rlhf_iter_fn = get_rlhf_iter_fn(
+                self.work_dir, cfg, env_factory, self.reward_model, self._gemini_client
+            )
 
         self.extra_replay_elements = (
             extra_replay_elements
