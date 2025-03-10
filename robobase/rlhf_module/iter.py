@@ -514,16 +514,19 @@ async def _collect_locomotion_feedback_v2(
             top_k=gemini_model_config.top_k,
             max_output_tokens=gemini_model_config.max_output_tokens,
         )
-        chat_session = client.aio.chats.create(
-            model=gemini_model_config.model_type, config=config
-        )
-        chat_sessions = [chat_session] * len(videos)
+        chat_sessions = [
+            client.aio.chats.create(model=gemini_model_config.model_type, config=config)
+            for _ in range(len(videos))
+        ]
 
     # Randomly assign chat sessions to videos
     video_chat_pairs = []
-    for video1, video2 in videos:
+    for idx, (video1, video2) in enumerate(videos):
         # Randomly select a chat session
-        chat_session = np.random.choice(chat_sessions) if chat_sessions else None
+        if human_feedback_shots > 0 and len(human_feedback_files) > 0:
+            chat_session = deepcopy(np.random.choice(chat_sessions))
+        else:
+            chat_session = chat_sessions[idx % len(chat_sessions)]
         video_chat_pairs.append((video1, video2, chat_session))
 
     responses = await asyncio.gather(

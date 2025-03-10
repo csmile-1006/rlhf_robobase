@@ -52,7 +52,7 @@ rlhf:
 
 rlhf_replay:
   size: 500000 # too large for humanoidbench, handling recent episodes only.
-  num_queries: 50
+  num_queries: 25
   num_labels: 1
   seq_len: 100
   feedback_batch_size: 128
