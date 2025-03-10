@@ -431,7 +431,22 @@ async def get_chat_message(chat_session, prompt):
 
 
 async def _get_locomotion_feedback_v2(
-    client, video1, video2, gemini_model_config, task_description
+    chat_session, video1, video2, gemini_model_config, task_description
+):
+    prompt_1 = "Please evaluate the video."
+    prompt_2 = "Please evaluate the video. Note that the video is not the same as the most previous one, and be independent of the previous evaluation."  # noqa
+
+    video1_prompt = [video1["front"], prompt_1]
+    video2_prompt = [video2["front"], prompt_2]
+    video_evaluation1 = await get_chat_message(chat_session, video1_prompt)
+    video_evaluation2 = await get_chat_message(chat_session, video2_prompt)
+    quest = zeroshot_locomotion_pairwise_comparison_prompt
+    response = await chat_session.send_message(quest)
+    return response, quest, video_evaluation1, video_evaluation2
+
+
+async def _prepare_human_feedback(
+    client, human_feedback_files, gemini_model_config, task_description
 ):
     config = types.GenerateContentConfig(
         system_instruction=zeroshot_video_evaluation_prompt.format(
@@ -447,25 +462,76 @@ async def _get_locomotion_feedback_v2(
     )
     prompt_1 = "Please evaluate the video."
     prompt_2 = "Please evaluate the video. Note that the video is not the same as the most previous one, and be independent of the previous evaluation."  # noqa
+    suffix = (
+        "Could you please re-evaluate both videos and provide an updated assessment?"
+    )
 
-    video1_prompt = [video1["front"], prompt_1]
-    video2_prompt = [video2["front"], prompt_2]
-    video_evaluation1 = await get_chat_message(chat_session, video1_prompt)
-    video_evaluation2 = await get_chat_message(chat_session, video2_prompt)
-    quest = zeroshot_locomotion_pairwise_comparison_prompt
-    response = await chat_session.send_message(quest)
-    return response, quest, video_evaluation1, video_evaluation2
+    for video1_id, video2_id, human_comment in human_feedback_files:
+        video1_prompt = [video1_id, prompt_1]
+        video2_prompt = [video2_id, prompt_2]
+        await chat_session.send_message(video1_prompt)
+        await chat_session.send_message(video2_prompt)
+
+        await chat_session.send_message(zeroshot_locomotion_pairwise_comparison_prompt)
+        await chat_session.send_message([human_comment, suffix])
+
+    return chat_session
 
 
 async def _collect_locomotion_feedback_v2(
-    client, videos, gemini_model_config, task_description
+    client,
+    videos,
+    gemini_model_config,
+    task_description,
+    human_feedback_files,
+    human_feedback_shots,
 ):
+    # Sample human feedback shots 5 times
+    chat_sessions = []
+    if human_feedback_shots > 0 and len(human_feedback_files) > 0:
+        for _ in range(5):
+            sampled_human_feedback_files = np.random.choice(
+                human_feedback_files, size=human_feedback_shots, replace=False
+            )
+            chat_sessions.append(
+                _prepare_human_feedback(
+                    client,
+                    sampled_human_feedback_files,
+                    gemini_model_config,
+                    task_description,
+                )
+            )
+
+        # Wait for all chat sessions to be prepared
+        chat_sessions = await asyncio.gather(*chat_sessions)
+    else:
+        config = types.GenerateContentConfig(
+            system_instruction=zeroshot_video_evaluation_prompt.format(
+                task_description=task_description.strip()
+            ).strip(),
+            temperature=gemini_model_config.temperature,
+            top_p=gemini_model_config.top_p,
+            top_k=gemini_model_config.top_k,
+            max_output_tokens=gemini_model_config.max_output_tokens,
+        )
+        chat_session = client.aio.chats.create(
+            model=gemini_model_config.model_type, config=config
+        )
+        chat_sessions = [chat_session] * len(videos)
+
+    # Randomly assign chat sessions to videos
+    video_chat_pairs = []
+    for video1, video2 in videos:
+        # Randomly select a chat session
+        chat_session = np.random.choice(chat_sessions) if chat_sessions else None
+        video_chat_pairs.append((video1, video2, chat_session))
+
     responses = await asyncio.gather(
         *[
             _get_locomotion_feedback_v2(
-                client, video1, video2, gemini_model_config, task_description
+                chat_session, video1, video2, gemini_model_config, task_description
             )
-            for video1, video2 in videos
+            for video1, video2, chat_session in video_chat_pairs
         ]
     )
     return responses
@@ -478,6 +544,8 @@ async def collect_gemini_locomotion_preferences_v2(
     task_description: str,
     video_path: Path,
     feedback_iter: int,
+    human_feedback_files: list[str],
+    human_feedback_shots: int,
 ):
     """Collect locomotion preferences using Gemini API.
 
@@ -531,7 +599,12 @@ async def collect_gemini_locomotion_preferences_v2(
 
     # Get feedback for all pairs
     responses = await _collect_locomotion_feedback_v2(
-        gemini_client, video_pairs, gemini_model_config, task_description
+        gemini_client,
+        video_pairs,
+        gemini_model_config,
+        task_description,
+        human_feedback_files,
+        human_feedback_shots,
     )
 
     # Process responses

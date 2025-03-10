@@ -109,6 +109,11 @@ rlhf_replay:
   upload_gemini: false
   verbose: false
 
+# Real Human Feedback settings
+num_human_iterations: 0
+num_resume_frames: 0
+num_human_feedback_shots: 0
+
 # logging settings
 wandb:  # weight and bias
   use: false

@@ -3,6 +3,7 @@ import logging
 
 # import multiprocessing
 import os
+import pickle
 import random
 import shutil
 import signal
@@ -330,6 +331,17 @@ class OnPolicyWorkspace:
             self._rlhf_iter_fn = get_rlhf_iter_fn(
                 self.work_dir, cfg, env_factory, self._gemini_client
             )
+
+            self.human_feedback_files = []
+            if cfg.num_human_iterations > 0:
+                self.human_feedback_files = pickle.load(
+                    open(
+                        self.work_dir
+                        / "human_feedback"
+                        / f"human_feedback_{cfg.num_human_iterations}.pkl",
+                        "rb",
+                    )
+                )
 
         self.extra_replay_elements = (
             extra_replay_elements
@@ -867,7 +879,10 @@ class OnPolicyWorkspace:
                 asyncio.set_event_loop(self._loop)
             feedbacks, metadata = self._loop.run_until_complete(
                 self._rlhf_iter_fn(
-                    segments=final_query_batch, feedback_iter=self.feedback_iter
+                    segments=final_query_batch,
+                    feedback_iter=self.feedback_iter,
+                    human_feedback_files=self.human_feedback_files,
+                    human_feedback_shots=self.cfg.num_human_feedback_shots,
                 )
             )
         else:
@@ -1340,7 +1355,7 @@ class OnPolicyWorkspace:
 
                 if (
                     self.total_feedback <= self.cfg.rlhf.max_feedback
-                    and should_save_reward_model_snapshot(self.global_env_steps)
+                    and should_save_reward_model_snapshot(self.main_loop_iterations)
                 ):
                     self.save_reward_model_snapshot()
 
