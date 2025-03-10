@@ -1,5 +1,19 @@
 # ruff: noqa
 # ZERO_SHOT VERSION FOR MANIPULATION TASK
+
+zeroshot_locomotion_pairwise_comparison_prompt = """
+Using evaluation of the each video, determine which agent is better in terms of solving the task and being human-friendly.
+
+As an output, use the format below:
+
+<Answer>: <chosen one between Agent 1/Agent 2/equally preferred>
+Reason: <Reason for the choice>
+
+Please follow the instructions below:
+- Please explain detailed and specific reasons as possible.
+- Do not include any unnecessary information in your response.
+"""
+
 zeroshot_manipulation_pairwise_comparison_prompt_header = """
 You are an AI model who is responsible for determining which agent is better in terms of achieving the goal and friendly to human.
 

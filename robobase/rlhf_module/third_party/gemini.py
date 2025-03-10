@@ -2,14 +2,14 @@ import logging
 import os
 import time
 
-import google.generativeai as genai
 import imageio
 from tenacity import retry, stop_after_attempt, wait_exponential
+from google import genai
 
 
 def configure_gemini():
     api_key = os.getenv("GEMINI_API_KEY")
-    genai.configure(api_key=api_key)
+    return genai.Client(api_key=api_key)
 
 
 def load_gemini_model(cfg):
@@ -36,18 +36,26 @@ def load_gemini_model(cfg):
 
 
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=15))
-def upload_video_to_genai(video_path, verbose=False):
-    video_file = genai.upload_file(path=video_path)
-    while video_file.state.name == "PROCESSING":
-        if verbose:
-            logging.info("Waiting for video to be processed.")
-        time.sleep(0.5)
-        video_file = genai.get_file(video_file.name)
-    if video_file.state.name == "FAILED":
-        raise ValueError(video_file.state.name)
-    if verbose:
-        logging.info("Video processing complete: " + video_file.uri)
+def upload_video_to_genai(client, video_path, verbose=False):
+    video_file = client.files.upload(file=video_path)
+    while video_file.state == "PROCESSING":
+        logging.info("Waiting for video to be processed.")
+        time.sleep(1.0)
+        video_file = client.files.get(name=video_file.name)
+
+    if video_file.state == "FAILED":
+        raise ValueError(video_file.state)
+    logging.info("Video processing complete: " + video_file.uri)
     return video_file
+    # video_file = genai.upload_file(path=video_path)
+    # while video_file.state.name == "PROCESSING":
+    #     if verbose:
+    #         logging.info("Waiting for video to be processed.")
+    # if video_file.state.name == "FAILED":
+    #     raise ValueError(video_file.state.name)
+    # if verbose:
+    #     logging.info("Video processing complete: " + video_file.uri)
+    # return video_file
 
 
 def postprocess_gemini_response(response):
@@ -66,7 +74,7 @@ def postprocess_gemini_response(response):
 
 
 def get_gemini_video_ids(
-    segments, idx, target_viewpoints, video_path, feedback_iter, i, j
+    client, segments, idx, target_viewpoints, video_path, feedback_iter, i, j
 ):
     output = {}
     for viewpoint in target_viewpoints:
@@ -81,6 +89,8 @@ def get_gemini_video_ids(
         imageio.mimsave(
             video_file_path, segments[f"query_pixels_{viewpoint}"][2 * i + j], fps=20
         )
-        gemini_video_file_path = upload_video_to_genai(video_file_path, verbose=False)
+        gemini_video_file_path = upload_video_to_genai(
+            client, video_file_path, verbose=False
+        )
         output[viewpoint] = gemini_video_file_path
     return output

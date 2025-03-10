@@ -43,6 +43,8 @@ core_requirements = [
     "ujson",
     "tensorboard",
     "tensordict",
+    "google-genai",
+    "tenacity",
 ]
 
 setuptools.setup(

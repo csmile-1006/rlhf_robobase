@@ -197,7 +197,6 @@ class OnPolicyWorkspace:
         self.env_factory = env_factory
 
         self.eval_env = self.env_factory.make_eval_env(cfg)
-        self.eval_env.enable_opengl()
 
         # Create the RL Agent
         full_observation_space = self.eval_env.observation_space
@@ -318,16 +317,19 @@ class OnPolicyWorkspace:
             self._feedback_iter = 0
 
             self._comparison_fn = get_comparison_fn(cfg, self.reward_model)
-            self._rlhf_iter_fn = get_rlhf_iter_fn(self.work_dir, cfg, env_factory)
-
             self._unsup_update_step = 0
+            self._gemini_client = None
 
             if cfg.rlhf.feedback_type == "gemini":
-                configure_gemini()
+                self._gemini_client = configure_gemini()
                 import asyncio
 
                 self._loop = asyncio.get_event_loop()
                 asyncio.set_event_loop(self._loop)
+
+            self._rlhf_iter_fn = get_rlhf_iter_fn(
+                self.work_dir, cfg, env_factory, self._gemini_client
+            )
 
         self.extra_replay_elements = (
             extra_replay_elements
@@ -776,12 +778,6 @@ class OnPolicyWorkspace:
         query_batch = next(self.query_replay_iter)
         self._comparison_fn.initialize(query_batch)
         pairs = []
-        pbar = tqdm(
-            total=self.cfg.rlhf_replay.num_queries,
-            desc="Identifying pairs",
-            position=0,
-            leave=False,
-        )
         while len(pairs) < self.cfg.rlhf_replay.num_queries:
             # Get next pair of indices to compare from comparison function
             pair = self._comparison_fn()
@@ -812,7 +808,6 @@ class OnPolicyWorkspace:
             # If validation passes, add pair and update progress
             pairs.append(pair)
             self._comparison_fn.increment()
-            pbar.update(1)
 
         def process_pair(pair_index):
             target_idx = pairs[pair_index // 2][pair_index % 2]
@@ -843,7 +838,13 @@ class OnPolicyWorkspace:
                 )
                 for key in obs_keys
             }
-
+            new_observations.update(
+                {
+                    key: query_batch[key][target_idx]
+                    for key in query_batch.keys()
+                    if key not in obs_keys
+                }
+            )
             return new_observations
 
         results = []
@@ -855,14 +856,10 @@ class OnPolicyWorkspace:
                 continue
 
         results = results[: self.cfg.rlhf_replay.num_queries * 2]
-
-        query_batch.update(
-            {
-                key: np.stack([results[i][key] for i in range(len(results))])
-                for key in results[0].keys()
-                if key not in query_batch.keys()
-            }
-        )
+        final_query_batch = {
+            key: np.stack([results[i][key] for i in range(len(results))])
+            for key in results[0].keys()
+        }
 
         if self.cfg.rlhf.feedback_type == "gemini":
             if not hasattr(self, "_loop"):
@@ -870,12 +867,12 @@ class OnPolicyWorkspace:
                 asyncio.set_event_loop(self._loop)
             feedbacks, metadata = self._loop.run_until_complete(
                 self._rlhf_iter_fn(
-                    segments=query_batch, pairs=pairs, feedback_iter=self.feedback_iter
+                    segments=final_query_batch, feedback_iter=self.feedback_iter
                 )
             )
         else:
             feedbacks, metadata = self._rlhf_iter_fn(
-                segments=query_batch, pairs=pairs, feedback_iter=self.feedback_iter
+                segments=final_query_batch, feedback_iter=self.feedback_iter
             )
         if metadata:
             for feedback, metadatum in zip(feedbacks, metadata):

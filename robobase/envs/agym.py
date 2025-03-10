@@ -55,6 +55,7 @@ class AGym(gym.Env):
         reward_mode: str = "dense",
         reward_term_type: str = "all",
         initial_terms: list[float] = [],
+        opengl: bool = False,
     ):
         self._task_name = task_name
         self._action_repeat = action_repeat
@@ -73,6 +74,8 @@ class AGym(gym.Env):
         self._use_gemini = use_gemini
         self._agym_env = None
         self._launch()
+        if opengl:
+            self.enable_opengl()
 
     def enable_opengl(self):
         assert self.__agym_env is not None, "Environment not initialized"
@@ -322,27 +325,37 @@ class AGymEnvFactory(EnvFactory):
                 reward_mode=cfg.env.reward_mode,
                 reward_term_type=cfg.env.reward_term_type,
                 initial_terms=cfg.env.initial_terms,
+                opengl=True,
             ),
             cfg,
             eval_mode=True,
         )
 
     def make_rlhf_env(self, cfg: DictConfig) -> gym.Env:
-        return self._wrap_env(
-            AGym(
-                task_name=cfg.env.task_name,
-                action_repeat=cfg.action_repeat,
-                frame_skip=cfg.env.frame_skip,
-                use_rlhf=True,
-                use_gemini=cfg.rlhf.feedback_type == "gemini",
-                query_keys=cfg.env.query_keys,
-                render_mode="rgb_array" if cfg.rlhf.use_rlhf else None,
-                reward_mode=cfg.env.reward_mode,
-                reward_term_type=cfg.env.reward_term_type,
-                initial_terms=cfg.env.initial_terms,
-            ),
-            cfg,
-            eval_mode=True,
+        vec_env_class = gym.vector.AsyncVectorEnv
+        kwargs = dict(context=None)
+        return vec_env_class(
+            [
+                lambda: self._wrap_env(
+                    AGym(
+                        task_name=cfg.env.task_name,
+                        action_repeat=cfg.action_repeat,
+                        frame_skip=cfg.env.frame_skip,
+                        use_rlhf=True,
+                        use_gemini=cfg.rlhf.feedback_type == "gemini",
+                        query_keys=cfg.env.query_keys,
+                        render_mode="rgb_array" if cfg.rlhf.use_rlhf else None,
+                        reward_mode=cfg.env.reward_mode,
+                        reward_term_type=cfg.env.reward_term_type,
+                        initial_terms=cfg.env.initial_terms,
+                        opengl=True,
+                    ),
+                    cfg,
+                    eval_mode=True,
+                )
+                for _ in range(4)
+            ],
+            **kwargs,
         )
 
     def get_task_description(self, cfg: DictConfig) -> str:

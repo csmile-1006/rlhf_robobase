@@ -46,7 +46,7 @@ rlhf:
   initialize_reward_model_per_session: true
   snapshot_every_n: ${rlhf.update_every_steps}
   gemini:
-    model_type: gemini-2.0-flash
+    model_type: gemini-2.0-flash-001
     target_viewpoints: ${env.query_keys}
   reset_after_rlhf: false
 
@@ -60,4 +60,4 @@ rlhf_replay:
 
 hydra:
   run:
-    dir: ./agym_exp/state_ppo_rlhf_hybrid/agym_${env.task_name}/rlhf_hybrid-2.0-flash_${rlhf.feedback_type}_numf${rlhf.max_feedback}_numq${rlhf_replay.num_queries}_update${rlhf.update_every_steps}_pretrain${rlhf.num_pretrain_frames}_comp-${rlhf.comparison_type}_reward-reset-${rlhf.initialize_reward_model_per_session}_agent-reset-${rlhf.initialize_agent_per_session}_lambda${reward_method.lambda_weight}_sc-${rlhf.gemini.compute_self_consistency}_sc-temp${rlhf.gemini.self_consistency_temperature}_sc-n${rlhf.gemini.n_self_consistency_samples}_seed${seed}_${now:%Y%m%d%H%M%S}
+    dir: ./agym_exp/state_ppo_rlhf_hybrid/agym_${env.task_name}/rlhf_hybrid_gemini-2.0-flash_${rlhf.feedback_type}_numf${rlhf.max_feedback}_numq${rlhf_replay.num_queries}_update${rlhf.update_every_steps}_pretrain${rlhf.num_pretrain_frames}_comp-${rlhf.comparison_type}_reward-reset-${rlhf.initialize_reward_model_per_session}_agent-reset-${rlhf.initialize_agent_per_session}_lambda${reward_method.lambda_weight}_sc-${rlhf.gemini.compute_self_consistency}_sc-temp${rlhf.gemini.self_consistency_temperature}_sc-n${rlhf.gemini.n_self_consistency_samples}_seed${seed}_${now:%Y%m%d%H%M%S}
