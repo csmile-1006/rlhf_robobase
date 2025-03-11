@@ -122,7 +122,11 @@ class MajorColumnComparisonFn(ComparisonFn):
         # np.random.shuffle(self.indices)
 
     def __call__(self):
-        return self.indices[self._i]
+        try:
+            return self.indices[self._i]
+        except IndexError:
+            print(f"IndexError: {self._i} / {self.indices}")
+            raise IndexError
 
 
 def get_comparison_fn(cfg: DictConfig, reward_model: RewardMethod):

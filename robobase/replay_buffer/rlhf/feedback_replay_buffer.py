@@ -330,6 +330,7 @@ class FeedbackReplayBuffer(ReplayBuffer):
         return storage_elements, obs_elements
 
     def add_feedback(self, segment_0, segment_1, label, metadata=None, **kwargs):
+        self._try_fetch()
         """Adds a pair of segments to the replay memory."""
         transition = {}
         for idx, seg in enumerate([segment_0, segment_1]):

@@ -11,7 +11,7 @@ env:
 pixels: false
 frame_stack: 1
 action_repeat: 1
-num_train_envs: 4
+num_train_envs: 32
 update_every_steps: 1
 num_eval_episodes: 1
 log_every: 1
@@ -54,7 +54,7 @@ rlhf_replay:
   size: 200000 # too large for humanoidbench, handling recent episodes only.
   num_queries: 1
   num_labels: 1
-  seq_len: 50
+  seq_len: 100
   feedback_batch_size: 128
   max_episode_number: 0
 

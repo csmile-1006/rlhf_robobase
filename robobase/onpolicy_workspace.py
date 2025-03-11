@@ -1440,7 +1440,6 @@ class OnPolicyWorkspace:
             "_main_loop_iterations",
             "_global_env_episode",
             "_total_feedback",
-            "cfg",
         ]
         payload = {k: self.__dict__[k] for k in keys_to_save}
         payload["reward_model"] = self.reward_model.state_dict()
@@ -1466,4 +1465,5 @@ class OnPolicyWorkspace:
             payload = torch.load(f, map_location="cpu")
         self.reward_model.load_state_dict(payload.pop("reward_model"))
         for k, v in payload.items():
-            self.__dict__[k] = v
+            if k != "cfg":
+                self.__dict__[k] = v

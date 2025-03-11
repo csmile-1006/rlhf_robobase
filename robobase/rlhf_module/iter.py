@@ -490,9 +490,14 @@ async def _collect_locomotion_feedback_v2(
     chat_sessions = []
     if human_feedback_shots > 0 and len(human_feedback_files) > 0:
         for _ in range(5):
-            sampled_human_feedback_files = np.random.choice(
-                human_feedback_files, size=human_feedback_shots, replace=False
+            random_indices = np.random.choice(
+                range(len(human_feedback_files)),
+                size=human_feedback_shots,
+                replace=False,
             )
+            sampled_human_feedback_files = [
+                human_feedback_files[i] for i in random_indices
+            ]
             chat_sessions.append(
                 _prepare_human_feedback(
                     client,
@@ -524,7 +529,8 @@ async def _collect_locomotion_feedback_v2(
     for idx, (video1, video2) in enumerate(videos):
         # Randomly select a chat session
         if human_feedback_shots > 0 and len(human_feedback_files) > 0:
-            chat_session = deepcopy(np.random.choice(chat_sessions))
+            random_idx = np.random.randint(0, len(chat_sessions))
+            chat_session = deepcopy(chat_sessions[random_idx])
         else:
             chat_session = chat_sessions[idx % len(chat_sessions)]
         video_chat_pairs.append((video1, video2, chat_session))
@@ -638,6 +644,8 @@ async def collect_gemini_locomotion_preferences_v2(
             **{f"video2_{k}": v.display_name for k, v in video2.items()},
         }
 
+        print("meta: ", meta)
+        print("pref_dict: ", pref_dict)
         feedbacks.append(pref_dict)
         metadata.append(meta)
 
