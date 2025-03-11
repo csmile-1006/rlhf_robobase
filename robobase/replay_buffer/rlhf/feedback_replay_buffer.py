@@ -503,7 +503,7 @@ class FeedbackReplayBuffer(ReplayBuffer):
 
     def _sample_episode(self):
         eps_fn = random.choice(self._episode_files)
-        _, _, global_index = [int(x) for x in eps_fn.stem.split("_")[1:]]
+        _, _, global_index = [int(x) for x in eps_fn.stem.split("_")[2:]]
         return self._episodes[eps_fn], global_index
 
     def _load_episode_into_worker(self, eps_fn: Path, global_idx: int):
@@ -556,7 +556,7 @@ class FeedbackReplayBuffer(ReplayBuffer):
         eps_fns = sorted(self._replay_dir.glob("*.npz"), reverse=True)
         fetched_size = 0
         for eps_fn in eps_fns:
-            eps_idx, eps_len, global_idx = [int(x) for x in eps_fn.stem.split("_")[1:]]
+            eps_idx, eps_len, global_idx = [int(x) for x in eps_fn.stem.split("_")[2:]]
 
             # Each worker should only contain its relevant indices.
             if self._num_workers > 0 and eps_idx % self._num_workers != worker_id:
