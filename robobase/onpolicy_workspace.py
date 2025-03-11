@@ -896,6 +896,7 @@ class OnPolicyWorkspace:
                     feedback["segment_1"],
                     feedback["label"],
                     metadatum,
+                    feedback_iter=self.feedback_iter,
                 )
         else:
             for feedback in feedbacks:
@@ -903,6 +904,7 @@ class OnPolicyWorkspace:
                     feedback["segment_0"],
                     feedback["segment_1"],
                     feedback["label"],
+                    feedback_iter=self.feedback_iter,
                 )
         self._total_feedback += len(feedbacks)
         self._feedback_iter += 1
@@ -1440,6 +1442,7 @@ class OnPolicyWorkspace:
             "_main_loop_iterations",
             "_global_env_episode",
             "_total_feedback",
+            "_feedback_iter",
         ]
         payload = {k: self.__dict__[k] for k in keys_to_save}
         payload["reward_model"] = self.reward_model.state_dict()

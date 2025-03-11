@@ -329,7 +329,9 @@ class FeedbackReplayBuffer(ReplayBuffer):
 
         return storage_elements, obs_elements
 
-    def add_feedback(self, segment_0, segment_1, label, metadata=None, **kwargs):
+    def add_feedback(
+        self, segment_0, segment_1, label, metadata=None, feedback_iter=0, **kwargs
+    ):
         self._try_fetch()
         """Adds a pair of segments to the replay memory."""
         transition = {}
@@ -365,7 +367,7 @@ class FeedbackReplayBuffer(ReplayBuffer):
         for k, v in self._current_episode.items():
             episode[k] = np.array(v, self._storage_signature[k].type)
         self._current_episode = defaultdict(list)
-        self._store_episode(episode, metadata)
+        self._store_episode(episode, metadata, feedback_iter)
 
     @override
     def add(
@@ -383,7 +385,7 @@ class FeedbackReplayBuffer(ReplayBuffer):
     def add_final(self, final_observation: dict):
         raise NotImplementedError
 
-    def _store_episode(self, episode, metadata=None):
+    def _store_episode(self, episode, metadata=None, feedback_iter=0):
         # if self._sequential:
         #     # If sequential, convert the episode layout
         #     episode = self.convert_episode_layout(episode)
@@ -394,7 +396,7 @@ class FeedbackReplayBuffer(ReplayBuffer):
         self._num_episodes += 1
         self._num_transitions += eps_len
         ts = datetime.now().strftime("%Y%m%dT%H%M%S")
-        eps_fn = f"{ts}_{eps_idx}_{eps_len}_{global_idx}.npz"
+        eps_fn = f"{ts}_{feedback_iter}_{eps_idx}_{eps_len}_{global_idx}.npz"
         save_episode(episode, self._replay_dir / eps_fn)
 
         if self._is_first:
