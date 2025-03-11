@@ -10,9 +10,9 @@ action_repeat: 1
 num_train_envs: 32
 num_eval_episodes: 2
 log_every: 1
-eval_every_steps: 100
+eval_every_steps: 30
 save_snapshot: true
-snapshot_every_n: 100
+snapshot_every_n: 30
 num_train_frames: 10001000
 
 method:
