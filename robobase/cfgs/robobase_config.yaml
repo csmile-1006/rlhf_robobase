@@ -81,8 +81,8 @@ rlhf:
   initialize_agent_per_session: false
   gemini:
     model_type: gemini-1.5-pro
-    temperature: 0.0
-    top_p: 1.0
+    temperature: 0.5
+    top_p: 0.0
     top_k: 1
     max_output_tokens: 2048
     target_viewpoints: [left_wrist, head]
