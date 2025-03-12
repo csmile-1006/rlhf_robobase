@@ -405,9 +405,7 @@ class FeedbackReplayBuffer(ReplayBuffer):
             # This means that all workers have some data to start.
             self._is_first = False
             for worker_id in range(1, self._num_workers):
-                eps_fn = (
-                    f"{ts}.{worker_id}_{eps_idx+worker_id}_{eps_len}_{global_idx}.npz"
-                )
+                eps_fn = f"{ts}.{worker_id}_{feedback_iter}_{eps_idx+worker_id}_{eps_len}_{global_idx}.npz"
                 save_episode(episode, self._replay_dir / eps_fn)
 
         if metadata is not None:

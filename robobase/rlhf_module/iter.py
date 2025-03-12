@@ -644,8 +644,6 @@ async def collect_gemini_locomotion_preferences_v2(
             **{f"video2_{k}": v.display_name for k, v in video2.items()},
         }
 
-        print("meta: ", meta)
-        print("pref_dict: ", pref_dict)
         feedbacks.append(pref_dict)
         metadata.append(meta)
 
