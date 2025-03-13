@@ -12,6 +12,7 @@ Reason: <Reason for the choice>
 Please follow the instructions below:
 - Please explain detailed and specific reasons as possible.
 - Do not include any unnecessary information in your response.
+- Strictly follow the format above, as slight change in the format will result in the failure of the evaluation.
 """
 
 zeroshot_manipulation_pairwise_comparison_prompt_header = """
